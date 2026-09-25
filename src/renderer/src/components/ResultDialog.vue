@@ -12,8 +12,12 @@ const close = () => (state.result = null)
       <li v-for="(s, i) in state.result.steps" :key="i" :class="{ bad: !s.ok }">
         <Icon :name="s.ok ? 'check' : 'x'" :size="15" class="ic" />
         <div>
-          <div>{{ s.label }}</div>
-          <pre v-if="s.detail" class="detail">{{ s.detail }}</pre>
+          <div class="label">{{ s.label }}</div>
+          <p v-if="s.detail" class="detail" :class="{ mono: s.ok && !s.tech && /\n/.test(s.detail) }">{{ s.detail }}</p>
+          <details v-if="s.tech" class="tech">
+            <summary>Detalhes técnicos</summary>
+            <pre>{{ s.tech }}</pre>
+          </details>
         </div>
       </li>
     </ul>
@@ -34,9 +38,18 @@ const close = () => (state.result = null)
 li { display: flex; gap: 10px; align-items: flex-start; }
 .ic { color: var(--add); margin-top: 2px; }
 li.bad .ic { color: var(--del); }
+.label { font-weight: 600; }
 .detail {
-  margin: 4px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--text);
   white-space: pre-wrap; word-break: break-word; user-select: text; max-height: 200px; overflow: auto;
+}
+li:not(.bad) .detail { color: var(--muted); font-size: 12.5px; }
+.detail.mono { font-family: var(--mono); font-size: 11.5px; }
+.tech { margin-top: 8px; }
+.tech summary { cursor: pointer; font-size: 11.5px; color: var(--faint); user-select: none; }
+.tech pre {
+  margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--panel-2); font-family: var(--mono); font-size: 11px;
+  color: var(--muted); white-space: pre-wrap; word-break: break-word; user-select: text; max-height: 160px; overflow: auto;
 }
 .err { color: var(--del); margin: 0; white-space: pre-wrap; user-select: text; }
 </style>

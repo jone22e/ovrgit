@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { OvseerTask } from '@shared/types'
-import { agentForTask, loadTasks, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
+import { agentByTask, agentName, loadTasks, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
 import Icon from './Icon.vue'
 
 /** Mesmas etapas, textos e cores da tela de tarefas do Ovseer. */
@@ -66,12 +66,6 @@ const initials = (name: string) =>
   <aside class="tasks">
     <header>
       <strong>Tarefas</strong>
-      <span
-        v-if="ovseerReady"
-        class="live"
-        :class="{ on: state.ovseerLive }"
-        :title="state.ovseerLive ? 'Atualizando em tempo real' : 'Sem conexão em tempo real (tentando reconectar)'"
-      />
       <span v-if="ovseerWorkspace" class="faint ws ellipsis">{{ ovseerWorkspace.name }}</span>
       <span class="spacer" />
       <button v-if="ovseerReady" class="ghost icon small" title="Nova tarefa" @click="openNewTask"><Icon name="plus" :size="15" /></button>
@@ -120,10 +114,15 @@ const initials = (name: string) =>
                 <Icon v-if="state.commitTaskId === t.id" name="commit" :size="14" class="using" />
               </div>
               <div class="c-title">{{ t.title }}</div>
-              <div v-if="agentForTask(t.key)" class="agent" :class="{ on: agentForTask(t.key)!.running }" :title="agentForTask(t.key)!.lastMessage ?? agentForTask(t.key)!.title">
-                <span v-if="agentForTask(t.key)!.running" class="apulse" />
+              <div
+                v-if="agentByTask.get(t.id)"
+                class="agent"
+                :class="{ on: agentByTask.get(t.id)!.running }"
+                :title="`${agentByTask.get(t.id)!.title}${agentByTask.get(t.id)!.lastMessage ? `\n\n${agentByTask.get(t.id)!.lastMessage}` : ''}`"
+              >
+                <span v-if="agentByTask.get(t.id)!.running" class="apulse" />
                 <Icon v-else name="check" :size="11" />
-                {{ agentForTask(t.key)!.running ? 'Codex trabalhando…' : 'Codex terminou' }}
+                <span class="ellipsis">{{ agentName(agentByTask.get(t.id)!) }} {{ agentByTask.get(t.id)!.running ? 'trabalhando' : 'terminou' }} · {{ agentByTask.get(t.id)!.title }}</span>
               </div>
               <div class="c-foot">
                 <template v-if="ownerOf(t)">
@@ -153,8 +152,6 @@ const initials = (name: string) =>
 header { display: flex; align-items: center; gap: 6px; height: var(--pane-header); padding: 0 6px 0 14px; border-bottom: 1px solid var(--border); flex: none; box-sizing: border-box; }
 header strong { font-size: 13px; }
 .ws { font-size: 12px; min-width: 0; }
-.live { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
-.live.on { background: var(--add); box-shadow: 0 0 0 3px var(--add-bg); }
 .spacer { flex: 1; }
 .icon.small { width: 28px; height: 28px; }
 .empty { padding: 24px 16px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
@@ -186,9 +183,9 @@ h4 { margin: 0; font-size: 13.5px; font-weight: 800; line-height: 1.35; }
 .key { font-size: 11px; font-weight: 700; color: var(--accent); flex: none; }
 .using { color: var(--accent); margin-left: auto; }
 .c-title { font-size: 14px; font-weight: 800; line-height: 1.3; }
-.agent { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--add-bg); color: var(--add); }
+.agent { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; max-width: 100%; min-width: 0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--add-bg); color: var(--add); }
 .agent.on { background: var(--accent-soft); color: var(--accent); }
-.apulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: ap 1.4s ease-in-out infinite; }
+.apulse { width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; animation: ap 1.4s ease-in-out infinite; }
 @keyframes ap { 50% { opacity: 0.3; } }
 .c-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .av { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; }

@@ -255,8 +255,8 @@ async function save() {
     <label class="agents-opt">
       <input type="checkbox" :checked="state.settings?.watchAgents !== false" @change="toggleAgents(($event.target as HTMLInputElement).checked)" />
       <span>
-        <strong>Acompanhar tarefas do ChatGPT (Codex)</strong>
-        <small class="faint">Mostra quando o agente está trabalhando e avisa quando termina. Lê os registros locais do Codex; nada sai do computador.</small>
+        <strong>Acompanhar agentes de IA (ChatGPT e Claude)</strong>
+        <small class="faint">Mostra quando o agente está trabalhando e avisa quando termina. Lê os registros que o app do ChatGPT (Codex) e o Claude gravam no computador; nada sai daqui.</small>
       </span>
     </label>
 

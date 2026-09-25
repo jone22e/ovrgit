@@ -75,7 +75,7 @@ export const state = reactive({
   showCleanup: false,
   showClone: false,
   showSshImport: false,
-  /** Tarefas de agentes externos (Codex do app do ChatGPT) */
+  /** Tarefas de agentes externos (ChatGPT/Codex e Claude) */
   agents: [] as AgentSession[],
   /** Pull Request da linha atual */
   pr: null as PullRequestInfo | null,
@@ -621,7 +621,12 @@ export async function push() {
   await guard('push', async () => {
     const r = await api.push()
     await afterOperation('Enviar', r, true)
-    if (r.ok) toast(r.steps.at(-1)?.label ?? 'Enviado.')
+    if (r.ok)
+      toast(
+        r.steps.some((s) => s.label.startsWith('O servidor tinha versões novas'))
+          ? 'O servidor tinha versões novas: baixamos, juntamos às suas e enviamos tudo.'
+          : (r.steps.at(-1)?.label ?? 'Enviado.')
+      )
   })
 }
 
@@ -786,7 +791,7 @@ function listenAgents() {
   api.onAgents((l) => (state.agents = l))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
-    const title = `Codex terminou${where ? ` em ${where}` : ''}`
+    const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`
     const body = s.title || s.lastMessage?.slice(0, 120) || 'Tarefa concluída'
     toast(`${title}: ${body}`)
     if (!document.hasFocus() && 'Notification' in window) {
@@ -806,13 +811,50 @@ export function isInside(dir: string, root: string) {
   return norm(dir) === norm(root) || norm(dir).startsWith(norm(root) + '/')
 }
 
-/** Agente trabalhando (ou que terminou) numa tarefa: pela linha (road-20) ou pelo código no título. */
-export function agentForTask(key: string): AgentSession | null {
-  const k = key.toLowerCase()
-  const re = new RegExp(`(^|[^a-z0-9])${k.replace(/[^a-z0-9-]/g, '')}($|[^0-9])`)
+export const agentName = (a: AgentSession) => (a.source === 'claude' ? 'Claude' : 'ChatGPT')
+
+/** Tarefa ligada a uma conversa de agente: a escolhida pelo usuário, ou a que tem o código citado na linha/pedido. */
+export function taskOfAgent(a: AgentSession): OvseerTask | null {
+  const linked = state.settings?.agentLinks?.[a.id]
+  if (linked) return state.tasks.find((t) => t.id === linked) ?? null
+  const text = `${a.branch ?? ''} ${a.title} ${a.request ?? ''}`.toLowerCase()
   return (
-    state.agents.find((a) => (a.branch && re.test(a.branch.toLowerCase())) || re.test(a.title.toLowerCase())) ?? null
+    state.tasks.find((t) => {
+      const k = t.key.toLowerCase().replace(/[^a-z0-9-]/g, '')
+      return k && new RegExp(`(^|[^a-z0-9])${k}($|[^0-9])`).test(text)
+    }) ?? null
   )
+}
+
+/** Conversa de agente mais relevante de cada tarefa (a que está trabalhando ganha da que terminou). */
+export const agentByTask = computed(() => {
+  const map = new Map<string, AgentSession>()
+  for (const a of state.agents) {
+    const t = taskOfAgent(a)
+    if (!t) continue
+    const cur = map.get(t.id)
+    if (!cur || (a.running && !cur.running)) map.set(t.id, a)
+  }
+  return map
+})
+
+export async function linkAgent(agentId: string, taskId: string | null) {
+  const links = { ...(state.settings?.agentLinks ?? {}) }
+  if (taskId) links[agentId] = taskId
+  else delete links[agentId]
+  // guarda só as ligações mais recentes
+  const trimmed = Object.fromEntries(Object.entries(links).slice(-200))
+  await saveSettings({ agentLinks: trimmed })
+}
+
+const WORD = (s: string) =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z0-9]{4,}/g) ?? []
+/** Tarefas ordenadas pela semelhança com a conversa (palavras em comum no título e no pedido). */
+export function suggestTasks(a: AgentSession): { task: OvseerTask; score: number }[] {
+  const words = new Set(WORD(`${a.title} ${a.request ?? ''} ${a.branch ?? ''}`).map((w) => w.slice(0, 6)))
+  return state.tasks
+    .map((task) => ({ task, score: WORD(task.title).filter((w) => words.has(w.slice(0, 6))).length }))
+    .sort((x, y) => y.score - x.score || Number(y.task.section === 'execution') - Number(x.task.section === 'execution'))
 }
 
 export function openTaskDetail(id: string) {

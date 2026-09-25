@@ -13,6 +13,7 @@ const DEFAULTS: Settings = {
   terminalFontWeight: 500,
   sshConnections: [],
   watchAgents: true,
+  agentLinks: {},
   snippets: [],
   provider: 'claude',
   ollamaUrl: 'http://127.0.0.1:11434',

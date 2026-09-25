@@ -6,6 +6,7 @@ import type { AgentSession } from '../src/shared/types'
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-codex-'))
 process.env.OVRGIT_CODEX_DIR = root
+process.env.OVRGIT_CLAUDE_DIR = path.join(root, 'sem-claude')
 const { startAgentWatch, stopAgentWatch, listAgents } = await import('../src/main/agentWatch')
 afterAll(() => {
   stopAgentWatch()
@@ -45,4 +46,44 @@ describe('acompanhar tarefas do Codex', () => {
     expect(list[0]).toMatchObject({ running: false, durationMs: 263000, lastMessage: 'Pronto: 2 arquivos alterados.' })
     expect(finished.map((f) => f.title)).toEqual(['Atualização explícita da comissão do indicador na venda'])
   }, 20000)
+})
+
+describe('títulos e mensagens do Codex', () => {
+  it('tira o que o app injeta e o markdown', async () => {
+    const { cleanRequest, plainText } = await import('../src/main/agentWatch')
+    const req = '\n# Files mentioned by the user:\n\n## codex-clipboard-1.png: /tmp/x.png\n\nDistinguish instructions.\n\n## My request:\npor que esse item nao calcula imposto?\n <image name=[Image #1] path="/tmp/x.png">  </image>'
+    expect(cleanRequest(req)).toBe('por que esse item nao calcula imposto?')
+    expect(cleanRequest('# Files mentioned by the user:\n\n## a.png: /x')).toBe('')
+    expect(plainText('Implementado.\n- A venda usa **5%** em [`x.ts`](/a/x.ts).')).toBe('Implementado. A venda usa 5% em x.ts.')
+  })
+})
+
+describe('Claude (app e Claude Code)', () => {
+  it('acompanha a vez: pedido → trabalhando → end_turn → terminou', async () => {
+    const croot = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-claude-'))
+    process.env.OVRGIT_CLAUDE_DIR = croot
+    const proj = path.join(croot, '-Users-x-loja')
+    mkdirSync(proj)
+    const file = path.join(proj, 'abc.jsonl')
+    const L = (o: object) => JSON.stringify(o) + '\n'
+    const base = { cwd: '/Users/x/loja', gitBranch: 'feature/road-7-frete', sessionId: 'abc' }
+    writeFileSync(file, L({ type: 'custom-title', customTitle: 'Calcular frete grátis', sessionId: 'abc' }))
+    stopAgentWatch()
+    const finished: AgentSession[] = []
+    startAgentWatch({ onUpdate: () => {}, onFinished: (s) => finished.push(s) })
+    const t0 = Date.now()
+    appendFileSync(file, L({ ...base, type: 'user', timestamp: new Date(t0).toISOString(), message: { role: 'user', content: 'frete grátis acima de 200' } }))
+    appendFileSync(file, L({ ...base, type: 'assistant', timestamp: new Date(t0 + 1000).toISOString(), message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash' }] } }))
+    appendFileSync(file, L({ ...base, type: 'user', timestamp: new Date(t0 + 2000).toISOString(), message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } }))
+    await new Promise((r) => setTimeout(r, 5600))
+    let a = listAgents().find((x) => x.source === 'claude')!
+    expect(a).toMatchObject({ running: true, title: 'Calcular frete grátis', branch: 'feature/road-7-frete', cwd: '/Users/x/loja' })
+    appendFileSync(file, L({ ...base, type: 'assistant', timestamp: new Date(t0 + 90_000).toISOString(), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Pronto: **frete grátis** ativo.' }] } }))
+    await new Promise((r) => setTimeout(r, 5600))
+    a = listAgents().find((x) => x.source === 'claude')!
+    expect(a).toMatchObject({ running: false, durationMs: 90_000, lastMessage: 'Pronto: frete grátis ativo.' })
+    expect(finished.filter((f) => f.source === 'claude')).toHaveLength(1)
+    stopAgentWatch()
+    rmSync(croot, { recursive: true, force: true })
+  }, 20_000)
 })

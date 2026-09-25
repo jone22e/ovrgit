@@ -1,5 +1,6 @@
 import type { BranchInfo, CleanupCandidate, OperationResult, StepResult } from '../shared/types'
 import { currentOperation, git, refExists, run, status } from './git'
+import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 /**
  * Linhas de trabalho (branches), em linguagem simples:
@@ -12,8 +13,12 @@ const MAIN_NAMES = ['main', 'master', 'develop', 'dev']
 const SEP = '\x1f'
 
 function fail(steps: StepResult[], e: unknown, label?: string): OperationResult {
-  const error = e instanceof Error ? e.message : String(e)
-  if (label) steps.push({ label, ok: false, detail: error })
+  const raw = e instanceof Error ? e.message : String(e)
+  // erro do Git em frase simples; o texto original fica em "Detalhes técnicos"
+  const friendly = friendlyGitError(raw)
+  const detail = friendly ?? firstLine(raw)
+  if (label) steps.push({ label, ok: false, detail, tech: raw.trim() !== detail ? raw.trim() : undefined })
+  const error = friendly ?? raw
   return { ok: false, steps, error }
 }
 

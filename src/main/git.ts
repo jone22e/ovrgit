@@ -5,6 +5,7 @@ import type {
   CommitInfo, CreatedCommit, FeaturePreview, FileChange, OperationResult, RepoOperation, RepoStatus, StepResult
 } from '../shared/types'
 import { commitWebUrl, LOG_FORMAT, parseLog, parseStatus, pullRequestUrl, repoWebUrl, slugify } from '../shared/parse'
+import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 export class GitError extends Error {
   constructor(
@@ -335,8 +336,12 @@ export async function commitGroups(
 }
 
 function fail(steps: StepResult[], e: unknown, label?: string): OperationResult {
-  const error = e instanceof Error ? e.message : String(e)
-  if (label) steps.push({ label, ok: false, detail: error })
+  const raw = e instanceof Error ? e.message : String(e)
+  // erro do Git em frase simples; o texto original fica em "Detalhes técnicos"
+  const friendly = friendlyGitError(raw)
+  const detail = friendly ?? firstLine(raw)
+  if (label) steps.push({ label, ok: false, detail, tech: raw.trim() !== detail ? raw.trim() : undefined })
+  const error = friendly ?? raw
   return { ok: false, steps, error }
 }
 
@@ -412,7 +417,22 @@ export async function push(root: string): Promise<OperationResult> {
   if (!st.hasCommits) return fail(steps, new Error('Faça um commit antes de Enviar.'))
   try {
     if (st.published) {
-      await git(root, ['push'])
+      const first = await run(root, ['push'])
+      if (first.code !== 0 && /non-fast-forward|\(fetch first\)|rejected/i.test(first.stderr + first.stdout)) {
+        // o servidor tem versões mais novas: baixa (juntando com as suas) e tenta de novo, sem assustar ninguém
+        const pulled = await pull(root, true)
+        if (!pulled.ok) {
+          return {
+            ...pulled,
+            steps: [{ label: 'O servidor tinha versões novas: baixando antes de enviar', ok: true }, ...pulled.steps],
+            error: pulled.error ?? 'Não deu para baixar as versões novas do servidor.'
+          }
+        }
+        steps.push({ label: 'O servidor tinha versões novas', ok: true, detail: 'Foram baixadas e juntadas às suas.' })
+        await git(root, ['push'])
+      } else if (first.code !== 0) {
+        throw new Error(first.stderr || first.stdout || 'git push falhou')
+      }
       steps.push({ label: `Enviado para ${st.upstream}`, ok: true })
     } else {
       if (!st.hasRemote) throw new Error('O repositório não tem remote "origin". Use "Publicar".')

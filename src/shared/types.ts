@@ -113,7 +113,7 @@ export interface RemoteRepo {
 /** Tarefa de um agente externo (Codex do app do ChatGPT) acompanhada pelos registros locais */
 export interface AgentSession {
   id: string
-  source: 'codex'
+  source: 'codex' | 'claude'
   title: string
   cwd: string
   branch: string | null
@@ -125,6 +125,8 @@ export interface AgentSession {
   durationMs: number | null
   lastMessage: string | null
   updatedAt: number
+  /** Primeiro pedido do usuário (limpo), usado para achar o código da tarefa (ex.: ROAD-21) */
+  request?: string
 }
 
 /** Alterações guardadas (stash): Lixeira do app, guardadas antes de baixar, etc. */
@@ -219,6 +221,8 @@ export interface Settings {
   sshConnections: SshConnection[]
   /** Acompanhar tarefas do Codex (app do ChatGPT) pelos registros locais */
   watchAgents: boolean
+  /** Conversa do ChatGPT (Codex) → tarefa do Ovseer, ligadas pelo usuário */
+  agentLinks: Record<string, string>
   snippets: Snippet[]
   provider: AiProvider
   ollamaUrl: string
@@ -236,6 +240,8 @@ export interface StepResult {
   label: string
   ok: boolean
   detail?: string
+  /** Mensagem original do Git, mostrada só em "Detalhes técnicos" */
+  tech?: string
 }
 
 export interface CreatedCommit {

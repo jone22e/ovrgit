@@ -1,5 +1,6 @@
 import type { OperationResult, SavedChanges, StepResult } from '../shared/types'
 import { currentOperation, git, localCommits, refExists, run, status } from './git'
+import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 /**
  * Operações de "voltar atrás", pensadas para quem não conhece Git:
@@ -11,8 +12,12 @@ const TRASH_PREFIX = 'ovrgit-lixeira:'
 const PULL_PREFIX = 'ovrgit: stash antes do pull'
 
 function fail(steps: StepResult[], e: unknown, label?: string): OperationResult {
-  const error = e instanceof Error ? e.message : String(e)
-  if (label) steps.push({ label, ok: false, detail: error })
+  const raw = e instanceof Error ? e.message : String(e)
+  // erro do Git em frase simples; o texto original fica em "Detalhes técnicos"
+  const friendly = friendlyGitError(raw)
+  const detail = friendly ?? firstLine(raw)
+  if (label) steps.push({ label, ok: false, detail, tech: raw.trim() !== detail ? raw.trim() : undefined })
+  const error = friendly ?? raw
   return { ok: false, steps, error }
 }
 
