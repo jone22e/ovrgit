@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import logo from '../assets/logo.png'
-import { refresh, setShowDiff, setShowTerminal, state } from '../store'
+import { myDoingCount, openNewTask, refresh, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
 
@@ -13,6 +13,20 @@ defineEmits<{ settings: [] }>()
 <template>
   <header class="topbar">
     <img :src="logo" class="logo" alt="OvrGit" title="OvrGit" />
+    <span class="task-btns">
+      <button
+        class="ghost icon"
+        :class="{ on: state.showTasks }"
+        :title="state.showTasks ? 'Fechar tarefas' : 'Tarefas do Ovseer'"
+        @click="setShowTasks(!state.showTasks)"
+      >
+        <Icon name="panelLeft" />
+        <span v-if="myDoingCount" class="badge-dot" :title="`${myDoingCount} tarefa(s) em execução`" />
+      </button>
+      <button class="ghost icon" title="Nova tarefa no Ovseer" @click="openNewTask">
+        <Icon name="squarePen" />
+      </button>
+    </span>
 
     <template v-if="state.repo">
       <ProjectSwitcher v-model:open="switcherOpen" />
@@ -79,12 +93,19 @@ defineEmits<{ settings: [] }>()
   -webkit-app-region: drag;
   flex: none;
 }
-:root[data-platform='darwin'] .topbar { padding-left: 80px; }
+:root[data-platform='darwin'] .topbar { padding-left: 94px; }
 :root[data-platform='win32'] .topbar,
 :root[data-platform='linux'] .topbar { padding-right: 146px; }
 .nodrag, button { -webkit-app-region: no-drag; }
 .logo { width: 24px; height: 24px; margin-right: 2px; }
 .spacer { flex: 1; min-width: 4px; }
+.task-btns { display: flex; gap: 2px; margin-right: 4px; -webkit-app-region: no-drag; }
+.task-btns button { position: relative; }
+.task-btns .on { color: var(--accent); background: var(--accent-soft); }
+.badge-dot {
+  position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--panel);
+}
 .layout { display: flex; gap: 2px; -webkit-app-region: no-drag; }
 .layout .on { color: var(--accent); background: var(--accent-soft); }
 .branch { min-width: 0; max-width: 240px; overflow: hidden; }

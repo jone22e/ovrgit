@@ -4,6 +4,13 @@ import path from 'node:path'
 import type { Settings } from '../shared/types'
 
 const DEFAULTS: Settings = {
+  theme: 'ovrgit',
+  ovseerUrl: 'https://ovseer.openflexi.com',
+  ovseerWorkspaceId: null,
+  branchPrefix: 'feature',
+  terminalFont: 'Source Code Pro',
+  terminalFontSize: 14,
+  terminalFontWeight: 500,
   provider: 'claude',
   ollamaUrl: 'http://127.0.0.1:11434',
   model: '',

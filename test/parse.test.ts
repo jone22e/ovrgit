@@ -116,3 +116,13 @@ describe('heuristicGroups — limite', () => {
     expect(groups.flatMap((g) => g.files)).toHaveLength(25)
   })
 })
+
+describe('links do repositório', () => {
+  it('monta a página e o link do commit', async () => {
+    const { repoWebUrl, commitWebUrl } = await import('../src/shared/parse')
+    expect(repoWebUrl('git@github.com:jone22e/ovrgit.git')).toBe('https://github.com/jone22e/ovrgit')
+    expect(commitWebUrl('https://github.com/jone22e/ovrgit.git', 'abc')).toBe('https://github.com/jone22e/ovrgit/commit/abc')
+    expect(commitWebUrl('git@gitlab.com:g/app.git', 'abc')).toBe('https://gitlab.com/g/app/-/commit/abc')
+    expect(repoWebUrl('/local/repo.git')).toBeNull()
+  })
+})

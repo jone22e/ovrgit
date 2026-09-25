@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type {
-  CommitInfo, FeaturePreview, FileChange, OperationResult, RepoOperation, RepoStatus, StepResult
+  CommitInfo, CreatedCommit, FeaturePreview, FileChange, OperationResult, RepoOperation, RepoStatus, StepResult
 } from '../shared/types'
-import { LOG_FORMAT, parseLog, parseStatus, pullRequestUrl, slugify } from '../shared/parse'
+import { commitWebUrl, LOG_FORMAT, parseLog, parseStatus, pullRequestUrl, repoWebUrl, slugify } from '../shared/parse'
 
 export class GitError extends Error {
   constructor(
@@ -119,7 +119,15 @@ export async function status(root: string): Promise<RepoStatus> {
   ])
   const s = parseStatus(out)
   const conflicts = s.files.filter((f) => f.kind === 'conflict').length
-  return { root, name: path.basename(root), hasRemote: rems.includes('origin'), operation, conflicts, ...s }
+  // upstream "gone": configurado, mas a branch não existe no remoto (ex.: repositório recém-criado e vazio)
+  const published = !!s.upstream && (await refExists(root, `refs/remotes/${s.upstream}`))
+  const unpublished =
+    !published && s.hasCommits
+      ? Number((await run(root, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])).stdout.trim()) || 0
+      : 0
+  return {
+    root, name: path.basename(root), hasRemote: rems.includes('origin'), operation, conflicts, published, unpublished, ...s
+  }
 }
 
 /** Detecta merge/rebase/cherry-pick/revert interrompidos (geralmente por conflito). */
@@ -292,8 +300,9 @@ export async function commit(root: string, files: string[], message: string): Pr
       ['commit', '-m', message.trim(), '--pathspec-from-file=-', '--pathspec-file-nul'],
       nulList(paths.commit)
     )
-    steps.push({ label: `Commit: ${message.split('\n')[0]}`, ok: true, detail: `${files.length} arquivo(s)` })
-    return { ok: true, steps }
+    const sha = (await git(root, ['rev-parse', 'HEAD'])).trim()
+    steps.push({ label: `Commit: ${message.split('\n')[0]}`, ok: true, detail: `${files.length} arquivo(s) · ${sha.slice(0, 7)}` })
+    return { ok: true, steps, commits: [{ sha, message: message.trim() }] }
   } catch (e) {
     return fail(steps, e)
   }
@@ -304,12 +313,14 @@ export async function commitGroups(
   groups: { files: string[]; message: string }[]
 ): Promise<OperationResult> {
   const steps: StepResult[] = []
+  const commits: CreatedCommit[] = []
   for (const g of groups) {
     const r = await commit(root, g.files, g.message)
     steps.push(...r.steps)
-    if (!r.ok) return { ok: false, steps, error: r.error }
+    commits.push(...(r.commits ?? []))
+    if (!r.ok) return { ok: false, steps, commits, error: r.error }
   }
-  return { ok: true, steps }
+  return { ok: true, steps, commits }
 }
 
 function fail(steps: StepResult[], e: unknown, label?: string): OperationResult {
@@ -322,7 +333,7 @@ export async function pull(root: string, allowStash: boolean): Promise<Operation
   const steps: StepResult[] = []
   const st = await status(root)
   if (!st.branch) return fail(steps, new Error('HEAD destacado: faça checkout de uma branch antes de Baixar.'))
-  if (!st.upstream) return fail(steps, new Error('A branch ainda não existe no remoto. Use Enviar primeiro.'))
+  if (!st.published) return fail(steps, new Error('A branch ainda não existe no remoto. Publique-a primeiro.'))
   const dirty = st.files.length > 0
   if (dirty && !allowStash) return { ok: false, steps, error: 'DIRTY' }
 
@@ -389,17 +400,57 @@ export async function push(root: string): Promise<OperationResult> {
   if (!st.branch) return fail(steps, new Error('HEAD destacado: faça checkout de uma branch antes de Enviar.'))
   if (!st.hasCommits) return fail(steps, new Error('Faça um commit antes de Enviar.'))
   try {
-    if (st.upstream) {
+    if (st.published) {
       await git(root, ['push'])
       steps.push({ label: `Enviado para ${st.upstream}`, ok: true })
     } else {
-      if (!st.hasRemote) throw new Error('O repositório não tem remote "origin".')
+      if (!st.hasRemote) throw new Error('O repositório não tem remote "origin". Use "Publicar".')
       await git(root, ['push', '-u', 'origin', st.branch])
-      steps.push({ label: `Enviado para origin/${st.branch} (branch criada no remoto)`, ok: true })
+      steps.push({ label: `Branch publicada: origin/${st.branch}`, ok: true })
     }
     return { ok: true, steps }
   } catch (e) {
     return fail(steps, e, 'Enviar')
+  }
+}
+
+/** Adiciona o remote "origin" com a URL informada e publica a branch atual. */
+export async function publishToUrl(root: string, url: string): Promise<OperationResult> {
+  const steps: StepResult[] = []
+  const clean = url.trim()
+  if (!/^(https?:\/\/|git@|ssh:\/\/)\S+$/.test(clean)) return fail(steps, new Error('Informe uma URL de repositório válida.'))
+  try {
+    const rems = await remotes(root)
+    if (rems.includes('origin')) await git(root, ['remote', 'set-url', 'origin', clean])
+    else await git(root, ['remote', 'add', 'origin', clean])
+    steps.push({ label: `Remote origin: ${clean}`, ok: true })
+  } catch (e) {
+    return fail(steps, e, 'Configurar remote')
+  }
+  const r = await push(root)
+  return { ...r, steps: [...steps, ...r.steps] }
+}
+
+/** Dados do repositório e dos commits para vincular no Ovseer. */
+export async function commitsForLink(root: string, shas: string[]) {
+  const st = await status(root)
+  const remoteUrl = st.hasRemote ? (await run(root, ['remote', 'get-url', 'origin'])).stdout.trim() : ''
+  const web = remoteUrl ? repoWebUrl(remoteUrl) : null
+  const dates = new Map<string, string>()
+  if (shas.length) {
+    const out = await git(root, ['show', '-s', '--format=%H%x1f%cI', ...shas])
+    for (const line of out.trim().split('\n')) {
+      const [sha, date] = line.split('\x1f')
+      dates.set(sha, date)
+    }
+  }
+  return {
+    repo: { name: web ? web.split('/').slice(-2).join('/') : path.basename(root), url: web },
+    branch: st.branch,
+    commit: (sha: string) => ({
+      url: remoteUrl ? commitWebUrl(remoteUrl, sha) : null,
+      committedAt: dates.get(sha) ?? new Date().toISOString()
+    })
   }
 }
 
@@ -455,11 +506,15 @@ function timestamp(): string {
  * --autostash, então alterações não commitadas nunca se perdem. Se o rebase parar em conflito, o push
  * fica pendente e é feito automaticamente ao concluir o rebase (ver continueOperation).
  */
-export async function createFeature(root: string, rawName: string): Promise<OperationResult> {
+export const BRANCH_PREFIXES = ['feature', 'fix', 'hotfix', 'chore', 'refactor', 'release']
+
+export async function createFeature(root: string, rawName: string, rawPrefix = 'feature'): Promise<OperationResult> {
   const steps: StepResult[] = []
   const slug = slugify(rawName)
-  if (!slug) return fail(steps, new Error('Informe um nome válido para a feature.'))
-  const feature = `feature/${slug}`
+  const prefix = rawPrefix.trim().toLowerCase().replace(/\/+$/, '')
+  if (!slug) return fail(steps, new Error('Informe um nome válido para a branch.'))
+  if (prefix && !/^[a-z0-9][a-z0-9._-]*$/.test(prefix)) return fail(steps, new Error(`Prefixo inválido: ${rawPrefix}`))
+  const feature = prefix ? `${prefix}/${slug}` : slug
 
   const st = await status(root)
   if (!st.branch) return fail(steps, new Error('HEAD destacado: faça checkout de uma branch primeiro.'))

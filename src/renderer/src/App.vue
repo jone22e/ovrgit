@@ -6,7 +6,11 @@ import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
 import HistoryView from './components/HistoryView.vue'
 import MergeBanner from './components/MergeBanner.vue'
+import DeliveryDialog from './components/DeliveryDialog.vue'
+import NewTaskDialog from './components/NewTaskDialog.vue'
 import PlanDialog from './components/PlanDialog.vue'
+import TasksPanel from './components/TasksPanel.vue'
+import PublishDialog from './components/PublishDialog.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import Icon from './components/Icon.vue'
 import PullDialog from './components/PullDialog.vue'
@@ -21,6 +25,7 @@ import {
 const showFeature = ref(false)
 const showPull = ref(false)
 const showSwitcher = ref(false)
+const showPublish = ref(false)
 
 async function doPull(stash = false) {
   showPull.value = false
@@ -83,7 +88,7 @@ onMounted(() => {
     else if (action === 'commit') commit()
     else if (action === 'feature') showFeature.value = true
     else if (action === 'pull') doPull()
-    else if (action === 'push') push()
+    else if (action === 'push') state.repo.hasRemote ? push() : (showPublish.value = true)
   })
 })
 onUnmounted(() => {
@@ -106,6 +111,8 @@ onUnmounted(() => {
 
     <template v-else>
       <MergeBanner />
+      <div class="body">
+      <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
           <aside :class="{ full: !state.showDiff }" :style="state.showDiff ? { width: `${leftWidth}px` } : undefined">
@@ -118,7 +125,8 @@ onUnmounted(() => {
         </main>
         <HistoryView v-else />
       </div>
-      <CommitBar @feature="showFeature = true" @pull="doPull()" />
+      </div>
+      <CommitBar @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
         <div v-show="state.showTerminal" class="term-resizer" @mousedown.prevent="startTermResize" />
@@ -130,6 +138,9 @@ onUnmounted(() => {
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
     <PlanDialog />
+    <NewTaskDialog v-if="state.showNewTask" @close="state.showNewTask = false" />
+    <DeliveryDialog v-if="state.deliveryTask" @close="state.deliveryTask = null" />
+    <PublishDialog v-if="showPublish" @close="showPublish = false" />
     <ResultDialog />
 
     <Transition name="toast">
@@ -140,7 +151,9 @@ onUnmounted(() => {
 
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.body { flex: 1; display: flex; min-height: 0; }
+.tasks-wrap { width: min(300px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
+.workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }
 .term-resizer { height: 5px; margin: -2px 0; cursor: row-resize; position: relative; z-index: 2; flex: none; }

@@ -1,12 +1,41 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { THEMES } from '@shared/themes'
+import { applyTheme } from '../theme'
 import type { AiProvider, ProviderStatus } from '@shared/types'
 import { api, saveSettings, state } from '../store'
 import AccountPanel from './AccountPanel.vue'
+import OvseerPanel from './OvseerPanel.vue'
 import Modal from './Modal.vue'
 
 const emit = defineEmits<{ close: [] }>()
 const s = state.settings!
+
+// terminal: salva e aplica na hora (sem depender do botão Salvar)
+const termSize = computed(() => state.settings?.terminalFontSize ?? 14)
+const termWeight = computed(() => state.settings?.terminalFontWeight ?? 500)
+const WEIGHTS = [
+  { value: 400, label: 'Normal' },
+  { value: 500, label: 'Médio' },
+  { value: 600, label: 'Semi-negrito' }
+]
+function setTerminalFont(name: string) {
+  saveSettings({ terminalFont: name.trim() || 'Source Code Pro' })
+}
+function setTerminalSize(n: number) {
+  saveSettings({ terminalFontSize: Math.min(Math.max(n, 9), 28) })
+}
+
+// tema: prévia ao vivo; se sair sem salvar, volta ao tema salvo
+const theme = ref(s.theme)
+let saved = false
+function pickTheme(id: string) {
+  theme.value = id
+  applyTheme(id)
+}
+onUnmounted(() => {
+  if (!saved) applyTheme(state.settings?.theme)
+})
 const provider = ref<AiProvider>(s.provider)
 // Apelidos seguem sempre o modelo mais novo; IDs exatos fixam a versão
 const CLAUDE_ALIASES = [
@@ -97,7 +126,9 @@ function available(id: AiProvider): boolean | null {
 }
 
 async function save() {
+  saved = true
   await saveSettings({
+    theme: theme.value,
     provider: provider.value,
     claudeModel: claudeResolved.value,
     codexModel: codexModel.value.trim(),
@@ -109,7 +140,41 @@ async function save() {
 </script>
 
 <template>
-  <Modal title="Configurações" :width="520" @close="emit('close')">
+  <Modal title="Configurações" :width="560" @close="emit('close')">
+    <div>
+      <div class="label">Tema</div>
+      <div class="themes">
+        <button
+          v-for="t in THEMES"
+          :key="t.id"
+          type="button"
+          class="theme"
+          :class="{ active: theme === t.id }"
+          :title="t.id === 'ovrgit' ? 'Segue o modo claro/escuro do sistema' : t.name"
+          @click="pickTheme(t.id)"
+        >
+          <span
+            v-if="t.colors"
+            class="swatch"
+            :style="{ background: t.colors.bg, borderColor: t.colors.border }"
+          >
+            <span class="bar" :style="{ background: t.colors.panel }">
+              <span class="pill" :style="{ background: t.colors.accent }" />
+            </span>
+            <span class="dots">
+              <i :style="{ background: t.colors.add }" /><i :style="{ background: t.colors.del }" />
+              <i :style="{ background: t.colors.mod }" /><i :style="{ background: t.colors.hunk }" />
+            </span>
+          </span>
+          <span v-else class="swatch system">
+            <span class="half light"><span class="pill" /></span>
+            <span class="half dark"><span class="pill" /></span>
+          </span>
+          <span class="theme-name">{{ t.name }}</span>
+        </button>
+      </div>
+    </div>
+
     <div>
       <div class="label">IA usada para agrupar e escrever commits</div>
       <div class="providers">
@@ -181,6 +246,57 @@ async function save() {
       <input v-else id="model" v-model="model" type="text" class="mono" placeholder="ex.: qwen2.5-coder:7b" spellcheck="false" />
     </div>
 
+    <div>
+      <div class="label">Terminal</div>
+      <div class="term-card">
+        <input
+          :value="state.settings?.terminalFont"
+          type="text"
+          placeholder="Source Code Pro"
+          spellcheck="false"
+          list="terminal-fonts"
+          @change="setTerminalFont(($event.target as HTMLInputElement).value)"
+        />
+        <datalist id="terminal-fonts">
+          <option value="Source Code Pro" />
+          <option value="Menlo" />
+          <option value="SF Mono" />
+          <option value="Consolas" />
+          <option value="Cascadia Mono" />
+          <option value="JetBrains Mono" />
+          <option value="Fira Code" />
+        </datalist>
+        <div class="size-row">
+          <span>Peso</span>
+          <span class="weights">
+            <button
+              v-for="w in WEIGHTS"
+              :key="w.value"
+              type="button"
+              :class="{ on: termWeight === w.value }"
+              :style="{ fontWeight: w.value }"
+              @click="saveSettings({ terminalFontWeight: w.value })"
+            >
+              {{ w.label }}
+            </button>
+          </span>
+        </div>
+        <div class="size-row">
+          <span>Tamanho do texto</span>
+          <span class="stepper">
+            <button type="button" class="icon" :disabled="termSize <= 9" @click="setTerminalSize(termSize - 1)">−</button>
+            <span class="val">{{ termSize }}</span>
+            <button type="button" class="icon" :disabled="termSize >= 28" @click="setTerminalSize(termSize + 1)">+</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="label">Tarefas</div>
+      <OvseerPanel />
+    </div>
+
     <template #footer>
       <button @click="emit('close')">Cancelar</button>
       <button class="primary" @click="save">Salvar</button>
@@ -190,6 +306,33 @@ async function save() {
 
 <style scoped>
 .label, label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.term-card { display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); }
+.size-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.weights { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.weights button { height: 28px; border: 0; background: transparent; padding: 0 10px; font-family: 'Source Code Pro', var(--mono); font-size: 12.5px; }
+.weights button.on { background: var(--accent-soft); color: var(--accent); }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper .icon { width: 32px; height: 32px; font-size: 16px; font-weight: 600; }
+.stepper .val { width: 44px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); font-variant-numeric: tabular-nums; }
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.theme {
+  height: auto; padding: 6px; flex-direction: column; align-items: stretch; gap: 6px; font-weight: 500; font-size: 12px;
+}
+.theme.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.swatch {
+  display: flex; flex-direction: column; justify-content: space-between; height: 46px; border-radius: 6px;
+  border: 1px solid; overflow: hidden;
+}
+.swatch .bar { height: 14px; display: flex; align-items: center; padding: 0 6px; }
+.swatch .pill { width: 22px; height: 5px; border-radius: 3px; }
+.swatch .dots { display: flex; gap: 4px; padding: 0 6px 7px; }
+.swatch .dots i { width: 7px; height: 7px; border-radius: 50%; }
+.swatch.system { flex-direction: row; border-color: var(--border); }
+.half { flex: 1; display: flex; align-items: flex-end; padding: 0 6px 8px; }
+.half.light { background: #f6f5f8; }
+.half.dark { background: #15131a; }
+.half .pill { background: #a974f8; }
+.theme-name { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .providers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .provider {
   height: auto; padding: 10px 12px; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;

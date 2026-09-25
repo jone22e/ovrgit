@@ -114,14 +114,36 @@ export function slugify(text: string): string {
     .slice(0, 60)
 }
 
-/** Monta a URL de "novo Pull Request" a partir da URL do remote. Retorna null para hosts desconhecidos. */
-export function pullRequestUrl(remoteUrl: string, branch: string, base: string): string | null {
+function parseRemote(remoteUrl: string): { host: string; repo: string } | null {
   const m =
     /^(?:[\w.-]+@)?([\w.-]+):(?!\/\/)(.+?)(?:\.git)?\/?$/.exec(remoteUrl) ?? // scp: git@host:owner/repo.git
     /^(?:https?|ssh|git):\/\/(?:[^@/]+@)?([\w.-]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/.exec(remoteUrl)
-  if (!m) return null
-  const host = m[1].toLowerCase()
-  const repo = m[2]
+  return m ? { host: m[1].toLowerCase(), repo: m[2] } : null
+}
+
+/** Página web do repositório (https://github.com/dono/repo) a partir da URL do remote. */
+export function repoWebUrl(remoteUrl: string): string | null {
+  const r = parseRemote(remoteUrl)
+  if (!r || !/github|gitlab|bitbucket/.test(r.host)) return null
+  return `https://${r.host}/${r.repo}`
+}
+
+/** Link do commit no GitHub/GitLab/Bitbucket. */
+export function commitWebUrl(remoteUrl: string, sha: string): string | null {
+  const r = parseRemote(remoteUrl)
+  const web = repoWebUrl(remoteUrl)
+  if (!r || !web) return null
+  if (r.host.includes('gitlab')) return `${web}/-/commit/${sha}`
+  if (r.host.includes('bitbucket')) return `${web}/commits/${sha}`
+  return `${web}/commit/${sha}`
+}
+
+/** Monta a URL de "novo Pull Request" a partir da URL do remote. Retorna null para hosts desconhecidos. */
+export function pullRequestUrl(remoteUrl: string, branch: string, base: string): string | null {
+  const r = parseRemote(remoteUrl)
+  if (!r) return null
+  const host = r.host
+  const repo = r.repo
   const b = encodeURIComponent(branch)
   const t = encodeURIComponent(base)
   if (host.includes('github')) return `https://${host}/${repo}/compare/${t}...${b}?expand=1`

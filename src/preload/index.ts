@@ -22,8 +22,11 @@ const api: OvrGitApi = {
   commitGroups: (groups) => ipcRenderer.invoke('git:commitGroups', groups),
   pull: (stash) => ipcRenderer.invoke('git:pull', stash),
   push: () => ipcRenderer.invoke('git:push'),
+  publishInfo: () => ipcRenderer.invoke('git:publishInfo'),
+  publishToUrl: (url) => ipcRenderer.invoke('git:publishUrl', url),
+  publishToGitHub: (name, isPrivate) => ipcRenderer.invoke('git:publishGitHub', name, isPrivate),
   featurePreview: () => ipcRenderer.invoke('git:featurePreview'),
-  createFeature: (name) => ipcRenderer.invoke('git:createFeature', name),
+  createFeature: (name, prefix) => ipcRenderer.invoke('git:createFeature', name, prefix),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
@@ -58,6 +61,30 @@ const api: OvrGitApi = {
     ipcRenderer.on('term:exit', h)
     return () => ipcRenderer.off('term:exit', h)
   },
+  ovseerStatus: () => ipcRenderer.invoke('ovseer:status'),
+  ovseerLogin: () => ipcRenderer.invoke('ovseer:login'),
+  ovseerCancelLogin: () => ipcRenderer.invoke('ovseer:cancelLogin'),
+  ovseerLogout: () => ipcRenderer.invoke('ovseer:logout'),
+  ovseerTasks: (workspaceId) => ipcRenderer.invoke('ovseer:tasks', workspaceId),
+  ovseerLink: (workspaceId, links) => ipcRenderer.invoke('ovseer:link', workspaceId, links),
+  ovseerMembers: (workspaceId) => ipcRenderer.invoke('ovseer:members', workspaceId),
+  ovseerCreateTask: (input) => ipcRenderer.invoke('ovseer:createTask', input),
+  ovseerLive: (on) => ipcRenderer.invoke('ovseer:live', on),
+  ovseerDelivery: (taskId) => ipcRenderer.invoke('ovseer:delivery', taskId),
+  ovseerSubmitDelivery: (taskId, input) => ipcRenderer.invoke('ovseer:submitDelivery', taskId, input),
+  ovseerUpload: (taskId, file, purpose) => ipcRenderer.invoke('ovseer:upload', taskId, file, purpose),
+  requestMicrophone: () => ipcRenderer.invoke('media:microphone'),
+  onOvseerChange: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('ovseer:changed', h)
+    return () => ipcRenderer.off('ovseer:changed', h)
+  },
+  onOvseerLive: (cb) => {
+    const h = (_e: unknown, live: boolean) => cb(live)
+    ipcRenderer.on('ovseer:liveState', h)
+    return () => ipcRenderer.off('ovseer:liveState', h)
+  },
+  setWindowTheme: (background, symbols) => ipcRenderer.send('window:theme', background, symbols),
   platform: process.platform
 }
 

@@ -3,7 +3,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { alpha } from '@shared/themes'
 import { api, setShowTerminal, state } from '../store'
+import { currentTheme } from '../theme'
 import Icon from './Icon.vue'
 
 const host = ref<HTMLDivElement>()
@@ -16,12 +18,14 @@ const offs: (() => void)[] = []
 function themeFromCss() {
   const css = getComputedStyle(document.documentElement)
   const v = (name: string) => css.getPropertyValue(name).trim()
+  const accent = v('--accent')
   return {
     background: v('--panel'),
     foreground: v('--text'),
-    cursor: v('--accent'),
+    cursor: accent,
     cursorAccent: v('--panel'),
-    selectionBackground: 'rgba(169, 116, 248, 0.35)'
+    selectionBackground: /^#[0-9a-f]{6}$/i.test(accent) ? alpha(accent, 0.35) : 'rgba(127, 127, 127, 0.35)',
+    ...(currentTheme().ansi ?? {})
   }
 }
 
@@ -45,11 +49,36 @@ function refit() {
   if (id !== null) api.termResize(id, term.cols, term.rows)
 }
 
+const FALLBACK = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace'
+const fontFamily = () => {
+  const name = (state.settings?.terminalFont ?? '').trim().replace(/["']/g, '')
+  return name ? `"${name}", ${FALLBACK}` : FALLBACK
+}
+const fontSize = () => Math.min(Math.max(Number(state.settings?.terminalFontSize) || 14, 9), 28)
+const fontWeight = () => ([400, 500, 600].includes(Number(state.settings?.terminalFontWeight)) ? Number(state.settings?.terminalFontWeight) : 500)
+// negrito do terminal (ANSI bold) sempre um passo acima do peso normal
+const fontWeightBold = () => Math.min(fontWeight() + 200, 700)
+
+/** Garante a fonte carregada antes de medir as células (senão o xterm calcula com a fonte errada). */
+async function loadFont() {
+  try {
+    await Promise.all([
+      document.fonts.load(`${fontWeight()} ${fontSize()}px ${fontFamily()}`),
+      document.fonts.load(`${fontWeightBold()} ${fontSize()}px ${fontFamily()}`)
+    ])
+  } catch {
+    /* fonte do sistema inexistente: usa a reserva */
+  }
+}
+
 onMounted(async () => {
+  await loadFont()
   term = new Terminal({
-    fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace',
-    fontSize: 12.5,
-    lineHeight: 1.2,
+    fontFamily: fontFamily(),
+    fontSize: fontSize(),
+    fontWeight: fontWeight(),
+    fontWeightBold: fontWeightBold(),
+    lineHeight: 1.15,
     cursorBlink: true,
     allowProposedApi: false,
     scrollback: 5000,
@@ -79,10 +108,10 @@ onMounted(async () => {
   const ro = new ResizeObserver(() => refit())
   ro.observe(host.value!)
   offs.push(() => ro.disconnect())
-  const mq = window.matchMedia('(prefers-color-scheme: dark)')
-  const onScheme = () => term && (term.options.theme = themeFromCss())
-  mq.addEventListener('change', onScheme)
-  offs.push(() => mq.removeEventListener('change', onScheme))
+  // troca de tema (ou do claro/escuro do sistema no tema padrão)
+  const onTheme = () => term && (term.options.theme = themeFromCss())
+  window.addEventListener('ovrgit-theme', onTheme)
+  offs.push(() => window.removeEventListener('ovrgit-theme', onTheme))
   await start()
   term.focus()
 })
@@ -94,6 +123,20 @@ watch(
     if (root && prev && root !== prev) restart()
   }
 )
+// fonte/tamanho alterados nas Configurações: aplica na hora
+watch(
+  () => [state.settings?.terminalFont, state.settings?.terminalFontSize, state.settings?.terminalFontWeight],
+  async () => {
+    if (!term) return
+    await loadFont()
+    term.options.fontFamily = fontFamily()
+    term.options.fontSize = fontSize()
+    term.options.fontWeight = fontWeight()
+    term.options.fontWeightBold = fontWeightBold()
+    refit()
+  }
+)
+
 // foca ao reabrir o painel
 watch(
   () => state.showTerminal,
@@ -137,6 +180,8 @@ header {
 .spacer { flex: 1; }
 .icon.small { width: 26px; height: 24px; }
 .host { flex: 1; min-height: 0; padding: 6px 0 0 10px; user-select: text; }
+/* suavização nativa do sistema (como Terminal/iTerm): o "antialiased" do resto do app afina demais o texto no Mac */
+.host :deep(.xterm) { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 .host :deep(.xterm) { height: 100%; }
 .host :deep(.xterm-viewport) { background: transparent !important; }
 </style>

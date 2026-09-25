@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { commitPlan, outsidePlan, planGroups, state, togglePlanGroup, updateGroupCommit, useSingleCommit } from '../store'
+import {
+  commitPlan, outsidePlan, ovseerReady, planGroups, state, togglePlanGroup, updateGroupCommit, useSingleCommit
+} from '../store'
+import TaskPicker from './TaskPicker.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 
@@ -34,9 +37,6 @@ function fit(el: HTMLTextAreaElement) {
     <p v-if="state.planStale" class="stale">
       <Icon name="alert" :size="14" /> Os arquivos mudaram desde esta análise. Reanalise para um plano atualizado.
     </p>
-    <p class="muted intro">
-      Cada arquivo entra em um único commit. Revise as mensagens, desmarque o que quiser deixar para depois e confirme.
-    </p>
 
     <ol class="plan">
       <li v-for="(g, i) in state.groups" :key="g.id" :class="{ off: state.planExcluded.has(g.id) }">
@@ -51,6 +51,12 @@ function fit(el: HTMLTextAreaElement) {
           <strong class="title ellipsis">{{ g.title }}</strong>
           <span class="type">{{ g.type }}</span>
           <span class="spacer" />
+          <TaskPicker
+            v-if="ovseerReady"
+            :model-value="state.planTasks[g.id] ?? null"
+            compact
+            @update:model-value="state.planTasks[g.id] = $event"
+          />
           <button class="ghost small files-btn" @click="toggleFiles(g.id)">
             {{ g.files.length }} arquivo{{ g.files.length === 1 ? '' : 's' }}
             <Icon name="chevron" :size="12" class="chev" :class="{ open: open.has(g.id) }" />
@@ -92,7 +98,6 @@ function fit(el: HTMLTextAreaElement) {
 </template>
 
 <style scoped>
-.intro { margin: -4px 0 0; font-size: 12.5px; }
 .stale {
   display: flex; align-items: center; gap: 8px; margin: -4px 0 0; padding: 8px 10px; border-radius: 8px;
   background: color-mix(in srgb, var(--mod) 14%, transparent); color: var(--mod); font-size: 12.5px;

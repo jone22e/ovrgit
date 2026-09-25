@@ -1,6 +1,10 @@
 import { computed, reactive } from 'vue'
 import { heuristicGroups, slugify } from '@shared/parse'
-import type { Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, RepoStatus, Settings } from '@shared/types'
+import { applyTheme } from './theme'
+import type {
+  Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, OvseerNewTask, OvseerStatus, OvseerTask, RepoStatus,
+  Settings
+} from '@shared/types'
 
 const api = window.ovrgit
 
@@ -37,7 +41,21 @@ export const state = reactive({
   showSettings: false,
   showDiff: readPref('ovrgit.diff') === '1',
   showTerminal: readPref('ovrgit.terminal') === '1',
-  analyzeStartedAt: 0
+  analyzeStartedAt: 0,
+  /** Integração com o Ovseer */
+  ovseer: null as OvseerStatus | null,
+  tasks: [] as OvseerTask[],
+  tasksLoading: false,
+  tasksError: null as string | null,
+  /** Tarefa do commit único (fica selecionada entre commits, até o usuário trocar) */
+  commitTaskId: null as string | null,
+  /** Tarefa de cada commit do plano da IA */
+  planTasks: {} as Record<string, string | null>,
+  /** Painel de tarefas à esquerda, formulário de nova tarefa e canal em tempo real */
+  showTasks: readPref('ovrgit.tasks') === '1',
+  showNewTask: false,
+  deliveryTask: null as OvseerTask | null,
+  ovseerLive: false
 })
 
 function readPref(key: string): string | null {
@@ -64,6 +82,12 @@ export function setShowDiff(v: boolean) {
 export function setShowTerminal(v: boolean) {
   state.showTerminal = v
   writePref('ovrgit.terminal', v ? '1' : '0')
+}
+
+export function setShowTasks(v: boolean) {
+  state.showTasks = v
+  writePref('ovrgit.tasks', v ? '1' : '0')
+  if (v) loadTasks()
 }
 
 export function setViewMode(v: ViewMode) {
@@ -154,6 +178,9 @@ function cleanError(e: unknown): string {
 
 export async function init() {
   state.settings = await api.getSettings()
+  applyTheme(state.settings.theme)
+  listenOvseer()
+  refreshOvseer()
   if (state.settings.lastProject) {
     try {
       await openRepo(await api.loadProject(state.settings.lastProject))
@@ -274,6 +301,8 @@ export async function analyze(force = false) {
     }
     state.analysis = a
     state.groups = a.groups
+    // por padrão, todos os commits do plano vão para a tarefa já escolhida (se houver)
+    state.planTasks = Object.fromEntries(a.groups.map((g) => [g.id, state.commitTaskId]))
     state.planStale = false
     state.planExcluded = new Set()
     state.messageEdited = false
@@ -283,7 +312,10 @@ export async function analyze(force = false) {
 }
 
 export function openPlan() {
-  if (hasPlan.value) state.planOpen = true
+  if (!hasPlan.value) return
+  // commits do plano sem tarefa definida herdam a tarefa escolhida na barra (se houver)
+  for (const g of state.groups) if (!(g.id in state.planTasks)) state.planTasks[g.id] = state.commitTaskId
+  state.planOpen = true
 }
 
 export function togglePlanGroup(id: string) {
@@ -300,8 +332,10 @@ export async function commitPlan() {
   if (groups.some((g) => !g.message)) return toast('Todos os commits precisam de mensagem.')
   state.planOpen = false
   await guard('commit', async () => {
+    const taskIds = planGroups.value.map((g) => state.planTasks[g.id] ?? null)
     const r = await api.commitGroups(groups)
     state.messageEdited = false
+    await linkToTasks(r, (i) => taskIds[i] ?? null)
     await afterOperation(`${groups.length} commit${groups.length === 1 ? '' : 's'}`, r)
   })
 }
@@ -413,8 +447,9 @@ export async function commit() {
   await guard('commit', async () => {
     const r = await api.commit(files, state.message.trim())
     state.messageEdited = false
+    if (r.ok) await linkToTasks(r, () => state.commitTaskId)
     await afterOperation('Commit', r, true)
-    if (r.ok) toast('Commit criado.')
+    if (r.ok && !state.commitTaskId) toast('Commit criado.')
   })
 }
 
@@ -436,27 +471,37 @@ export async function push() {
   await guard('push', async () => {
     const r = await api.push()
     await afterOperation('Enviar', r, true)
-    if (r.ok) toast(r.steps[0]?.label ?? 'Enviado.')
+    if (r.ok) toast(r.steps.at(-1)?.label ?? 'Enviado.')
   })
+}
+
+export async function publishToUrl(url: string) {
+  await guard('push', async () => afterOperation('Publicar', await api.publishToUrl(url)))
+}
+
+export async function publishToGitHub(name: string, isPrivate: boolean) {
+  await guard('push', async () => afterOperation('Publicar no GitHub', await api.publishToGitHub(name, isPrivate)))
 }
 
 /**
  * Cria a feature. Com `commitPlanFirst`, antes cria os commits do plano da IA,
  * para a feature já nascer com o histórico organizado.
  */
-export async function createFeature(name: string, commitPlanFirst = false) {
+export async function createFeature(name: string, prefix: string, commitPlanFirst = false) {
   await guard('feature', async () => {
     const steps: OperationResult['steps'] = []
     if (commitPlanFirst) {
       const groups = planGroups.value.map((g) => ({ files: [...g.files], message: g.commit.trim() }))
       if (groups.length) {
+        const taskIds = planGroups.value.map((g) => state.planTasks[g.id] ?? null)
         const c = await api.commitGroups(groups)
+        await linkToTasks(c, (i) => taskIds[i] ?? null)
         steps.push(...c.steps)
         if (!c.ok) return afterOperation('Criar Feature', { ...c, steps })
         state.messageEdited = false
       }
     }
-    const r = await api.createFeature(name)
+    const r = await api.createFeature(name, prefix)
     await afterOperation('Criar Feature', { ...r, steps: [...steps, ...r.steps] })
   })
 }
@@ -507,6 +552,102 @@ export function loadProjectIcon(path: string) {
     .projectIcon(path)
     .then((icon) => projectIcons.set(path, icon))
     .catch(() => undefined)
+}
+
+/** Workspace do Ovseer em uso: o escolhido nas Configurações, ou o primeiro disponível. */
+export const ovseerWorkspace = computed(() => {
+  const list = state.ovseer?.workspaces ?? []
+  return list.find((w) => w.id === state.settings?.ovseerWorkspaceId) ?? list[0] ?? null
+})
+
+export const ovseerReady = computed(() => !!state.ovseer?.connected && !!ovseerWorkspace.value)
+
+export async function refreshOvseer() {
+  try {
+    state.ovseer = await api.ovseerStatus()
+  } catch {
+    state.ovseer = null
+  }
+  // canal em tempo real: aberto enquanto estiver conectado
+  api.ovseerLive(!!state.ovseer?.connected)
+  if (ovseerReady.value) loadTasks(true)
+  else state.tasks = []
+}
+
+let liveListening = false
+/** Escuta o canal do Ovseer: mudanças em tarefas atualizam a lista na hora. */
+function listenOvseer() {
+  if (liveListening) return
+  liveListening = true
+  api.onOvseerLive((live) => (state.ovseerLive = live))
+  api.onOvseerChange(async () => {
+    await loadTasks(true)
+    // token revogado no Ovseer: reflete na interface
+    if (state.tasksError && /Conecte/i.test(state.tasksError)) refreshOvseer()
+  })
+}
+
+/** Tarefas em execução atribuídas a mim (ponto no botão de tarefas). */
+export const myDoingCount = computed(() => state.tasks.filter((t) => t.status === 'doing' && t.assignedToMe).length)
+
+export function ovseerTaskUrl(key: string) {
+  return `${(state.ovseer?.url ?? state.settings?.ovseerUrl ?? '').replace(/\/+$/, '')}/roadmap?task=${encodeURIComponent(key)}`
+}
+
+export function openNewTask() {
+  if (!ovseerReady.value) {
+    toast('Conecte o Ovseer para criar tarefas.')
+    state.showSettings = true
+    return
+  }
+  state.showNewTask = true
+}
+
+export async function createTask(input: Omit<OvseerNewTask, 'workspaceId'>) {
+  const ws = ovseerWorkspace.value
+  if (!ws) throw new Error('Conecte o Ovseer primeiro.')
+  const created = await api.ovseerCreateTask({ ...input, workspaceId: ws.id })
+  await loadTasks(true)
+  return created
+}
+
+let tasksAt = 0
+export async function loadTasks(force = false) {
+  const ws = ovseerWorkspace.value
+  if (!state.ovseer?.connected || !ws) return
+  if (!force && Date.now() - tasksAt < 30_000 && state.tasks.length) return
+  state.tasksLoading = true
+  state.tasksError = null
+  try {
+    state.tasks = await api.ovseerTasks(ws.id)
+    tasksAt = Date.now()
+    // tarefa escolhida que deixou de estar ativa: desmarca
+    if (state.commitTaskId && !state.tasks.some((t) => t.id === state.commitTaskId)) state.commitTaskId = null
+  } catch (e) {
+    state.tasksError = cleanError(e)
+  } finally {
+    state.tasksLoading = false
+  }
+}
+
+/** Vincula commits recém-criados às tarefas (não bloqueia: se falhar, o commit continua feito). */
+async function linkToTasks(r: OperationResult, taskFor: (index: number) => string | null) {
+  const ws = ovseerWorkspace.value
+  if (!r.commits?.length || !ws || !state.ovseer?.connected) return
+  const links = r.commits
+    .map((c, i) => ({ taskId: taskFor(i), sha: c.sha, message: c.message }))
+    .filter((l): l is { taskId: string; sha: string; message: string } => !!l.taskId)
+  if (!links.length) return
+  try {
+    await api.ovseerLink(ws.id, links)
+    const keys = [...new Set(links.map((l) => state.tasks.find((t) => t.id === l.taskId)?.key ?? 'tarefa'))]
+    r.steps.push({ label: `Vinculado no Ovseer: ${keys.join(', ')}`, ok: true })
+    toast(`Commit vinculado a ${keys.join(', ')} no Ovseer.`)
+  } catch (e) {
+    const msg = cleanError(e)
+    r.steps.push({ label: 'Vincular no Ovseer', ok: false, detail: msg })
+    state.error = `Commit criado, mas não foi possível vincular no Ovseer: ${msg}`
+  }
 }
 
 export async function saveSettings(patch: Partial<Settings>) {

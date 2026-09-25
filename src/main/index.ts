@@ -1,11 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron'
+import {
+  app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, systemPreferences,
+  type MenuItemConstructorOptions
+} from 'electron'
+import { findTheme } from '../shared/themes'
 import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
-import type { Analysis, CliProvider, FileChange, Settings } from '../shared/types'
+import type { Analysis, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
+import { findPullRequest, publishInfo, publishToGitHub } from './github'
+import * as ovseer from './ovseer'
 import { createTerminal, killAllTerminals, killTerminal, resizeTerminal, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
 import { analysisHash, analyze, cancelAnalysis, commitMessage, detectProviders, listModels } from './ai'
@@ -59,6 +65,13 @@ async function openInEditor(dir: string): Promise<string> {
   return process.platform === 'darwin' ? 'Finder' : 'Explorer'
 }
 
+/** Cor de fundo inicial da janela (evita um flash de cor errada antes do tema carregar). */
+function initialBackground(): string {
+  const theme = findTheme(getSettings().theme)
+  if (theme.colors) return theme.colors.bg
+  return nativeTheme.shouldUseDarkColors ? '#15131a' : '#f6f5f8'
+}
+
 function createWindow() {
   const isMac = process.platform === 'darwin'
   win = new BrowserWindow({
@@ -69,7 +82,7 @@ function createWindow() {
     title: 'OvrGit',
     icon,
     show: false,
-    backgroundColor: '#15131a',
+    backgroundColor: initialBackground(),
     titleBarStyle: 'hidden',
     ...(isMac
       ? { trafficLightPosition: { x: 16, y: 16 } }
@@ -164,8 +177,15 @@ function registerIpc() {
   )
   ipcMain.handle('git:pull', (_e, stash: boolean) => exclusive(() => g.pull(requireRoot(), stash)))
   ipcMain.handle('git:push', () => exclusive(() => g.push(requireRoot())))
+  ipcMain.handle('git:publishInfo', () => publishInfo(requireRoot()))
+  ipcMain.handle('git:publishUrl', (_e, url: string) => exclusive(() => g.publishToUrl(requireRoot(), String(url))))
+  ipcMain.handle('git:publishGitHub', (_e, name: string, isPrivate: boolean) =>
+    exclusive(() => publishToGitHub(requireRoot(), String(name), !!isPrivate))
+  )
   ipcMain.handle('git:featurePreview', () => g.featurePreview(requireRoot()))
-  ipcMain.handle('git:createFeature', (_e, name: string) => exclusive(() => g.createFeature(requireRoot(), name)))
+  ipcMain.handle('git:createFeature', (_e, name: string, prefix?: string) =>
+    exclusive(() => g.createFeature(requireRoot(), String(name), typeof prefix === 'string' ? prefix : 'feature'))
+  )
   ipcMain.handle('ai:analyze', async (_e, force?: boolean) => {
     const r = requireRoot()
     const st = await g.status(r)
@@ -218,6 +238,77 @@ function registerIpc() {
   ipcMain.handle('auth:code', (_e, code: string) => sendCode(String(code)))
   ipcMain.handle('auth:cancel', () => cancelLogin())
   ipcMain.handle('auth:logout', (_e, p: CliProvider) => logout(provider(p)))
+  ipcMain.on('window:theme', (e, background: string, symbols: string) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w || !/^#[0-9a-f]{6}$/i.test(background)) return
+    w.setBackgroundColor(background)
+    if (process.platform !== 'darwin' && /^#[0-9a-f]{6}$/i.test(symbols))
+      w.setTitleBarOverlay({ color: '#00000000', symbolColor: symbols, height: 48 })
+  })
+  ipcMain.handle('ovseer:status', () => ovseer.status())
+  ipcMain.handle('ovseer:login', () => ovseer.login())
+  ipcMain.handle('ovseer:cancelLogin', () => ovseer.cancelLogin())
+  ipcMain.handle('ovseer:logout', () => {
+    ovseer.stopStream()
+    return ovseer.logout()
+  })
+  ipcMain.handle('ovseer:members', (_e, workspaceId: string) => ovseer.members(String(workspaceId)))
+  ipcMain.handle('ovseer:createTask', (_e, input: OvseerNewTask) => ovseer.createTask({
+    workspaceId: String(input?.workspaceId ?? ''),
+    title: String(input?.title ?? '').slice(0, 300),
+    plan: String(input?.plan ?? '').slice(0, 20000),
+    ownerId: String(input?.ownerId ?? ''),
+    priority: (['low', 'medium', 'high', 'urgent'] as const).includes(input?.priority) ? input.priority : 'medium',
+    dueDate: typeof input?.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.dueDate) ? input.dueDate : null
+  }))
+  ipcMain.handle(
+    'ovseer:upload',
+    (_e, taskId: string, file: { name: string; type: string; data: ArrayBuffer }, purpose?: string) =>
+      ovseer.uploadAttachment(
+        String(taskId),
+        { name: String(file?.name ?? 'arquivo').slice(0, 255), type: String(file?.type ?? ''), data: new Uint8Array(file.data) },
+        purpose === 'plan_audio' ? 'plan_audio' : undefined
+      )
+  )
+  ipcMain.handle('media:microphone', async () => {
+    if (process.platform !== 'darwin') return true
+    if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true
+    return systemPreferences.askForMediaAccess('microphone')
+  })
+  ipcMain.handle('ovseer:delivery', async (_e, taskId: string) => {
+    const [d, pr] = await Promise.all([
+      ovseer.delivery(String(taskId)),
+      root ? findPullRequest(root).catch(() => null) : Promise.resolve(null)
+    ])
+    return { commits: d.commits, pullRequestUrl: pr }
+  })
+  ipcMain.handle('ovseer:submitDelivery', (_e, taskId: string, input: OvseerDeliveryInput) =>
+    ovseer.submitDelivery(String(taskId), {
+      adherence: input?.adherence === 'changed' ? 'changed' : 'as_planned',
+      summary: typeof input?.summary === 'string' ? input.summary.slice(0, 20000) : undefined,
+      commitUrl: typeof input?.commitUrl === 'string' ? input.commitUrl : undefined,
+      commitEventId: typeof input?.commitEventId === 'string' ? input.commitEventId : undefined,
+      pullRequestUrl: typeof input?.pullRequestUrl === 'string' ? input.pullRequestUrl : undefined
+    })
+  )
+  ipcMain.handle('ovseer:live', (e, on: boolean) => {
+    if (!on) return ovseer.stopStream()
+    const send = (ch: string, ...args: unknown[]) => {
+      if (!e.sender.isDestroyed()) e.sender.send(ch, ...args)
+    }
+    ovseer.startStream({ onChange: () => send('ovseer:changed'), onLive: (live) => send('ovseer:liveState', live) })
+  })
+  ipcMain.handle('ovseer:tasks', (_e, workspaceId: string) => ovseer.tasks(String(workspaceId)))
+  ipcMain.handle('ovseer:link', async (_e, workspaceId: string, links: { taskId: string; sha: string; message: string }[]) => {
+    const r = requireRoot()
+    const info = await g.commitsForLink(r, links.map((l) => l.sha))
+    return ovseer.linkCommits({
+      workspaceId: String(workspaceId),
+      repo: info.repo,
+      branch: info.branch,
+      commits: links.map((l) => ({ taskId: String(l.taskId), sha: l.sha, message: l.message, ...info.commit(l.sha) }))
+    })
+  })
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => saveSettings(patch))
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
@@ -231,6 +322,11 @@ if (process.env.OVRGIT_USER_DATA) app.setPath('userData', process.env.OVRGIT_USE
 if (process.platform === 'win32') app.setAppUserModelId('com.c2s.ovrgit')
 
 app.whenReady().then(() => {
+  // só o próprio app pode pedir microfone (gravação de áudio das tarefas); o resto é negado
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    const own = wc.getURL().startsWith('file://') || wc.getURL().startsWith(process.env.ELECTRON_RENDERER_URL ?? '\0')
+    callback(own && (permission === 'media' || permission === 'clipboard-sanitized-write'))
+  })
   registerIpc()
   buildMenu()
   createWindow()
@@ -241,6 +337,8 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   cancelLogin()
+  ovseer.cancelLogin()
+  ovseer.stopStream()
   killAllTerminals()
 })
 

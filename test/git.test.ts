@@ -284,3 +284,67 @@ describe('git — criar feature sobre a main atual', () => {
     expect(sh(remote, 'rev-parse', 'feature/conflito')).toBe(sh(repo, 'rev-parse', 'HEAD'))
   })
 })
+
+describe('git — publicar', () => {
+  it('branch publicada normalmente', async () => {
+    const st = await g.status(repo)
+    expect(st).toMatchObject({ published: true, unpublished: 0 })
+  })
+
+  it('upstream configurado mas inexistente no remoto ("gone") conta como não publicada', async () => {
+    const empty = path.join(tmp, 'vazio.git')
+    sh(tmp, 'init', '-q', '--bare', '-b', 'main', empty)
+    sh(repo, 'remote', 'set-url', 'origin', empty)
+    sh(repo, 'fetch', '-q', '--prune', 'origin')
+    let st = await g.status(repo)
+    expect(st.upstream).toBe('origin/main')
+    expect(st).toMatchObject({ published: false, unpublished: 1 })
+
+    const r = await g.push(repo)
+    expect(r.ok, r.error).toBe(true)
+    expect(r.steps[0].label).toBe('Branch publicada: origin/main')
+    st = await g.status(repo)
+    expect(st).toMatchObject({ published: true, unpublished: 0 })
+  })
+
+  it('sem remote: valida a URL e publica depois de ligar o remote', async () => {
+    sh(repo, 'remote', 'remove', 'origin')
+    let st = await g.status(repo)
+    expect(st).toMatchObject({ hasRemote: false, published: false, unpublished: 1 })
+    expect((await g.publishToUrl(repo, 'nao é url')).error).toMatch(/URL de repositório válida/)
+    expect((await g.status(repo)).hasRemote).toBe(false)
+
+    const novo = path.join(tmp, 'novo.git')
+    sh(tmp, 'init', '-q', '--bare', '-b', 'main', novo)
+    // caminho feliz com um remote local (publishToUrl só aceita URLs de servidor)
+    sh(repo, 'remote', 'add', 'origin', novo)
+    expect((await g.push(repo)).ok).toBe(true)
+    st = await g.status(repo)
+    expect(st).toMatchObject({ hasRemote: true, published: true })
+  })
+})
+
+describe('git — SHA dos commits criados', () => {
+  it('commit e commitGroups devolvem os SHAs na ordem', async () => {
+    write('x.ts', 'x')
+    write('y.ts', 'y')
+    const r = await g.commitGroups(repo, [
+      { files: ['x.ts'], message: 'feat: x' },
+      { files: ['y.ts'], message: 'feat: y' }
+    ])
+    expect(r.commits?.map((c) => c.message)).toEqual(['feat: x', 'feat: y'])
+    expect(r.commits?.[1].sha).toBe(sh(repo, 'rev-parse', 'HEAD'))
+    expect(r.commits?.[0].sha).toBe(sh(repo, 'rev-parse', 'HEAD~1'))
+  })
+})
+
+describe('git — prefixo da branch', () => {
+  it('cria fix/<nome> e recusa prefixo inválido', async () => {
+    write('b.ts', 'b')
+    await g.commit(repo, ['b.ts'], 'fix: b')
+    expect((await g.createFeature(repo, 'x', 'não vale')).error).toMatch(/Prefixo inválido/)
+    const r = await g.createFeature(repo, 'Corrige Login', 'fix')
+    expect(r.ok, JSON.stringify(r.steps)).toBe(true)
+    expect((await g.status(repo)).branch).toBe('fix/corrige-login')
+  })
+})
