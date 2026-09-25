@@ -79,7 +79,7 @@ const stats = computed(() => ({
 .diff { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--panel); }
 header {
   display: flex; align-items: center; gap: 10px;
-  height: 42px; padding: 0 14px; border-bottom: 1px solid var(--border); flex: none;
+  height: var(--pane-header); padding: 0 14px; border-bottom: 1px solid var(--border); flex: none; box-sizing: border-box;
 }
 .path { flex: 1; font-size: 12px; min-width: 0; }
 .add { color: var(--add); font-family: var(--mono); font-size: 12px; }

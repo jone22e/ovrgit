@@ -25,6 +25,8 @@
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace;
   --titlebar: 48px;
+  /* altura comum das barras de topo dos painéis (tarefas, arquivos, diff): as divisórias se alinham */
+  --pane-header: 48px;
   color-scheme: light;
 }
 

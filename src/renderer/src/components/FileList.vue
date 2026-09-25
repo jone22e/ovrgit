@@ -195,8 +195,8 @@ onUnmounted(() => clearInterval(tick))
 <style scoped>
 .list { display: flex; flex-direction: column; min-height: 0; height: 100%; container-type: inline-size; }
 .toolbar {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box;
+  height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border);
 }
 .all { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; white-space: nowrap; }
 .seg { display: flex; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 8px; }
@@ -226,6 +226,6 @@ onUnmounted(() => clearInterval(tick))
 }
 @container (max-width: 400px) {
   .lbl { display: none; }
-  .toolbar { gap: 6px; padding: 8px 10px; }
+  .toolbar { gap: 6px; padding: 0 10px; }
 }
 </style>

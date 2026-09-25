@@ -166,6 +166,9 @@ export interface OvseerTask {
   assignedToMe?: boolean
   /** Posso enviar a entrega (sou o executor, plano aprovado, nada em validação) */
   canDeliver?: boolean
+  /** Etapa do fluxo, igual à tela de tarefas do Ovseer (plan_pending, execution, paused…) */
+  section?: string
+  owner?: { name: string; avatarUrl: string | null } | null
 }
 
 export interface OvseerDeliveryInput {

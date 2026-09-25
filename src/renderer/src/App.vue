@@ -152,7 +152,7 @@ onUnmounted(() => {
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100%; }
 .body { flex: 1; display: flex; min-height: 0; }
-.tasks-wrap { width: min(300px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
+.tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }
