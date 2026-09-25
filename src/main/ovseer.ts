@@ -5,7 +5,8 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import type {
-  OvseerDeliveryInput, OvseerLinkInput, OvseerMember, OvseerNewTask, OvseerStatus, OvseerTask
+  OvseerComment, OvseerDeliveryInput, OvseerLinkInput, OvseerMember, OvseerNewTask, OvseerStatus, OvseerTask,
+  OvseerTaskDetail
 } from '../shared/types'
 import { getSettings } from './settings'
 
@@ -256,7 +257,7 @@ export interface DeliveryCommit {
   occurred_at: string | null
 }
 
-export async function delivery(taskId: string): Promise<{ commits: DeliveryCommit[] }> {
+export async function delivery(taskId: string): Promise<{ commits: DeliveryCommit[]; plan?: string }> {
   return api('GET', `/api/ovrgit/tasks/${encodeURIComponent(taskId)}/delivery`)
 }
 
@@ -294,4 +295,37 @@ export async function uploadAttachment(
           : code
     throw new OvseerError(msg, res.status)
   }
+}
+
+export async function taskDetail(taskId: string): Promise<OvseerTaskDetail> {
+  return api('GET', `/api/ovrgit/tasks/${encodeURIComponent(taskId)}`)
+}
+
+/** Inicia, pausa ou retoma a tarefa (mesmas regras do Ovseer). */
+export async function setTaskStatus(taskId: string, status: 'doing' | 'paused' | 'blocked', acknowledged: boolean) {
+  await api('POST', `/api/client/tasks/${encodeURIComponent(taskId)}/status`, {
+    status,
+    approval_guidance_acknowledged: acknowledged
+  })
+}
+
+export async function attachmentUrl(taskId: string, index: number): Promise<string> {
+  const r = await api<{ url: string }>('GET', `/api/client/tasks/${encodeURIComponent(taskId)}/attachments/${index}/access-url`)
+  return r.url
+}
+
+export async function approvalAudioUrl(taskId: string): Promise<string> {
+  const r = await api<{ url: string }>('GET', `/api/client/tasks/${encodeURIComponent(taskId)}/plan-review/audio-access-url`)
+  return r.url
+}
+
+export async function taskComments(taskId: string): Promise<OvseerComment[]> {
+  const rows = await api<{ id: string; type: string; content?: string; user_name?: string; created_at?: string }[]>(
+    'GET',
+    `/api/client/task-activities?task_id=${encodeURIComponent(taskId)}`
+  )
+  return (Array.isArray(rows) ? rows : [])
+    .filter((a) => a.type === 'comment' && a.content)
+    .slice(0, 30)
+    .map((a) => ({ id: a.id, author: a.user_name ?? 'Alguém', text: String(a.content), date: a.created_at ?? null }))
 }

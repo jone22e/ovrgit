@@ -33,7 +33,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 }
 h3 { margin: 0 0 14px; font-size: 16px; }
 .content { display: flex; flex-direction: column; gap: 12px; }
-.footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .footer:empty { display: none; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { transform: scale(0.97); opacity: 0; } }

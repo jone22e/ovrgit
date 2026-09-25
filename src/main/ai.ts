@@ -21,9 +21,10 @@ const SCHEMA = {
           summary: { type: 'string' },
           bullets: { type: 'array', items: { type: 'string' } },
           commit: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } }
+          files: { type: 'array', items: { type: 'string' } },
+          task: { type: 'string' }
         },
-        required: ['title', 'type', 'summary', 'bullets', 'commit', 'files']
+        required: ['title', 'type', 'summary', 'bullets', 'commit', 'files', 'task']
       }
     },
     commit: { type: 'string' },
@@ -46,7 +47,11 @@ Regras:
 - "commit" do grupo: Conventional Commits, verbo no presente, minúsculo, com acentuação correta, até 72 caracteres (ex.: "feat: adiciona fluxo de criação de nota de entrada manual").
 - Seja direto: não explique, só preencha o JSON.
 - "commit" geral: uma mensagem única que descreva todas as alterações juntas.
-- "branch": nome curto em kebab-case, sem o prefixo "feature/" (ex.: "nota-entrada-devolucoes").`
+- "branch": nome curto em kebab-case, sem o prefixo "feature/" (ex.: "nota-entrada-devolucoes").
+- "task": se houver "Tarefas em andamento" no início, a chave da tarefa a que o grupo pertence (ex.: "ROAD-20"), senão "".
+  Nesse caso agrupe PRIMEIRO por tarefa: cada grupo pertence a uma única tarefa, e normalmente há um grupo por tarefa.
+  Só divida uma tarefa em mais grupos se forem assuntos claramente independentes (no máximo 3 por tarefa).
+  Arquivos que não têm relação com nenhuma tarefa ficam em grupos com "task": "".`
 
 async function fetchJson(url: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
   const ctrl = new AbortController()
@@ -74,7 +79,18 @@ export async function listModels(settings: Settings): Promise<string[]> {
 
 const trimUrl = (u: string) => u.replace(/\/+$/, '')
 
+/** Bloco com as tarefas em andamento, colocado antes das alterações no contexto da IA. */
+export function taskContext(tasks?: { key: string; title: string; status: string }[]): string {
+  const list = (Array.isArray(tasks) ? tasks : [])
+    .filter((t) => t && typeof t.key === 'string' && /^[A-Za-z0-9-]{1,32}$/.test(t.key))
+    .slice(0, 20)
+  if (!list.length) return ''
+  const lines = list.map((t) => `- ${t.key} (${String(t.status).slice(0, 30)}): ${String(t.title).replace(/\s+/g, ' ').slice(0, 160)}`)
+  return `Tarefas em andamento (ligue cada grupo a uma delas pelo campo "task"):\n${lines.join('\n')}\n\n`
+}
+
 interface RawGroup {
+  task?: unknown
   title?: unknown
   type?: unknown
   summary?: unknown
@@ -106,7 +122,8 @@ export function normalizeAnalysis(raw: unknown, files: FileChange[]): Analysis {
       summary: String(g.summary ?? '').trim(),
       bullets: (Array.isArray(g.bullets) ? g.bullets : []).map(String).filter(Boolean).slice(0, 5),
       commit: String(g.commit ?? '').trim() || `${type}: ${title.toLowerCase()}`,
-      files: gFiles
+      files: gFiles,
+      task: typeof g.task === 'string' && g.task.trim() ? g.task.trim().toUpperCase() : null
     })
   }
 
@@ -220,12 +237,14 @@ async function viaClaude(task: Task, settings: Settings, context: string, signal
     '--strict-mcp-config', '--disable-slash-commands'
   ]
   // Substitui o system prompt enorme do Claude Code pelo nosso: bem menos tokens de entrada
-  if (structured) args.push('--system-prompt', task.system, '--json-schema', JSON.stringify(task.schema))
+  // o schema vai no próprio pedido: com --json-schema o CLI faz uma rodada extra (mais lenta)
+  if (structured) args.push('--system-prompt', task.system)
   const model = safeModel(settings.claudeModel)
   if (model) args.push('--model', model)
 
-  const prompt = userPrompt(task, context, { withSystem: !structured, withSchema: !structured })
-  const r = await runCli(bin, args, prompt, os.tmpdir(), CLI_TIMEOUT, signal)
+  const prompt = userPrompt(task, context, { withSystem: !structured, withSchema: true })
+  // sem raciocínio estendido: para preencher um JSON ele só gasta tempo (84s → ~22s nos testes)
+  const r = await runCli(bin, args, prompt, os.tmpdir(), CLI_TIMEOUT, signal, { MAX_THINKING_TOKENS: '0' })
   let env: { is_error?: boolean; result?: string; structured_output?: unknown }
   try {
     env = JSON.parse(r.stdout)
@@ -252,6 +271,8 @@ async function viaCodex(task: Task, settings: Settings, context: string, signal:
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--output-schema', schemaFile, '--output-last-message', outFile]
     const model = safeModel(settings.codexModel)
     if (model) args.push('--model', model)
+    // raciocínio curto: a tarefa é preencher um JSON, não resolver um problema difícil
+    args.push('-c', 'model_reasoning_effort=low')
     args.push('-')
     const prompt = userPrompt(task, context, { withSystem: true, withSchema: false })
     const r = await runCli(bin, args, prompt, dir, CLI_TIMEOUT, signal)
@@ -354,6 +375,31 @@ export async function commitMessage(settings: Settings, context: string): Promis
     const msg = String(raw?.commit ?? '').trim()
     if (!msg) throw new Error('A IA não devolveu uma mensagem.')
     return msg
+  } catch (e) {
+    const msg = (e as Error).message
+    if (ctrl.signal.aborted || msg === 'CANCELADO') throw new Error('CANCELADO')
+    if (settings.provider === 'ollama' && /fetch failed|ECONNREFUSED/i.test(msg))
+      throw new Error(`Ollama não está rodando em ${settings.ollamaUrl}`)
+    throw new Error(`${PROVIDER_NAME[settings.provider]}: ${msg}`)
+  } finally {
+    if (controller === ctrl) controller = null
+  }
+}
+
+/** Roda uma tarefa de IA de uso geral (texto → JSON no formato pedido). */
+export async function runJsonTask<T>(
+  settings: Settings,
+  system: string,
+  schema: object,
+  instruction: string,
+  context: string
+): Promise<T> {
+  if (settings.provider === 'none') throw new Error('Escolha uma IA nas Configurações.')
+  controller?.abort()
+  const ctrl = new AbortController()
+  controller = ctrl
+  try {
+    return (await runTask({ system, schema, instruction }, settings, context, ctrl.signal)) as T
   } catch (e) {
     const msg = (e as Error).message
     if (ctrl.signal.aborted || msg === 'CANCELADO') throw new Error('CANCELADO')

@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import CleanupDialog from './components/CleanupDialog.vue'
+import CloneDialog from './components/CloneDialog.vue'
 import CommitBar from './components/CommitBar.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import DiffView from './components/DiffView.vue'
 import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
@@ -9,6 +12,12 @@ import MergeBanner from './components/MergeBanner.vue'
 import DeliveryDialog from './components/DeliveryDialog.vue'
 import NewTaskDialog from './components/NewTaskDialog.vue'
 import PlanDialog from './components/PlanDialog.vue'
+import ResolveDialog from './components/ResolveDialog.vue'
+import ReviewDialog from './components/ReviewDialog.vue'
+import PrDialog from './components/PrDialog.vue'
+import SshDialog from './components/SshDialog.vue'
+import SshImportDialog from './components/SshImportDialog.vue'
+import TaskDetailDialog from './components/TaskDetailDialog.vue'
 import TasksPanel from './components/TasksPanel.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
@@ -26,6 +35,8 @@ const showFeature = ref(false)
 const showPull = ref(false)
 const showSwitcher = ref(false)
 const showPublish = ref(false)
+// terminal maximizado só vale com o painel aberto
+const termMaximized = computed(() => state.showTerminal && state.terminalMax)
 
 async function doPull(stash = false) {
   showPull.value = false
@@ -110,8 +121,8 @@ onUnmounted(() => {
     <Welcome v-if="!state.repo" />
 
     <template v-else>
-      <MergeBanner />
-      <div class="body">
+      <MergeBanner v-show="!termMaximized" />
+      <div v-show="!termMaximized" class="body">
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
@@ -126,11 +137,18 @@ onUnmounted(() => {
         <HistoryView v-else />
       </div>
       </div>
-      <CommitBar @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      <CommitBar v-show="!termMaximized" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
-        <div v-show="state.showTerminal" class="term-resizer" @mousedown.prevent="startTermResize" />
-        <div v-show="state.showTerminal" class="term-wrap" :style="{ height: `${termHeight}px` }"><TerminalPanel /></div>
+        <div v-show="state.showTerminal && !termMaximized" class="term-resizer" @mousedown.prevent="startTermResize" />
+        <div
+          v-show="state.showTerminal"
+          class="term-wrap"
+          :class="{ max: termMaximized }"
+          :style="termMaximized ? undefined : { height: `${termHeight}px` }"
+        >
+          <TerminalPanel />
+        </div>
       </template>
     </template>
 
@@ -140,6 +158,15 @@ onUnmounted(() => {
     <PlanDialog />
     <NewTaskDialog v-if="state.showNewTask" @close="state.showNewTask = false" />
     <DeliveryDialog v-if="state.deliveryTask" @close="state.deliveryTask = null" />
+    <SshDialog v-if="state.sshEdit" @close="state.sshEdit = null" />
+    <TaskDetailDialog v-if="state.detailTaskId" @close="state.detailTaskId = null" />
+    <ConfirmDialog />
+    <SshImportDialog v-if="state.showSshImport" @close="state.showSshImport = false" />
+    <CloneDialog v-if="state.showClone" @close="state.showClone = false" />
+    <ReviewDialog />
+    <ResolveDialog />
+    <PrDialog v-if="state.showPrDialog" @close="state.showPrDialog = false" />
+    <CleanupDialog v-if="state.showCleanup" @close="state.showCleanup = false" />
     <PublishDialog v-if="showPublish" @close="showPublish = false" />
     <ResultDialog />
 
@@ -156,6 +183,7 @@ onUnmounted(() => {
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }
+.term-wrap.max { flex: 1; }
 .term-resizer { height: 5px; margin: -2px 0; cursor: row-resize; position: relative; z-index: 2; flex: none; }
 .term-resizer::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; height: 1px; background: var(--border); }
 .term-resizer:hover::after { background: var(--accent); height: 2px; top: 1.5px; }

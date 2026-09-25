@@ -43,7 +43,7 @@ function resolveGit(): string {
 
 const MAX_OUTPUT = 20 * 1024 * 1024
 
-export function run(cwd: string, args: string[], input?: string): Promise<RunResult> {
+export function run(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(resolveGit(), ['-c', 'core.quotepath=false', '-c', 'color.ui=never', ...args], {
       cwd,
@@ -53,7 +53,8 @@ export function run(cwd: string, args: string[], input?: string): Promise<RunRes
         GIT_TERMINAL_PROMPT: '0',
         GIT_OPTIONAL_LOCKS: '0',
         LC_ALL: 'C',
-        LANG: 'C'
+        LANG: 'C',
+        ...extraEnv
       }
     })
     const out: Buffer[] = []
@@ -76,8 +77,8 @@ export function run(cwd: string, args: string[], input?: string): Promise<RunRes
 }
 
 /** Executa o git e lança GitError se o código de saída não for 0. */
-export async function git(cwd: string, args: string[], input?: string): Promise<string> {
-  const r = await run(cwd, args, input)
+export async function git(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>): Promise<string> {
+  const r = await run(cwd, args, input, extraEnv)
   if (r.code !== 0) {
     const msg = errorText(r) || `git ${args[0]} falhou (código ${r.code})`
     throw new GitError(msg, r.code, r.stderr)
@@ -107,7 +108,7 @@ async function remotes(root: string): Promise<string[]> {
   return (await git(root, ['remote'])).split('\n').map((s) => s.trim()).filter(Boolean)
 }
 
-async function refExists(root: string, ref: string): Promise<boolean> {
+export async function refExists(root: string, ref: string): Promise<boolean> {
   return (await run(root, ['rev-parse', '--verify', '--quiet', ref])).code === 0
 }
 
@@ -261,7 +262,17 @@ export async function diff(root: string, file: FileChange): Promise<string> {
 
 export async function log(root: string, limit = 50): Promise<CommitInfo[]> {
   if (!(await refExists(root, 'HEAD'))) return []
-  return parseLog(await git(root, ['log', `-n${limit}`, `--pretty=format:${LOG_FORMAT}`]))
+  const [out, local] = await Promise.all([
+    git(root, ['log', `-n${limit}`, `--pretty=format:${LOG_FORMAT}`]),
+    localCommits(root)
+  ])
+  return parseLog(out).map((c) => ({ ...c, local: local.has(c.hash) }))
+}
+
+/** Commits que ainda não estão em nenhum remoto. */
+export async function localCommits(root: string): Promise<Set<string>> {
+  const r = await run(root, ['rev-list', 'HEAD', '--not', '--remotes', '-n', '500'])
+  return new Set(r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [])
 }
 
 /**
@@ -301,7 +312,7 @@ export async function commit(root: string, files: string[], message: string): Pr
       nulList(paths.commit)
     )
     const sha = (await git(root, ['rev-parse', 'HEAD'])).trim()
-    steps.push({ label: `Commit: ${message.split('\n')[0]}`, ok: true, detail: `${files.length} arquivo(s) · ${sha.slice(0, 7)}` })
+    steps.push({ label: `Versão salva: ${message.split("\n")[0]}`, ok: true, detail: `${files.length} arquivo(s) · ${sha.slice(0, 7)}` })
     return { ok: true, steps, commits: [{ sha, message: message.trim() }] }
   } catch (e) {
     return fail(steps, e)

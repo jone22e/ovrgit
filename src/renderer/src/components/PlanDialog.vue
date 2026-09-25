@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import {
-  commitPlan, outsidePlan, ovseerReady, planGroups, state, togglePlanGroup, updateGroupCommit, useSingleCommit
+  canJoinByTask, commitPlan, joinByTask, outsidePlan, ovseerReady, planGroups, state, togglePlanGroup, updateGroupCommit, useSingleCommit
 } from '../store'
 import TaskPicker from './TaskPicker.vue'
 import Icon from './Icon.vue'
@@ -30,7 +30,7 @@ function fit(el: HTMLTextAreaElement) {
 <template>
   <Modal
     v-if="state.planOpen"
-    :title="`${state.analysis?.provider ?? 'A IA'} sugeriu ${state.groups.length} commit${state.groups.length === 1 ? '' : 's'}`"
+    :title="`${state.analysis?.provider ?? 'A IA'} sugeriu ${state.groups.length} ${state.groups.length === 1 ? 'versão' : 'versões'}`"
     :width="640"
     @close="close"
   >
@@ -44,7 +44,7 @@ function fit(el: HTMLTextAreaElement) {
           <input
             type="checkbox"
             :checked="!state.planExcluded.has(g.id)"
-            :title="state.planExcluded.has(g.id) ? 'Incluir este commit' : 'Deixar este commit para depois'"
+            :title="state.planExcluded.has(g.id) ? 'Incluir esta versão' : 'Deixar esta versão para depois (os arquivos continuam na lista)'"
             @change="togglePlanGroup(g.id)"
           />
           <span class="num">{{ i + 1 }}</span>
@@ -85,13 +85,21 @@ function fit(el: HTMLTextAreaElement) {
     </p>
 
     <template #footer>
-      <button class="ghost single" title="Ignorar a divisão e usar a mensagem geral da IA num commit só" @click="useSingleCommit">
-        Usar 1 commit só
+      <button class="ghost single" title="Ignorar a divisão e salvar tudo numa versão só, com a descrição geral da IA" @click="useSingleCommit">
+        Tudo numa versão
+      </button>
+      <button
+        v-if="canJoinByTask"
+        class="ghost single"
+        title="Junta as versões que são da mesma tarefa: fica uma versão para cada tarefa"
+        @click="joinByTask"
+      >
+        <Icon name="merge" :size="13" /> Uma por tarefa
       </button>
       <span class="grow" />
       <button @click="close">Cancelar</button>
       <button class="primary" :disabled="!n || !!state.busy" @click="commitPlan">
-        <Icon name="check" :size="14" /> Criar {{ n }} commit{{ n === 1 ? '' : 's' }}
+        <Icon name="check" :size="14" /> Salvar {{ n }} {{ n === 1 ? 'versão' : 'versões' }}
       </button>
     </template>
   </Modal>
@@ -126,5 +134,5 @@ function fit(el: HTMLTextAreaElement) {
 .files li { padding: 1px 0; word-break: break-all; }
 .note { margin: 0; font-size: 12px; }
 .grow { flex: 1; }
-.single { margin-right: auto; }
+.single { padding: 0 10px; white-space: nowrap; }
 </style>

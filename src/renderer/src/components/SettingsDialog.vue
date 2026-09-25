@@ -11,6 +11,12 @@ import Modal from './Modal.vue'
 const emit = defineEmits<{ close: [] }>()
 const s = state.settings!
 
+async function toggleAgents(on: boolean) {
+  await api.setWatchAgents(on)
+  state.settings = await api.getSettings()
+  if (!on) state.agents = []
+}
+
 // terminal: salva e aplica na hora (sem depender do botão Salvar)
 const termSize = computed(() => state.settings?.terminalFontSize ?? 14)
 const termWeight = computed(() => state.settings?.terminalFontWeight ?? 500)
@@ -246,6 +252,14 @@ async function save() {
       <input v-else id="model" v-model="model" type="text" class="mono" placeholder="ex.: qwen2.5-coder:7b" spellcheck="false" />
     </div>
 
+    <label class="agents-opt">
+      <input type="checkbox" :checked="state.settings?.watchAgents !== false" @change="toggleAgents(($event.target as HTMLInputElement).checked)" />
+      <span>
+        <strong>Acompanhar tarefas do ChatGPT (Codex)</strong>
+        <small class="faint">Mostra quando o agente está trabalhando e avisa quando termina. Lê os registros locais do Codex; nada sai do computador.</small>
+      </span>
+    </label>
+
     <div>
       <div class="label">Terminal</div>
       <div class="term-card">
@@ -306,6 +320,10 @@ async function save() {
 
 <style scoped>
 .label, label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.agents-opt { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-size: 13px; }
+.agents-opt input { margin-top: 3px; }
+.agents-opt span { display: flex; flex-direction: column; gap: 2px; }
+.agents-opt small { font-size: 12px; }
 .term-card { display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); }
 .size-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .weights { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }

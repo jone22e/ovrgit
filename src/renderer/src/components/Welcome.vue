@@ -17,6 +17,10 @@ onMounted(() => state.settings?.recentProjects.forEach(loadProjectIcon))
       <Icon v-else name="folder" />
       Abrir projeto
     </button>
+    <button class="big ghost-lite" @click="state.showClone = true">
+      <Icon name="down" />
+      Clonar repositório
+    </button>
 
     <section v-if="state.settings?.recentProjects.length" class="recent">
       <h2>Recentes</h2>
@@ -51,6 +55,7 @@ onMounted(() => state.settings?.recentProjects.forEach(loadProjectIcon))
 h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 p { margin: 0 0 12px; }
 .big { height: 40px; padding: 0 22px; font-size: 14px; }
+.ghost-lite { margin-top: -2px; }
 .recent { width: min(520px, 100%); margin-top: 28px; display: flex; flex-direction: column; gap: 2px; }
 h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin: 0 0 6px 10px; }
 .recent-item { justify-content: flex-start; height: 38px; gap: 10px; }

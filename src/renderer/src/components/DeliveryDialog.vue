@@ -17,6 +17,9 @@ const manualCommit = ref('')
 const hasPr = ref(false)
 const prUrl = ref('')
 const prDetected = ref(false)
+const plan = ref('')
+const writing = ref(false)
+const aiNote = ref<string | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -36,6 +39,7 @@ onMounted(async () => {
   try {
     const d = await api.ovseerDelivery(task.id)
     commits.value = d.commits
+    plan.value = d.plan
     // commit vinculado pelo OvrGit: já vem relacionado
     if (d.commits.length) {
       hasCommit.value = true
@@ -63,6 +67,24 @@ const canSubmit = computed(
     (!hasCommit.value || commitUrl.value) &&
     (!hasPr.value || prUrl.value.trim())
 )
+
+/** A IA compara o plano da tarefa com as versões vinculadas e preenche "como ficou". */
+async function fillWithAi() {
+  writing.value = true
+  aiNote.value = null
+  error.value = null
+  try {
+    const r = await api.deliveryReport(plan.value, commits.value.map((c) => c.title.replace(/^Commit: /, '')))
+    adherence.value = r.adherence
+    summary.value = r.summary
+    aiNote.value = r.adherence === 'as_planned' ? `A IA acha que foi como planejado: ${r.summary}` : null
+  } catch (e) {
+    const msg = clean(e)
+    if (!/CANCELADO/.test(msg)) error.value = `A IA não conseguiu preencher: ${msg}`
+  } finally {
+    writing.value = false
+  }
+}
 
 async function submit() {
   if (!canSubmit.value) return
@@ -96,7 +118,19 @@ const when = (iso: string | null) =>
     <p class="muted sub">{{ task.title }}</p>
 
     <section>
-      <h5>Como ficou em relação ao plano?</h5>
+      <div class="h-row">
+        <h5>Como ficou em relação ao plano?</h5>
+        <button
+          v-if="state.settings?.provider !== 'none' && (plan || commits.length)"
+          type="button"
+          class="small ghost ai-fill"
+          :disabled="writing || loading"
+          title="A IA compara o plano da tarefa com as versões feitas e preenche para você"
+          @click="fillWithAi"
+        >
+          <span v-if="writing" class="spinner" /><Icon v-else name="sparkles" :size="13" /> Preencher com IA
+        </button>
+      </div>
       <div class="choices">
         <button type="button" class="choice" :class="{ on: adherence === 'as_planned' }" @click="adherence = 'as_planned'">
           <span class="radio" /> Exatamente como planejado
@@ -105,6 +139,7 @@ const when = (iso: string | null) =>
           <span class="radio" /> Houve mudanças
         </button>
       </div>
+      <p v-if="aiNote" class="ai-note">{{ aiNote }}</p>
       <textarea
         v-if="adherence === 'changed'"
         v-model="summary"
@@ -166,6 +201,9 @@ const when = (iso: string | null) =>
 <style scoped>
 .sub { margin: -8px 0 0; font-size: 12.5px; }
 section { display: flex; flex-direction: column; gap: 8px; }
+.h-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-fill { color: var(--accent); }
+.ai-note { margin: 0; font-size: 12.5px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); line-height: 1.5; }
 h5 { margin: 4px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; gap: 8px; align-items: center; }
 .opt { font-size: 10px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; letter-spacing: 0.04em; }
 .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

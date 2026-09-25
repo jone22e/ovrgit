@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { OvseerTask } from '@shared/types'
-import { api, loadTasks, openNewTask, ovseerReady, ovseerTaskUrl, ovseerWorkspace, setShowTasks, state } from '../store'
+import { agentForTask, loadTasks, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
 import Icon from './Icon.vue'
 
 /** Mesmas etapas, textos e cores da tela de tarefas do Ovseer. */
@@ -24,10 +24,23 @@ const groups = computed(() => {
   const list = q
     ? state.tasks.filter((t) => `${t.key} ${t.title} ${t.statusLabel} ${t.owner?.name ?? ''}`.toLowerCase().includes(q))
     : state.tasks
-  return SECTIONS.map((s) => ({ ...s, tasks: list.filter((t) => (t.section ?? 'execution') === s.id) })).filter(
+  return SECTIONS.map((s) => ({ ...s, tasks: list.filter((t) => sectionOf(t) === s.id) })).filter(
     (s) => s.tasks.length
   )
 })
+
+/** Etapa da tarefa. Servidores antigos do Ovseer não mandam a etapa: deduz pelo status. */
+function sectionOf(t: OvseerTask) {
+  if (t.section) return t.section
+  return ({ paused: 'paused', todo: 'waiting_execution', backlog: 'waiting_execution', review: 'completion_pending' } as Record<string, string>)[t.status] ?? 'execution'
+}
+
+/** Responsável. Servidores antigos não mandam: nas minhas tarefas, sou eu. */
+function ownerOf(t: OvseerTask) {
+  if (t.owner) return t.owner
+  const me = state.ovseer?.user
+  return t.assignedToMe && me ? { name: me.name, avatarUrl: me.avatarUrl ?? null } : null
+}
 
 /** Cor do selo de status (mesma lógica do Ovseer: etapas de plano primeiro, depois o status). */
 function badgeTone(t: OvseerTask) {
@@ -47,9 +60,6 @@ const initials = (name: string) =>
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('')
 
-function useInCommit(t: OvseerTask) {
-  state.commitTaskId = state.commitTaskId === t.id ? null : t.id
-}
 </script>
 
 <template>
@@ -100,8 +110,8 @@ function useInCommit(t: OvseerTask) {
             :key="t.id"
             class="card"
             :class="{ selected: state.commitTaskId === t.id }"
-            :title="state.commitTaskId === t.id ? 'Usada nos próximos commits (clique para tirar)' : 'Usar nos próximos commits'"
-            @click="useInCommit(t)"
+            :title="state.commitTaskId === t.id ? 'Vinculada aos próximos commits. Clique para ver os detalhes' : 'Ver os detalhes da tarefa'"
+            @click="openTaskDetail(t.id)"
           >
             <div class="c-body">
               <div class="c-top">
@@ -110,11 +120,16 @@ function useInCommit(t: OvseerTask) {
                 <Icon v-if="state.commitTaskId === t.id" name="commit" :size="14" class="using" />
               </div>
               <div class="c-title">{{ t.title }}</div>
+              <div v-if="agentForTask(t.key)" class="agent" :class="{ on: agentForTask(t.key)!.running }" :title="agentForTask(t.key)!.lastMessage ?? agentForTask(t.key)!.title">
+                <span v-if="agentForTask(t.key)!.running" class="apulse" />
+                <Icon v-else name="check" :size="11" />
+                {{ agentForTask(t.key)!.running ? 'Codex trabalhando…' : 'Codex terminou' }}
+              </div>
               <div class="c-foot">
-                <template v-if="t.owner">
-                  <img v-if="t.owner.avatarUrl" :src="t.owner.avatarUrl" class="av" alt="" />
-                  <span v-else class="av initials">{{ initials(t.owner.name) }}</span>
-                  <span class="owner ellipsis">{{ t.owner.name }}</span>
+                <template v-if="ownerOf(t)">
+                  <img v-if="ownerOf(t)!.avatarUrl" :src="ownerOf(t)!.avatarUrl!" class="av" alt="" />
+                  <span v-else class="av initials">{{ initials(ownerOf(t)!.name) }}</span>
+                  <span class="owner ellipsis">{{ ownerOf(t)!.name }}</span>
                 </template>
                 <span v-if="t.priority" class="pill" :class="`p-${t.priority}`">{{ PRIORITY[t.priority] ?? t.priority }}</span>
                 <span class="spacer" />
@@ -123,7 +138,7 @@ function useInCommit(t: OvseerTask) {
                 </button>
               </div>
             </div>
-            <button class="ghost chev" title="Abrir no Ovseer" @click.stop="api.openExternal(ovseerTaskUrl(t.key))">
+            <button class="ghost chev" title="Ver os detalhes" @click.stop="openTaskDetail(t.id)">
               <Icon name="chevron" :size="16" />
             </button>
           </article>
@@ -171,6 +186,10 @@ h4 { margin: 0; font-size: 13.5px; font-weight: 800; line-height: 1.35; }
 .key { font-size: 11px; font-weight: 700; color: var(--accent); flex: none; }
 .using { color: var(--accent); margin-left: auto; }
 .c-title { font-size: 14px; font-weight: 800; line-height: 1.3; }
+.agent { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--add-bg); color: var(--add); }
+.agent.on { background: var(--accent-soft); color: var(--accent); }
+.apulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: ap 1.4s ease-in-out infinite; }
+@keyframes ap { 50% { opacity: 0.3; } }
 .c-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .av { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; }
 .initials { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--on-accent); font-size: 9.5px; font-weight: 700; }

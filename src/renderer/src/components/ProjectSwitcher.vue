@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { forgetProject, loadProject, loadProjectIcon, openProject, projectIcons, state } from '../store'
+import type { ProjectOverview } from '@shared/types'
+import { forgetProject, isInside, loadProject, loadProjectIcon, openProject, projectIcons, state } from '../store'
 import Icon from './Icon.vue'
 
 const open = defineModel<boolean>('open', { default: false })
@@ -11,6 +12,27 @@ const root = ref<HTMLElement>()
 const mod = window.ovrgit.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+
+// situação de cada projeto (só leitura local, rápido): linha, alterações, o que falta enviar/baixar
+const overview = ref(new Map<string, ProjectOverview>())
+async function loadOverview() {
+  const list = await window.ovrgit.projectsOverview([...(state.settings?.recentProjects ?? [])]).catch(() => [])
+  overview.value = new Map(list.map((o) => [o.root, o]))
+}
+function badges(p: string) {
+  const o = overview.value.get(p)
+  if (!o) return []
+  if (!o.ok) return [{ t: 'Pasta não encontrada', c: 'bad' }]
+  const out: { t: string; c: string }[] = []
+  if (o.operation) out.push({ t: o.conflicts ? 'Conflito para resolver' : 'Junção pela metade', c: 'bad' })
+  if (o.changes) out.push({ t: `${o.changes} ${o.changes === 1 ? 'alteração' : 'alterações'}`, c: 'warn' })
+  const send = o.published ? o.ahead : o.unpublished
+  if (send) out.push({ t: `${send} para enviar`, c: 'acc' })
+  if (o.behind) out.push({ t: `${o.behind} para baixar`, c: 'acc' })
+  const agent = state.agents.find((a) => a.running && isInside(a.cwd, p))
+  if (agent) out.push({ t: 'Codex trabalhando', c: 'agent' })
+  return out
+}
 
 const items = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -27,6 +49,7 @@ watch(
 watch(open, async (v) => {
   if (!v) return
   items.value.forEach(loadProjectIcon)
+  loadOverview()
   query.value = ''
   const cur = items.value.indexOf(state.repo?.root ?? '')
   index.value = cur >= 0 && items.value.length > 1 ? (cur === 0 ? 1 : 0) : 0
@@ -101,7 +124,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
               {{ baseName(p) }}
               <Icon v-if="p === state.repo?.root" name="check" :size="12" class="cur" />
             </span>
-            <span class="path faint ellipsis">{{ p }}</span>
+            <span class="path faint ellipsis">
+              <template v-if="overview.get(p)?.branch">{{ overview.get(p)!.branch }} · </template>{{ p }}
+            </span>
+            <span v-if="badges(p).length" class="badges">
+              <span v-for="b in badges(p)" :key="b.t" class="bd" :class="b.c">{{ b.t }}</span>
+            </span>
           </span>
           <button
             v-if="p !== state.repo?.root"
@@ -114,6 +142,10 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         </li>
       </ul>
       <p v-else class="faint empty">Nenhum projeto encontrado.</p>
+      <button class="ghost browse clone" @click="(open = false), (state.showClone = true)">
+        <Icon name="down" :size="14" />
+        Clonar repositório…
+      </button>
       <button class="ghost browse" @click="browse">
         <Icon name="folder" :size="14" />
         Abrir outra pasta…
@@ -130,13 +162,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 .chev { transform: rotate(90deg); color: var(--faint); }
 .pop {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-  width: min(380px, calc(100vw - 24px)); padding: 6px;
+  width: min(420px, calc(100vw - 24px)); padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
   animation: drop 0.12s ease-out;
 }
 input { height: 32px; margin-bottom: 4px; }
-ul { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+ul { list-style: none; margin: 0; padding: 0; max-height: 380px; overflow: auto; }
 li {
   display: flex; align-items: center; gap: 6px;
   padding: 5px 6px; border-radius: 7px; cursor: pointer;
@@ -150,9 +182,17 @@ li.hi { background: var(--hover); }
 .name { font-weight: 600; }
 li.current .name { color: var(--accent); }
 .path { font-size: 11px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.bd { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.bd.warn { color: var(--mod, #d7a13b); background: color-mix(in srgb, var(--mod, #d7a13b) 14%, transparent); }
+.bd.acc { color: var(--accent); background: var(--accent-soft); }
+.bd.bad { color: var(--del); background: var(--del-bg); }
+.bd.agent { color: var(--add); background: var(--add-bg); }
 .remove { width: 22px; height: 22px; padding: 0; opacity: 0; flex: none; }
 li:hover .remove { opacity: 1; }
 .empty { margin: 8px 10px; font-size: 12px; }
+.browse.clone { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0; }
+.browse.clone + .browse { margin-top: 0; border-top: 0; }
 .browse {
   width: 100%; justify-content: flex-start; margin-top: 4px; height: 32px; padding: 0 8px;
   border-top: 1px solid var(--border); border-radius: 0 0 7px 7px;

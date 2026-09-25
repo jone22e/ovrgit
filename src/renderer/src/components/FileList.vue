@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import type { FileChange } from '@shared/types'
 import {
-  analyze, cancelAnalysis, hasPlan, openPlan, resolveConflict, selectFile, setViewMode, state, toggleAll,
+  analyze, cancelAnalysis, discardFiles, hasPlan, isPartial, openPlan, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
   toggleCollapsed, toggleFile, toggleFiles
 } from '../store'
 import Icon from './Icon.vue'
@@ -106,6 +106,14 @@ onUnmounted(() => clearInterval(tick))
         <span class="muted label-long">arquivo{{ total === 1 ? '' : 's' }} alterado{{ total === 1 ? '' : 's' }}</span>
       </label>
 
+      <button
+        v-if="state.selected.size && !state.repo?.operation"
+        class="ghost icon small discard-sel"
+        :title="`Descartar as alterações dos ${state.selected.size} arquivo(s) marcados. Dá para recuperar depois.`"
+        @click="discardFiles([...state.selected])"
+      >
+        <Icon name="trash" :size="14" />
+      </button>
       <div class="seg" role="group" aria-label="Modo de exibição">
         <button :class="{ on: state.viewMode === 'tree' }" title="Agrupar por pasta" @click="setViewMode('tree')">
           <Icon name="folder" :size="14" />
@@ -124,15 +132,15 @@ onUnmounted(() => clearInterval(tick))
           v-if="hasPlan"
           class="small plan"
           :class="{ stale: state.planStale }"
-          :title="state.planStale ? 'Commits sugeridos pela IA (os arquivos mudaram desde a análise)' : 'Ver os commits sugeridos pela IA'"
+          :title="state.planStale ? 'Versões sugeridas pela IA (os arquivos mudaram desde a análise)' : 'Ver as versões sugeridas pela IA'"
           @click="openPlan"
         >
-          <Icon name="layers" :size="14" /> {{ state.groups.length }} commit{{ state.groups.length === 1 ? '' : 's' }}
+          <Icon name="layers" :size="14" /> {{ state.groups.length }} {{ state.groups.length === 1 ? 'versão' : 'versões' }}
         </button>
         <button
           class="small ai"
           :disabled="!total || !!state.busy || !!state.repo?.operation"
-          :title="hasPlan ? 'Pedir uma nova análise à IA' : 'A IA separa as alterações em commits organizados (Ctrl/⌘+I)'"
+          :title="hasPlan ? 'Pedir uma nova análise à IA' : 'A IA organiza suas alterações em versões separadas por assunto (Ctrl/⌘+I)'"
           @click="analyze(hasPlan)"
         >
           <Icon name="sparkles" :size="14" />
@@ -145,7 +153,7 @@ onUnmounted(() => clearInterval(tick))
     <div v-if="!total" class="empty">
       <Icon name="check" :size="28" />
       <p>Nenhuma alteração pendente.</p>
-      <p v-if="state.repo?.ahead" class="faint">{{ state.repo.ahead }} commit(s) local(is) aguardando Enviar.</p>
+      <p v-if="state.repo?.ahead" class="faint">{{ state.repo.ahead }} versão(ões) salva(s) esperando você Enviar.</p>
     </div>
 
     <div class="scroll">
@@ -165,6 +173,14 @@ onUnmounted(() => clearInterval(tick))
           />
           <Icon name="chevron" :size="13" class="chev" :class="{ open: !state.collapsed.has(r.key.slice(2)) }" />
           <span class="dirname ellipsis">{{ r.name }}</span>
+          <button
+            v-if="!state.repo?.operation"
+            class="ghost row-act"
+            :title="`Descartar as alterações desta pasta (${r.files.length} arquivo(s)). Dá para recuperar depois.`"
+            @click.stop="discardFiles(r.files)"
+          >
+            <Icon name="trash" :size="13" />
+          </button>
           <span class="faint n">{{ r.files.length }}</span>
         </div>
 
@@ -176,15 +192,31 @@ onUnmounted(() => clearInterval(tick))
           :title="`${r.file.origPath ? `${r.file.origPath} → ` : ''}${r.file.path} (${KIND_LABEL[r.file.kind]})`"
           @click="selectFile(r.file)"
         >
-          <input type="checkbox" :checked="state.selected.has(r.file.path)" @click.stop @change="toggleFile(r.file.path)" />
+          <input
+            type="checkbox"
+            :checked="state.selected.has(r.file.path)"
+            :indeterminate="isPartial(r.file.path)"
+            :title="isPartial(r.file.path) ? 'Só alguns trechos deste arquivo vão para a versão (veja no diff)' : undefined"
+            @click.stop
+            @change="toggleFile(r.file.path)"
+          />
           <span class="kind" :class="r.file.kind">{{ KIND_LETTER[r.file.kind] }}</span>
           <span class="path ellipsis">
             <template v-if="state.viewMode === 'list'"><span class="faint">{{ split(r.file.path).dir }}</span></template>{{ split(r.file.path).name }}
           </span>
+          <button
+            v-if="r.file.kind !== 'conflict' && !state.repo?.operation"
+            class="ghost row-act"
+            title="Descartar as alterações deste arquivo (volta a ficar como estava). Dá para recuperar depois."
+            @click.stop="discardFiles([r.file.path])"
+          >
+            <Icon name="trash" :size="13" />
+          </button>
           <span v-if="r.file.kind === 'conflict'" class="resolve" @click.stop>
             <button class="small" :disabled="!!state.busy" title="Ficar com a minha versão (local)" @click="resolveConflict(r.file.path, 'mine')">Minha</button>
             <button class="small" :disabled="!!state.busy" title="Ficar com a versão que veio do remoto" @click="resolveConflict(r.file.path, 'theirs')">Remota</button>
             <button class="small" :disabled="!!state.busy" title="Já editei o arquivo e resolvi os marcadores <<<<<<< / >>>>>>>" @click="resolveConflict(r.file.path, 'resolved')">Resolvido</button>
+            <button class="small ai-fix" :disabled="!!state.busy" title="A IA propõe como combinar as duas versões; você confere antes de usar" @click="resolveWithAi(r.file.path)"><Icon name="sparkles" :size="12" /> IA</button>
           </span>
         </div>
       </template>
@@ -211,6 +243,11 @@ onUnmounted(() => clearInterval(tick))
 .empty p { margin: 0; }
 .row { display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 8px; border-radius: 6px; cursor: pointer; }
 .row:hover { background: var(--hover); }
+.row-act { width: 24px; height: 22px; padding: 0; opacity: 0; flex: none; margin-left: auto; color: var(--muted); }
+.row:hover .row-act { opacity: 1; }
+.row-act:hover, .discard-sel:hover { color: var(--del); background: var(--del-bg) !important; }
+.row.dir .row-act + .n { margin-left: 0; }
+.discard-sel { width: 28px; height: 28px; color: var(--muted); }
 .dir .chev { color: var(--faint); transition: transform 0.12s; margin: 0 -3px; }
 .dir .chev.open { transform: rotate(90deg); }
 .dirname { font-weight: 600; font-size: 12.5px; }
@@ -220,6 +257,7 @@ onUnmounted(() => clearInterval(tick))
 .path { font-size: 12.5px; min-width: 0; }
 .resolve { display: flex; gap: 4px; margin-left: auto; flex: none; }
 .resolve button { height: 22px; padding: 0 8px; font-size: 11.5px; }
+.resolve .ai-fix { color: var(--accent); gap: 4px; }
 /* adapta à largura do painel (que encolhe quando o diff está aberto), não só da janela */
 @container (max-width: 560px) {
   .label-long { display: none; }

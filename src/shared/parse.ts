@@ -85,7 +85,7 @@ export function parseStatus(out: string): ParsedStatus {
   return res
 }
 
-export const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e'
+export const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%P%x1e'
 
 export function parseLog(out: string): CommitInfo[] {
   return out
@@ -93,8 +93,8 @@ export function parseLog(out: string): CommitInfo[] {
     .map((r) => r.trim())
     .filter(Boolean)
     .map((r) => {
-      const [hash, short, author, date, subject] = r.split('\x1f')
-      return { hash, short, author, date, subject }
+      const [hash, short, author, date, subject, parents = ''] = r.split('\x1f')
+      return { hash, short, author, date, subject, merge: parents.trim().split(' ').filter(Boolean).length > 1 }
     })
 }
 

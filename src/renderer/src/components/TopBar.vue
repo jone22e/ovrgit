@@ -2,6 +2,8 @@
 import logo from '../assets/logo.png'
 import { myDoingCount, openNewTask, refresh, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
+import AgentsIndicator from './AgentsIndicator.vue'
+import BranchSwitcher from './BranchSwitcher.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
 
 const switcherOpen = defineModel<boolean>('switcher', { default: false })
@@ -30,20 +32,18 @@ defineEmits<{ settings: [] }>()
 
     <template v-if="state.repo">
       <ProjectSwitcher v-model:open="switcherOpen" />
-      <span class="badge accent branch" :title="state.repo.upstream ? `upstream: ${state.repo.upstream}` : 'sem upstream'">
-        <Icon name="branch" :size="13" />
-        <span>{{ state.repo.branch ?? 'HEAD destacado' }}</span>
-      </span>
-      <span v-if="state.repo.ahead" class="badge wide-only" title="Commits locais ainda não enviados">
+      <BranchSwitcher />
+      <span v-if="state.repo.ahead" class="badge wide-only" title="Versões salvas no seu computador que ainda não foram enviadas">
         <Icon name="up" :size="12" />{{ state.repo.ahead }}
       </span>
-      <span v-if="state.repo.behind" class="badge wide-only" title="Commits no remoto ainda não baixados">
+      <span v-if="state.repo.behind" class="badge wide-only" title="Versões novas no servidor que você ainda não baixou">
         <Icon name="down" :size="12" />{{ state.repo.behind }}
       </span>
-      <span v-if="!state.repo.hasRemote" class="badge wide-only" title="Sem remote origin">local</span>
+      <span v-if="!state.repo.hasRemote" class="badge wide-only" title="Este projeto ainda não está em nenhum servidor">só no computador</span>
     </template>
 
     <span class="spacer" />
+    <AgentsIndicator />
 
     <template v-if="state.repo">
       <nav class="tabs nodrag">

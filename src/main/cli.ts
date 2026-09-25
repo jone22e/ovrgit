@@ -76,7 +76,8 @@ export function runCli(
   input: string,
   cwd: string,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  extraEnv: Record<string, string> = {}
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error('CANCELADO'))
@@ -85,7 +86,7 @@ export function runCli(
       cwd,
       shell,
       windowsHide: true,
-      env: { ...process.env, NO_COLOR: '1' }
+      env: { ...process.env, NO_COLOR: '1', ...extraEnv }
     })
     const out: Buffer[] = []
     const err: Buffer[] = []

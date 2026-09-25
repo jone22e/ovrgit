@@ -70,13 +70,13 @@ async function submit() {
 
     <label v-if="groupCount" class="commit-first">
       <input v-model="commitFirst" type="checkbox" />
-      Antes, criar os {{ groupCount }} commit{{ groupCount === 1 ? '' : 's' }} sugeridos pela IA
+      Antes, salvar as {{ groupCount }} {{ groupCount === 1 ? 'versão sugerida' : 'versões sugeridas' }} pela IA
     </label>
 
     <p v-if="error" class="warn">{{ error }}</p>
     <p v-else-if="!preview" class="faint loading"><span class="spinner" /> Buscando a versão atual do remoto…</p>
     <p v-else class="muted summary">
-      {{ preview.localCommits }} commit(s)<template v-if="preview.changedFiles">
+      {{ preview.localCommits }} versão(ões) salva(s)<template v-if="preview.changedFiles">
         e {{ preview.changedFiles }} arquivo(s)</template> vão para a nova branch<template
         v-if="preview.baseRef"
       >, sobre a versão atual de <span class="mono">{{ preview.baseRef }}</span><template v-if="preview.remoteNew">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { commit, generateMessage, ovseerReady, push, setMessage, state } from '../store'
+import { commit, generateMessage, ovseerReady, push, reviewWithAi, setMessage, state } from '../store'
+import PrStatus from './PrStatus.vue'
 import TaskPicker from './TaskPicker.vue'
 import Icon from './Icon.vue'
 
@@ -39,7 +40,7 @@ function onKey(e: KeyboardEvent) {
 <template>
   <footer class="bar">
     <div class="msg">
-      <label for="commit-msg">Mensagem do commit</label>
+      <label for="commit-msg">O que você fez?</label>
       <div class="msg-box">
       <textarea
         id="commit-msg"
@@ -47,7 +48,7 @@ function onKey(e: KeyboardEvent) {
         :value="state.message"
         rows="2"
         spellcheck="false"
-        :placeholder="nSelected ? 'Descreva as alterações…' : 'Selecione arquivos para commitar'"
+        :placeholder="nSelected ? 'Descreva as alterações… (ou use a IA ao lado)' : 'Marque os arquivos que quer salvar'"
         @input="setMessage(($event.target as HTMLTextAreaElement).value)"
         @keydown="onKey"
       />
@@ -55,7 +56,7 @@ function onKey(e: KeyboardEvent) {
         class="ghost icon ai-msg"
         :class="{ running: state.busy === 'message' }"
         :disabled="(!!state.busy && state.busy !== 'message') || !nSelected"
-        :title="state.busy === 'message' ? 'Gerando… clique para cancelar' : `Gerar mensagem com IA para ${nSelected} arquivo(s) selecionado(s)`"
+        :title="state.busy === 'message' ? 'Escrevendo… clique para cancelar' : `A IA escreve a descrição para os ${nSelected} arquivo(s) marcados`"
         @click="generateMessage"
       >
         <span v-if="state.busy === 'message'" class="spinner" />
@@ -65,25 +66,39 @@ function onKey(e: KeyboardEvent) {
     </div>
     <div class="actions">
       <span v-if="state.repo?.operation" class="op-hint muted">
-        Commits ficam bloqueados até concluir ou abortar o {{ state.repo.operation }} (faixa acima).
+        Resolva a faixa acima (juntar versões) para voltar a salvar.
       </span>
       <template v-else>
-      <button class="primary" :disabled="!canCommit" :title="`Commitar ${nSelected} arquivo(s) (${mod}+Enter)`" @click="commit">
+      <button
+        class="primary"
+        :disabled="!canCommit"
+        :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados, no seu computador. Para mandar para o servidor, use Enviar. (commit · ${mod}+Enter)`"
+        @click="commit"
+      >
         <span v-if="state.busy === 'commit'" class="spinner" />
         <Icon v-else name="commit" />
-        Commit<span v-if="nSelected" class="n">{{ nSelected }}</span>
+        Salvar versão<span v-if="nSelected" class="n">{{ nSelected }}</span>
       </button>
       <TaskPicker v-if="ovseerReady" v-model="state.commitTaskId" up />
+      <button
+        class="ghost review"
+        :disabled="!nSelected || !!state.busy"
+        title="A IA revisa as alterações marcadas e aponta possíveis problemas antes de salvar"
+        @click="reviewWithAi"
+      >
+        <Icon name="sparkles" :size="14" /> Revisar
+      </button>
       </template>
       <span class="gap" />
-      <button :disabled="!!state.busy || !state.repo?.branch || !!state.repo?.operation" title="Mover o trabalho local para uma branch de feature" @click="$emit('feature')">
+      <PrStatus />
+      <button :disabled="!!state.busy || !state.repo?.branch || !!state.repo?.operation" title="Separa o seu trabalho numa linha própria (branch), atualizada com a versão mais nova do servidor, e envia. Ideal para abrir um Pull Request." @click="$emit('feature')">
         <span v-if="state.busy === 'feature'" class="spinner" />
         <Icon v-else name="feature" />
         Criar Feature
       </button>
       <button
         :disabled="!!state.busy || !!state.repo?.operation || !state.repo?.published"
-        :title="state.repo?.published ? 'Baixar alterações do remoto (git pull)' : 'A branch ainda não existe no remoto'"
+        :title="state.repo?.published ? 'Traz para o seu computador o que outras pessoas enviaram ao servidor (pull)' : 'Esta linha de trabalho ainda não existe no servidor: envie primeiro'"
         @click="$emit('pull')"
       >
         <span v-if="state.busy === 'pull'" class="spinner" />
@@ -93,7 +108,7 @@ function onKey(e: KeyboardEvent) {
       <button
         v-if="sendMode === 'send'"
         :disabled="!!state.busy || !!state.repo?.operation"
-        title="Enviar commits para o remoto (git push)"
+        title="Manda as versões salvas no seu computador para o servidor, onde a equipe vê (push)"
         @click="push"
       >
         <span v-if="state.busy === 'push'" class="spinner" />
@@ -106,8 +121,8 @@ function onKey(e: KeyboardEvent) {
         :disabled="!!state.busy || !!state.repo?.operation || !state.repo?.hasCommits"
         :title="
           sendMode === 'publishRepo'
-            ? 'Este repositório ainda não tem servidor remoto: publicar no GitHub ou em uma URL'
-            : `A branch ${state.repo?.branch} ainda não existe no remoto: publicar (git push -u origin ${state.repo?.branch})`
+            ? 'Este projeto ainda não está em nenhum servidor: publicar no GitHub ou em outro endereço'
+            : `A linha de trabalho ${state.repo?.branch} ainda não está no servidor: enviar pela primeira vez (git push -u)`
         "
         @click="sendMode === 'publishRepo' ? $emit('publish') : push()"
       >

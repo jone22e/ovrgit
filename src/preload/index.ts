@@ -1,14 +1,45 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AuthEvent, OvrGitApi } from '../shared/types'
+import type { AgentSession, AuthEvent, OvrGitApi } from '../shared/types'
 
 const api: OvrGitApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
   loadProject: (p) => ipcRenderer.invoke('project:load', p),
+  githubRepos: () => ipcRenderer.invoke('clone:repos'),
+  cloneDefaults: () => ipcRenderer.invoke('clone:defaults'),
+  pickFolder: (defaultPath) => ipcRenderer.invoke('dialog:pickFolder', defaultPath),
+  cloneRepo: (url, parent, name) => ipcRenderer.invoke('clone:run', url, parent, name),
+  cancelClone: () => ipcRenderer.invoke('clone:cancel'),
+  onCloneProgress: (cb) => {
+    const h = (_e: unknown, p: { phase: string; percent: number | null }) => cb(p)
+    ipcRenderer.on('clone:progress', h)
+    return () => ipcRenderer.off('clone:progress', h)
+  },
   projectIcon: (p) => ipcRenderer.invoke('project:icon', p),
   status: () => ipcRenderer.invoke('git:status'),
   diff: (f) => ipcRenderer.invoke('git:diff', f),
   log: (limit) => ipcRenderer.invoke('git:log', limit),
-  analyze: (force) => ipcRenderer.invoke('ai:analyze', force),
+  discard: (files) => ipcRenderer.invoke('safe:discard', files),
+  undoLastCommit: () => ipcRenderer.invoke('safe:undo'),
+  editLastMessage: (msg) => ipcRenderer.invoke('safe:editMessage', msg),
+  savedChanges: () => ipcRenderer.invoke('safe:list'),
+  branches: () => ipcRenderer.invoke('branch:list'),
+  pullRequest: () => ipcRenderer.invoke('pr:current'),
+  quickCheck: (files) => ipcRenderer.invoke('assist:check', files),
+  aiReview: (files) => ipcRenderer.invoke('assist:review', files),
+  explainCommit: (hash) => ipcRenderer.invoke('assist:explain', hash),
+  proposeResolution: (file) => ipcRenderer.invoke('assist:propose', file),
+  applyResolution: (file, content) => ipcRenderer.invoke('assist:apply', file, content),
+  deliveryReport: (plan, commits) => ipcRenderer.invoke('assist:delivery', plan, commits),
+  draftPullRequest: (taskInfo) => ipcRenderer.invoke('pr:draft', taskInfo),
+  createPullRequest: (input) => ipcRenderer.invoke('pr:create', input),
+  mergePullRequest: (method) => ipcRenderer.invoke('pr:merge', method),
+  switchBranch: (name, mode) => ipcRenderer.invoke('branch:switch', name, mode),
+  createBranch: (name) => ipcRenderer.invoke('branch:create', name),
+  cleanupCandidates: () => ipcRenderer.invoke('branch:cleanup'),
+  deleteBranches: (names) => ipcRenderer.invoke('branch:delete', names),
+  restoreSaved: (ref) => ipcRenderer.invoke('safe:restore', ref),
+  dropSaved: (ref) => ipcRenderer.invoke('safe:drop', ref),
+  analyze: (force, tasks) => ipcRenderer.invoke('ai:analyze', force, tasks),
   cancelAnalysis: () => ipcRenderer.invoke('ai:cancel'),
   commitMessage: (files) => ipcRenderer.invoke('ai:message', files),
   savedAnalysis: () => ipcRenderer.invoke('analysis:get'),
@@ -19,6 +50,7 @@ const api: OvrGitApi = {
   continueOperation: () => ipcRenderer.invoke('git:continue'),
   openInEditor: () => ipcRenderer.invoke('editor:open'),
   commit: (files, message) => ipcRenderer.invoke('git:commit', files, message),
+  commitPartial: (full, partial, message) => ipcRenderer.invoke('git:commitPartial', full, partial, message),
   commitGroups: (groups) => ipcRenderer.invoke('git:commitGroups', groups),
   pull: (stash) => ipcRenderer.invoke('git:pull', stash),
   push: () => ipcRenderer.invoke('git:push'),
@@ -47,7 +79,12 @@ const api: OvrGitApi = {
     ipcRenderer.on('menu', h)
     return () => ipcRenderer.off('menu', h)
   },
-  termCreate: (cols, rows) => ipcRenderer.invoke('term:create', cols, rows),
+  termCreate: (cols, rows, spec) => ipcRenderer.invoke('term:create', cols, rows, spec),
+  pickSshKey: () => ipcRenderer.invoke('ssh:pickKey'),
+  listSshKeys: () => ipcRenderer.invoke('ssh:listKeys'),
+  sshImportConfig: () => ipcRenderer.invoke('ssh:importConfig'),
+  sshImportCsv: (text) => ipcRenderer.invoke('ssh:importCsv', text),
+  pickTextFile: () => ipcRenderer.invoke('dialog:pickText'),
   termWrite: (id, data) => ipcRenderer.send('term:write', id, data),
   termResize: (id, cols, rows) => ipcRenderer.send('term:resize', id, cols, rows),
   termKill: (id) => ipcRenderer.invoke('term:kill', id),
@@ -72,6 +109,12 @@ const api: OvrGitApi = {
   ovseerLive: (on) => ipcRenderer.invoke('ovseer:live', on),
   ovseerDelivery: (taskId) => ipcRenderer.invoke('ovseer:delivery', taskId),
   ovseerSubmitDelivery: (taskId, input) => ipcRenderer.invoke('ovseer:submitDelivery', taskId, input),
+  ovseerTaskDetail: (id) => ipcRenderer.invoke('ovseer:task', id),
+  ovseerSetStatus: (id, status, ack) => ipcRenderer.invoke('ovseer:setStatus', id, status, ack),
+  ovseerAttachmentUrl: (id, index) => ipcRenderer.invoke('ovseer:attachmentUrl', id, index),
+  ovseerApprovalAudioUrl: (id) => ipcRenderer.invoke('ovseer:approvalAudioUrl', id),
+  ovseerComments: (id) => ipcRenderer.invoke('ovseer:comments', id),
+  startTaskBranch: (key, title) => ipcRenderer.invoke('task:branch', key, title),
   ovseerUpload: (taskId, file, purpose) => ipcRenderer.invoke('ovseer:upload', taskId, file, purpose),
   requestMicrophone: () => ipcRenderer.invoke('media:microphone'),
   onOvseerChange: (cb) => {
@@ -83,6 +126,19 @@ const api: OvrGitApi = {
     const h = (_e: unknown, live: boolean) => cb(live)
     ipcRenderer.on('ovseer:liveState', h)
     return () => ipcRenderer.off('ovseer:liveState', h)
+  },
+  agents: () => ipcRenderer.invoke('agents:list'),
+  projectsOverview: (roots) => ipcRenderer.invoke('projects:overview', roots),
+  setWatchAgents: (on) => ipcRenderer.invoke('agents:enable', on),
+  onAgents: (cb) => {
+    const h = (_e: unknown, list: AgentSession[]) => cb(list)
+    ipcRenderer.on('agents:update', h)
+    return () => ipcRenderer.off('agents:update', h)
+  },
+  onAgentFinished: (cb) => {
+    const h = (_e: unknown, s: AgentSession) => cb(s)
+    ipcRenderer.on('agents:finished', h)
+    return () => ipcRenderer.off('agents:finished', h)
   },
   setWindowTheme: (background, symbols) => ipcRenderer.send('window:theme', background, symbols),
   platform: process.platform
