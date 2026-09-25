@@ -1,0 +1,143 @@
+:root {
+  --accent: #a974f8;
+  --accent-strong: #9459f0;
+  --accent-soft: rgba(169, 116, 248, 0.14);
+  --on-accent: #ffffff;
+
+  --bg: #f6f5f8;
+  --panel: #ffffff;
+  --panel-2: #f1eff5;
+  --hover: #ece9f2;
+  --border: #e3e0ea;
+  --text: #1d1a24;
+  --muted: #6d6778;
+  --faint: #9a94a6;
+
+  --add: #1f8a4c;
+  --add-bg: rgba(46, 160, 67, 0.12);
+  --del: #c93c37;
+  --del-bg: rgba(248, 81, 73, 0.12);
+  --mod: #b7791f;
+  --hunk: #6b5bd6;
+  --hunk-bg: rgba(107, 91, 214, 0.08);
+
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace;
+  --titlebar: 48px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-soft: rgba(169, 116, 248, 0.18);
+    --bg: #15131a;
+    --panel: #1c1a22;
+    --panel-2: #23202b;
+    --hover: #2a2733;
+    --border: #312d3b;
+    --text: #ece9f2;
+    --muted: #a9a3b8;
+    --faint: #767085;
+    --add: #56d364;
+    --add-bg: rgba(46, 160, 67, 0.16);
+    --del: #ff7b72;
+    --del-bg: rgba(248, 81, 73, 0.16);
+    --mod: #e3b341;
+    --hunk: #b4a4ff;
+    --hunk-bg: rgba(169, 116, 248, 0.1);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { opacity: 0.45; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
+button.ghost { background: transparent; border-color: transparent; }
+button.ghost:hover:not(:disabled) { background: var(--hover); }
+button.icon { width: 32px; padding: 0; }
+button.small { height: 26px; padding: 0 10px; font-size: 12px; }
+
+input[type='text'], textarea, select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  user-select: text;
+}
+textarea { resize: none; }
+input[type='checkbox'] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; cursor: pointer; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px;
+  border-radius: 11px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px; font-weight: 500;
+}
+.badge.accent { background: var(--accent-soft); color: var(--accent); }
+
+.kind { font-family: var(--mono); font-size: 11px; font-weight: 700; width: 14px; text-align: center; flex: none; }
+.kind.added, .kind.untracked { color: var(--add); }
+.kind.deleted { color: var(--del); }
+.kind.modified, .kind.typechange { color: var(--mod); }
+.kind.renamed { color: var(--hunk); }
+.kind.conflict { color: var(--del); }
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.mono { font-family: var(--mono); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
