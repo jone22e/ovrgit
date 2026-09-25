@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { AiProvider, ProviderStatus } from '@shared/types'
 import { api, saveSettings, state } from '../store'
 import AccountPanel from './AccountPanel.vue'
@@ -8,7 +8,55 @@ import Modal from './Modal.vue'
 const emit = defineEmits<{ close: [] }>()
 const s = state.settings!
 const provider = ref<AiProvider>(s.provider)
-const claudeModel = ref(s.claudeModel)
+// Apelidos seguem sempre o modelo mais novo; IDs exatos fixam a versão
+const CLAUDE_ALIASES = [
+  { id: 'sonnet', label: 'Sonnet: equilíbrio (recomendado)' },
+  { id: 'haiku', label: 'Haiku: mais rápido' },
+  { id: 'opus', label: 'Opus: mais capaz' },
+  { id: 'fable', label: 'Fable: o mais capaz' }
+]
+// Versões exatas por família, da mais nova para a mais antiga
+const CLAUDE_FAMILIES: { family: string; models: { id: string; label: string }[] }[] = [
+  {
+    family: 'Fable',
+    models: [
+      { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+      { id: 'claude-fable-5', label: 'Fable 5' }
+    ]
+  },
+  {
+    family: 'Opus',
+    models: [
+      { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+      { id: 'claude-opus-4-7', label: 'Opus 4.7' },
+      { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+      { id: 'claude-opus-4-5-20251101', label: 'Opus 4.5' },
+      { id: 'claude-opus-4-1-20250805', label: 'Opus 4.1' },
+      { id: 'claude-opus-4-20250514', label: 'Opus 4' }
+    ]
+  },
+  {
+    family: 'Sonnet',
+    models: [
+      { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+      { id: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5' },
+      { id: 'claude-sonnet-4-20250514', label: 'Sonnet 4' }
+    ]
+  },
+  {
+    family: 'Haiku',
+    models: [{ id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' }]
+  }
+]
+const CLAUDE_EXACT = CLAUDE_FAMILIES.flatMap((f) => f.models)
+const CUSTOM = '__custom__'
+const known = new Set(['', ...CLAUDE_ALIASES.map((m) => m.id), ...CLAUDE_EXACT.map((m) => m.id)])
+const claudeChoice = ref(known.has(s.claudeModel) ? s.claudeModel : CUSTOM)
+const claudeCustom = ref(known.has(s.claudeModel) ? '' : s.claudeModel)
+const claudeResolved = computed(() => (claudeChoice.value === CUSTOM ? claudeCustom.value.trim() : claudeChoice.value))
+const isAlias = computed(() => CLAUDE_ALIASES.some((m) => m.id === claudeResolved.value))
 const codexModel = ref(s.codexModel)
 const url = ref(s.ollamaUrl)
 const model = ref(s.model)
@@ -51,7 +99,7 @@ function available(id: AiProvider): boolean | null {
 async function save() {
   await saveSettings({
     provider: provider.value,
-    claudeModel: claudeModel.value.trim(),
+    claudeModel: claudeResolved.value,
     codexModel: codexModel.value.trim(),
     ollamaUrl: url.value.trim(),
     model: model.value
@@ -86,12 +134,28 @@ async function save() {
     <div v-if="provider === 'claude'" class="section">
       <AccountPanel provider="claude" />
       <label for="claude-model">Modelo</label>
-      <select id="claude-model" v-model="claudeModel">
-        <option value="sonnet">Sonnet (recomendado)</option>
-        <option value="haiku">Haiku (mais rápido)</option>
-        <option value="opus">Opus (mais capaz)</option>
+      <select id="claude-model" v-model="claudeChoice">
+        <optgroup label="Sempre a versão mais recente">
+          <option v-for="m in CLAUDE_ALIASES" :key="m.id" :value="m.id">{{ m.label }}</option>
+        </optgroup>
+        <optgroup v-for="f in CLAUDE_FAMILIES" :key="f.family" :label="`${f.family} · versão fixa`">
+          <option v-for="m in f.models" :key="m.id" :value="m.id">{{ m.label }} · {{ m.id }}</option>
+        </optgroup>
         <option value="">Padrão da conta</option>
+        <option :value="CUSTOM">Outro (digitar o ID)…</option>
       </select>
+      <input
+        v-if="claudeChoice === CUSTOM"
+        v-model="claudeCustom"
+        type="text"
+        class="mono"
+        placeholder="ex.: claude-opus-5-5"
+        spellcheck="false"
+      />
+      <p class="faint">
+        Enviado ao Claude Code como <span class="mono">--model {{ claudeResolved || '(padrão)' }}</span>.
+        <template v-if="isAlias">O apelido acompanha as versões novas automaticamente.</template>
+      </p>
     </div>
 
     <div v-else-if="provider === 'codex'" class="section">
