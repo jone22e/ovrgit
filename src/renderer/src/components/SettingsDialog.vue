@@ -348,7 +348,7 @@ async function save() {
 .swatch.system { flex-direction: row; border-color: var(--border); }
 .half { flex: 1; display: flex; align-items: flex-end; padding: 0 6px 8px; }
 .half.light { background: #f6f5f8; }
-.half.dark { background: #15131a; }
+.half.dark { background: #1e1e1e; }
 .half .pill { background: #a974f8; }
 .theme-name { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .providers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

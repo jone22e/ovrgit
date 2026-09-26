@@ -96,7 +96,7 @@ export function cancelLogin() {
 }
 
 const PAGE = (title: string, text: string) => `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
-<title>${title}</title><body style="font-family:system-ui;background:#15131a;color:#ece9f2;display:grid;place-items:center;height:100vh;margin:0">
+<title>${title}</title><body style="font-family:system-ui;background:#1e1e1e;color:#e5e5e5;display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center"><h1 style="font-size:22px">${title}</h1><p style="color:#a9a3b8">${text}</p></div></body></html>`
 
 /** Abre o navegador para autorizar o OvrGit no Ovseer e aguarda o token (até 5 minutos). */

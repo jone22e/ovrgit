@@ -80,7 +80,8 @@ async function openInEditor(dir: string): Promise<string> {
 function initialBackground(): string {
   const theme = findTheme(getSettings().theme)
   if (theme.colors) return theme.colors.bg
-  return nativeTheme.shouldUseDarkColors ? '#15131a' : '#f6f5f8'
+  if (!nativeTheme.shouldUseDarkColors) return '#f6f5f8'
+  return process.platform === 'win32' ? '#202020' : '#1e1e1e'
 }
 
 /** Liga o acompanhamento das tarefas do Codex e repassa para a janela. */

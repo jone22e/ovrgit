@@ -30,25 +30,41 @@
   color-scheme: light;
 }
 
+/* escuro: os mesmos cinzas neutros do sistema (macOS por padrão; Windows 11 logo abaixo) */
 @media (prefers-color-scheme: dark) {
   :root {
     --accent-soft: rgba(169, 116, 248, 0.18);
-    --bg: #15131a;
-    --panel: #1c1a22;
-    --panel-2: #23202b;
-    --hover: #2a2733;
-    --border: #312d3b;
-    --text: #ece9f2;
-    --muted: #a9a3b8;
-    --faint: #767085;
-    --add: #56d364;
-    --add-bg: rgba(46, 160, 67, 0.16);
-    --del: #ff7b72;
-    --del-bg: rgba(248, 81, 73, 0.16);
-    --mod: #e3b341;
+    --bg: #1e1e1e;
+    --panel: #242424;
+    --panel-2: #2c2c2c;
+    --hover: #333333;
+    --border: #3a3a3a;
+    --text: #e5e5e5;
+    --muted: #a1a1a1;
+    --faint: #6e6e6e;
+    --add: #32d74b;
+    --add-bg: rgba(50, 215, 75, 0.14);
+    --del: #ff453a;
+    --del-bg: rgba(255, 69, 58, 0.15);
+    --mod: #ff9f0a;
     --hunk: #b4a4ff;
     --hunk-bg: rgba(169, 116, 248, 0.1);
     color-scheme: dark;
+  }
+  :root[data-platform='win32'] {
+    --bg: #202020;
+    --panel: #272727;
+    --panel-2: #2d2d2d;
+    --hover: #383838;
+    --border: #3d3d3d;
+    --text: #e8e8e8;
+    --muted: #a3a3a3;
+    --faint: #717171;
+    --add: #6ccb5f;
+    --add-bg: rgba(108, 203, 95, 0.14);
+    --del: #ff99a4;
+    --del-bg: rgba(255, 153, 164, 0.14);
+    --mod: #fce100;
   }
 }
 
