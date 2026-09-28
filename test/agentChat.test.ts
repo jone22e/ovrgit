@@ -219,8 +219,16 @@ describe('perguntas ao usuário', () => {
     const r = splitQuestions(text)
     expect(r.text).toBe('Feito.')
     expect(r.questions).toEqual([
-      { text: 'Você autoriza o deploy?', options: ['Sim, autorizo', 'Não, deixe no código'] },
-      { text: 'Publicar no relato?', options: ['Sim', 'Não'] }
+      { text: 'Você autoriza o deploy?', options: [{ label: 'Sim, autorizo' }, { label: 'Não, deixe no código' }] },
+      { text: 'Publicar no relato?', options: [{ label: 'Sim' }, { label: 'Não' }] }
+    ])
+  })
+  it('lê explicação e marca de recomendado nas opções', () => {
+    const r = splitQuestions('```question\nQual cálculo?\n- 1 ponto da venda (recomendado) — ceder 1% reduz de 5% para 4%\n- Somente em R$ - mantém o campo atual\n- Outro\n```')
+    expect(r.questions[0].options).toEqual([
+      { label: '1 ponto da venda', detail: 'ceder 1% reduz de 5% para 4%', recommended: true },
+      { label: 'Somente em R$', detail: 'mantém o campo atual' },
+      { label: 'Outro' }
     ])
   })
   it('esconde um bloco ainda aberto enquanto a resposta chega', () => {
@@ -228,8 +236,9 @@ describe('perguntas ao usuário', () => {
     expect(splitQuestions('```js\nconst a = 1\n```').text).toContain('const a = 1')
   })
   it('formata as respostas', () => {
-    const qs = [{ text: 'A?', options: ['x'] }, { text: 'B?', options: ['y'] }]
+    const qs = [{ text: 'A?', options: [{ label: 'x' }] }, { text: 'B?', options: [{ label: 'y' }] }]
     expect(formatAnswers(qs.slice(0, 1), ['x'])).toBe('x')
     expect(formatAnswers(qs, ['x', 'outra coisa'])).toBe('Respostas:\n1. A?\n   → x\n2. B?\n   → outra coisa')
+    expect(formatAnswers(qs, ['x', undefined])).toBe('Respostas:\n1. A?\n   → x\n2. B?\n   → (sem resposta)')
   })
 })

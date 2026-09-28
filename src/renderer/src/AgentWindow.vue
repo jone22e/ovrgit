@@ -77,7 +77,6 @@ const effort = ref<AgentEffort>('high')
 const mode = ref<AgentMode>('safe')
 const thread = ref<HTMLElement>()
 const box = ref<HTMLTextAreaElement>()
-const otherInput = ref<HTMLInputElement>()
 const fatal = ref<string | null>(null)
 const offs: (() => void)[] = []
 
@@ -152,7 +151,7 @@ const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error
  * ativo; em vezes já respondidas, ficam como texto comum (pergunta em negrito e opções em lista). */
 function md(text: string, card: boolean) {
   const { text: rest, questions: qs } = splitQuestions(text)
-  const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o}`).join('\n')}`).join('')
+  const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
   return withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
 }
 const SVG = (d: string) =>
@@ -184,27 +183,37 @@ const questions = computed<AgentQuestion[]>(() => {
   if (!t || t.running || running.value) return []
   return t.blocks.flatMap((b) => (b.kind === 'text' ? splitQuestions(b.text).questions : []))
 })
-const answers = reactive<string[]>([])
-const otherOpen = ref(false)
+/** Decisão por pergunta: texto escolhido, null = pulada, ausente = ainda não vista */
+const decided = reactive<(string | null | undefined)[]>([])
+/** Pergunta em exibição (as setas navegam entre elas) */
+const qi = ref(0)
+const askOpen = ref(true)
 const otherText = ref('')
 const questionTurn = computed(() => turns[turns.length - 1]?.id)
 watch(questionTurn, () => {
-  answers.splice(0)
-  otherOpen.value = false
+  decided.splice(0)
+  qi.value = 0
+  askOpen.value = true
   otherText.value = ''
 })
-const question = computed(() => questions.value[answers.length])
-async function answer(choice: string) {
-  const text = choice.trim()
-  if (!text || !question.value) return
-  answers.push(text)
-  otherOpen.value = false
-  otherText.value = ''
-  if (answers.length < questions.value.length) return
-  // todas respondidas: vai numa mensagem só
+const question = computed(() => questions.value[qi.value])
+const showAsk = computed(() => askOpen.value && !!question.value)
+/** Escolhe (ou pula, com null) a pergunta atual; segue para a próxima sem decisão, ou envia tudo numa mensagem só */
+async function decide(choice: string | null) {
   const qs = questions.value
-  const body = formatAnswers(qs, [...answers])
-  await dispatch({ id: crypto.randomUUID(), body, attachments: [] })
+  if (!qs.length) return
+  decided[qi.value] = choice === null ? null : choice.trim() || null
+  otherText.value = ''
+  const next = qs.findIndex((_, j) => decided[j] === undefined)
+  if (next >= 0) {
+    qi.value = next
+    return
+  }
+  const answers = qs.map((_, j) => decided[j] ?? undefined)
+  askOpen.value = false
+  // tudo pulado: nada a dizer ao agente
+  if (!answers.some(Boolean)) return
+  await dispatch({ id: crypto.randomUUID(), body: formatAnswers(qs, answers), attachments: [] })
 }
 
 // ---------- título: a IA dá um depois da primeira resposta; o usuário pode renomear ----------
@@ -812,7 +821,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
-            <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && !!question)" />
+            <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
             <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
               <!-- linha discreta: enquanto roda mostra o que está fazendo; depois, só o resumo. Clique abre a lista. -->
               <button type="button" class="ghost tools-line" @click="toggleGroup(b.key)">
@@ -858,25 +867,30 @@ onUnmounted(() => offs.forEach((f) => f()))
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
             <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
           </p>
-          <div v-if="t.id === questionTurn && question" class="ask">
-            <div v-for="(a, i) in answers" :key="i" class="ask-done">
-              <Icon name="check" :size="12" class="ok" />
-              <span class="ellipsis" :title="questions[i].text">{{ questions[i].text }}</span>
-              <b class="ellipsis">{{ a }}</b>
-            </div>
+          <div v-if="t.id === questionTurn && showAsk && question" class="ask">
             <div class="ask-head">
-              <Icon name="sparkles" :size="12" />
-              <span v-if="questions.length > 1">Pergunta {{ answers.length + 1 }} de {{ questions.length }}</span>
-              <span v-else>O agente pergunta</span>
+              <p class="ask-q">{{ question.text }}</p>
+              <span v-if="questions.length > 1" class="ask-nav">
+                <button type="button" class="ghost nav" title="Pergunta anterior" :disabled="qi === 0" @click="qi--"><Icon name="chevron" :size="13" class="prev" /></button>
+                <span class="ask-count">{{ qi + 1 }} de {{ questions.length }}</span>
+                <button type="button" class="ghost nav" title="Próxima pergunta" :disabled="qi === questions.length - 1" @click="qi++"><Icon name="chevron" :size="13" /></button>
+              </span>
+              <button type="button" class="ghost nav" title="Fechar: responda pelo campo de mensagem" @click="askOpen = false"><Icon name="x" :size="13" /></button>
             </div>
-            <p class="ask-q">{{ question.text }}</p>
             <div class="ask-opts">
-              <button v-for="o in question.options" :key="o" type="button" class="ask-opt" @click="answer(o)">{{ o }}</button>
-              <button type="button" class="ask-opt other" :class="{ on: otherOpen }" @click="(otherOpen = !otherOpen), otherOpen && nextTick(() => otherInput?.focus())">Outro…</button>
+              <button v-for="(o, i) in question.options" :key="o.label" type="button" class="ghost ask-opt" :class="{ cur: decided[qi] === o.label }" @click="decide(o.label)">
+                <span class="num">{{ i + 1 }}</span>
+                <span class="opt-body">
+                  <span class="opt-label">{{ o.label }}<span v-if="o.recommended" class="pill">Recomendado</span></span>
+                  <span v-if="o.detail" class="opt-detail">{{ o.detail }}</span>
+                </span>
+              </button>
             </div>
-            <form v-if="otherOpen" class="ask-other" @submit.prevent="answer(otherText)">
-              <input ref="otherInput" v-model="otherText" type="text" placeholder="Sua resposta" maxlength="2000" />
-              <button type="submit" class="primary small" :disabled="!otherText.trim()">Responder</button>
+            <form class="ask-other" @submit.prevent="otherText.trim() && decide(otherText)">
+              <Icon name="pencil" :size="13" class="pen" />
+              <input v-model="otherText" type="text" :placeholder="`Não, e diga ao ${providerName} o que fazer diferente`" maxlength="2000" />
+              <button v-if="otherText.trim()" type="submit" class="small primary">Responder</button>
+              <button v-else type="button" class="small skip" @click="decide(null)">Pular</button>
             </form>
           </div>
         </div>
@@ -1100,19 +1114,31 @@ onUnmounted(() => offs.forEach((f) => f()))
 .err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
 .meta { margin: 0; font-size: 11px; }
 /* cartão de pergunta do agente */
-.ask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); max-width: 640px; }
-.ask-done { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
-.ask-done .ok { color: var(--add); flex: none; }
-.ask-done b { color: var(--text); font-weight: 600; flex: none; max-width: 50%; }
-.ask-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.02em; }
-.ask-q { margin: 0; font-size: 13.5px; line-height: 1.5; user-select: text; }
-.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
-.ask-opt { height: auto; min-height: 30px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; white-space: normal; text-align: left; background: var(--panel); }
-.ask-opt:hover:not(:disabled) { border-color: var(--accent); }
-.ask-opt.other { color: var(--muted); }
-.ask-opt.other.on { border-color: var(--accent); color: var(--text); }
-.ask-other { display: flex; gap: 6px; }
-.ask-other input { flex: 1; min-width: 0; height: 30px; }
+.ask { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); max-width: 640px; }
+.ask-head { display: flex; align-items: flex-start; gap: 8px; }
+.ask-q { margin: 0; flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.45; user-select: text; }
+.ask-nav { display: inline-flex; align-items: center; gap: 2px; flex: none; color: var(--muted); }
+.ask-count { font-size: 11.5px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.nav { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--muted); flex: none; }
+.nav:hover:not(:disabled) { color: var(--text); }
+.nav:disabled { opacity: 0.3; }
+.nav .prev { transform: rotate(180deg); }
+.ask-opts { display: flex; flex-direction: column; gap: 2px; }
+.ask-opt { height: auto; padding: 7px 8px; border-radius: 10px; justify-content: flex-start; align-items: flex-start; gap: 12px; text-align: left; white-space: normal; color: var(--text); }
+.ask-opt.cur { background: var(--accent-soft); }
+.ask-opt .num { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); margin-top: 1px; }
+.ask-opt:hover .num, .ask-opt.cur .num { color: var(--text); border-color: var(--accent); }
+.opt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.opt-label { font-size: 13.5px; font-weight: 600; line-height: 1.45; }
+.opt-detail { font-size: 12.5px; line-height: 1.45; color: var(--muted); font-weight: 400; }
+.pill { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); vertical-align: 1px; }
+.ask-other { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
+.ask-other:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.ask-other .pen { color: var(--faint); flex: none; }
+.ask-other input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; padding: 0; font-size: 13px; }
+.ask-other input:focus { box-shadow: none; }
+.ask-other .small { height: 26px; border-radius: 999px; flex: none; }
+.ask-other .skip { background: var(--panel); }
 
 .composer {
   flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
