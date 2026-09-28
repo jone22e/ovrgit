@@ -537,6 +537,7 @@ function registerIpc() {
     agentChat.saveBlob(String(uid), String(file?.name ?? 'arquivo').slice(0, 120), String(file?.type ?? ''), new Uint8Array(file.data))
   )
   ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
+  ipcMain.handle('agent:new', (_e, uid: string) => agentChat.newChat(String(uid)))
   ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[]) =>
     agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [])
   )

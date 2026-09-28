@@ -867,6 +867,25 @@ export async function generateTitle(provider: CliProvider, request: string, answ
   }
 }
 
+/** Zera a janela para uma conversa nova com o mesmo agente: encerra a resposta em curso e esquece a sessão do CLI. */
+export async function newChat(uid: string) {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  if (w.child) {
+    terminate(w.child, w.info.provider)
+    await w.exited
+  }
+  w.info.sessionId = null
+  w.info.resumeId = undefined
+  w.info.firstMessage = undefined
+  w.info.title = ''
+  w.info.renamed = false
+  w.info.running = false
+  w.turnDone = true
+  if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+  broadcastWindows()
+}
+
 export function cancelAgent(uid: string) {
   const w = wins.get(uid)
   if (w?.child) terminate(w.child, w.info.provider)

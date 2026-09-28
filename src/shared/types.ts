@@ -673,6 +673,8 @@ export interface OvseerApi {
   agentInfo(uid: string): Promise<AgentWindowInfo | null>
   agentSend(uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]): Promise<void>
   agentCancel(uid: string): Promise<void>
+  /** Conversa nova na mesma janela, com o mesmo agente (interrompe a resposta em curso) */
+  agentNewChat(uid: string): Promise<void>
   /** Entrega a mensagem ao agente no meio da resposta, sem interromper (só Claude). false: não havia resposta em andamento */
   agentSteer(uid: string, text: string, attachments?: AgentAttachment[]): Promise<boolean>
   /** Escolher arquivos para anexar (diálogo do sistema) */

@@ -292,7 +292,8 @@ function apply(ev: AgentChatEvent) {
     t.running = false
     t.thinking = false
     t.error = ev.error
-    t.durationMs = ev.durationMs
+    // Codex não informa a duração: conta a partir do início da vez
+    t.durationMs = ev.durationMs ?? (t.startedAt ? Date.now() - t.startedAt : undefined)
     t.costUsd = ev.costUsd
     running.value = false
     // texto vazio no fim: tira o bloco; o CLI repete o erro como texto: fica só a caixa de erro
@@ -535,6 +536,19 @@ function stop() {
   api.agentCancel(uid)
 }
 
+/** Conversa nova nesta janela, com o mesmo agente: o processo reinicia a página sem sessão e sem transcrição local */
+async function newChat() {
+  if (running.value && !confirm('O agente ainda está trabalhando. Interromper e começar uma conversa nova?')) return
+  try {
+    await api.agentNewChat(uid)
+  } catch (e) {
+    fatal.value = e instanceof Error ? e.message : String(e)
+    return
+  }
+  sessionStorage.removeItem(STORE)
+  location.reload()
+}
+
 /** Com o agente ocupado, o botão de enviar escolhe entre pôr na fila (padrão) e interromper para enviar agora.
  * A escolha vale para a resposta atual: quando o agente termina, volta para a fila. */
 type SendAction = 'queue' | 'now'
@@ -743,6 +757,9 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <span class="spacer" />
+      <button v-if="turns.length" type="button" class="ghost icon new-chat" title="Nova conversa com este agente" @click="newChat">
+        <Icon name="plus" :size="14" />
+      </button>
       <span class="status" :class="statusKind" :title="statusTitle">
         <span class="ball">
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
@@ -959,6 +976,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 .sub { display: block; font-size: 11px; color: var(--muted); min-width: 0; }
 .sub svg { vertical-align: -1px; }
 .spacer { flex: 0 0 8px; }
+.new-chat { width: 26px; height: 26px; border-radius: 8px; color: var(--muted); flex: none; margin-right: 6px; -webkit-app-region: no-drag; }
+.new-chat:hover { color: var(--text); }
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); -webkit-app-region: no-drag; }
 .ball { width: 14px; height: 14px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--faint); color: #fff; }
 .status.idle .ball { background: var(--faint); opacity: 0.6; }
