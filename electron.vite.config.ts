@@ -10,6 +10,7 @@ export default defineConfig({
     resolve: { alias: { '@shared': resolve('src/shared') } }
   },
   renderer: {
+    server: { port: 15173 },
     resolve: {
       alias: {
         '@shared': resolve('src/shared'),
