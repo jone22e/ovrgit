@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentHistoryItem, AgentTurn, AgentWindowInfo } from '../shared/types'
+import type { AgentHistoryItem, AgentTurn, AgentWindowInfo, WindowBounds } from '../shared/types'
 
 /**
  * Histórico das conversas abertas pelo Ovseer. A sessão em si fica com o CLI (é retomada por id);
@@ -14,12 +14,15 @@ const indexFile = () => path.join(dir(), 'index.json')
 const transcriptFile = (sessionId: string) => path.join(dir(), `${sessionId.replace(/[^\w-]/g, '_')}.json`)
 
 let cache: AgentHistoryItem[] | null = null
+/** Janela de agente fechada por último: ponto de partida para conversas novas */
+let last: WindowBounds | null = null
 
 function load(): AgentHistoryItem[] {
   if (cache) return cache
   try {
-    const raw = JSON.parse(readFileSync(indexFile(), 'utf8')) as { items?: AgentHistoryItem[] }
+    const raw = JSON.parse(readFileSync(indexFile(), 'utf8')) as { items?: AgentHistoryItem[]; lastBounds?: WindowBounds }
     cache = Array.isArray(raw.items) ? raw.items : []
+    last = raw.lastBounds ?? null
   } catch {
     cache = []
   }
@@ -35,7 +38,7 @@ function writeJson(file: string, data: unknown) {
 
 function save(items: AgentHistoryItem[]) {
   cache = items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ITEMS)
-  writeJson(indexFile(), { items: cache })
+  writeJson(indexFile(), { items: cache, lastBounds: last ?? undefined })
 }
 
 /** Título curto a partir do primeiro pedido. */
@@ -69,6 +72,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[]) {
     project: info.project,
     title: info.title || titleOf(turns) || items[i]?.title || 'Conversa',
     renamed: info.renamed,
+    bounds: items[i]?.bounds,
     createdAt: items[i]?.createdAt ?? now,
     updatedAt: now,
     turns: turns.length
@@ -91,6 +95,21 @@ export function setHistoryTitle(sessionId: string, title: string, renamed: boole
   it.renamed = renamed
   it.updatedAt = Date.now()
   save(items)
+}
+
+/** Guarda onde a janela estava ao fechar: na conversa (se já tem sessão) e como última posição geral. */
+export function setHistoryBounds(sessionId: string | null, bounds: WindowBounds) {
+  const items = load()
+  last = bounds
+  const it = sessionId ? items.find((i) => i.sessionId === sessionId) : undefined
+  if (it) it.bounds = bounds
+  save(items)
+}
+
+/** Posição para abrir uma janela: a da própria conversa, senão a da última fechada. */
+export function historyBounds(sessionId?: string | null): WindowBounds | null {
+  const items = load()
+  return (sessionId && items.find((i) => i.sessionId === sessionId)?.bounds) || last
 }
 
 export function loadTranscript(sessionId: string): AgentTurn[] | null {

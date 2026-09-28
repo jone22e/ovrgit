@@ -380,6 +380,13 @@ export interface AgentTurn {
   costUsd?: number
 }
 
+export interface WindowBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 /** Conversa aberta pelo Ovseer, guardada para reabrir depois (a sessão continua no CLI) */
 export interface AgentHistoryItem {
   sessionId: string
@@ -392,6 +399,8 @@ export interface AgentHistoryItem {
   /** Título (da IA, do usuário, ou o primeiro pedido resumido) */
   title: string
   renamed?: boolean
+  /** Posição e tamanho da janela quando foi fechada, para reabrir no mesmo lugar */
+  bounds?: WindowBounds
   createdAt: number
   updatedAt: number
   turns: number

@@ -1,13 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileStat } from '../shared/types'
+import { app, BrowserWindow, screen, shell } from 'electron'
+import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileStat, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
-import { findHistory, loadTranscript, setHistoryTitle, titleOf } from './agentHistory'
+import { findHistory, historyBounds, loadTranscript, setHistoryBounds, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -53,6 +53,14 @@ async function currentBranch(cwd: string): Promise<string | null> {
   }
 }
 
+/** Posição guardada só vale se ainda cai numa tela ligada (monitor desconectado: volta ao padrão). */
+function visibleBounds(b: WindowBounds | null): Partial<WindowBounds> {
+  if (!b) return {}
+  const area = screen.getDisplayMatching(b).workArea
+  const inside = b.x + b.width > area.x + 40 && b.x < area.x + area.width - 40 && b.y >= area.y - 10 && b.y < area.y + area.height - 40
+  return inside ? b : { width: b.width, height: b.height }
+}
+
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
   const uid = crypto.randomUUID()
@@ -71,6 +79,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   const win = new BrowserWindow({
     width: 760,
     height: 800,
+    ...visibleBounds(historyBounds(opts.resumeId)),
     minWidth: 420,
     minHeight: 480,
     title: title(info),
@@ -100,6 +109,11 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   })
   // o título é da janela: a página não pode trocar
   win.on('page-title-updated', (e) => e.preventDefault())
+  // lembra onde a janela ficou, para a conversa reabrir no mesmo lugar
+  win.on('close', () => {
+    if (win.isMinimized() || win.isFullScreen()) return
+    setHistoryBounds(wins.get(uid)?.info.sessionId ?? null, win.getBounds())
+  })
   win.on('closed', () => {
     const w = wins.get(uid)
     if (w?.child) terminate(w.child, 'codex')

@@ -153,7 +153,28 @@ const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error
 function md(text: string, card: boolean) {
   const { text: rest, questions: qs } = splitQuestions(text)
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o}`).join('\n')}`).join('')
-  return DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false }))
+  return withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
+}
+const SVG = (d: string) =>
+  `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`
+const COPY_BTN = `<button type="button" class="copy" title="Copiar">${SVG('M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4')}${SVG('M20 6 9 17l-5-5')}</button>`
+/** Cada bloco de código ganha um botão de copiar no canto (o clique é tratado em onMdClick) */
+const withCopy = (html: string) => html.replaceAll('<pre>', `<div class="code-wrap">${COPY_BTN}<pre>`).replaceAll('</pre>', '</pre></div>')
+async function onMdClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement).closest?.('button.copy') as HTMLButtonElement | null
+  if (!btn) return
+  const text = btn.parentElement?.querySelector('pre')?.textContent ?? ''
+  try {
+    await navigator.clipboard.writeText(text.replace(/\n$/, ''))
+    btn.classList.add('done')
+    btn.title = 'Copiado'
+    setTimeout(() => {
+      btn.classList.remove('done')
+      btn.title = 'Copiar'
+    }, 1500)
+  } catch {
+    /* sem acesso à área de transferência */
+  }
 }
 
 // ---------- perguntas do agente: cartão com botões, uma pergunta de cada vez ----------
@@ -760,7 +781,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
-            <div v-if="b.kind === 'text'" class="md" v-html="md(b.text, t.id === questionTurn && !!question)" />
+            <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && !!question)" />
             <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
               <!-- linha discreta: enquanto roda mostra o que está fazendo; depois, só o resumo. Clique abre a lista. -->
               <button type="button" class="ghost tools-line" @click="toggleGroup(b.key)">
@@ -896,7 +917,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="spacer" />
         <template v-if="running">
           <button v-if="!canCompose" type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
-          <div v-else ref="sendRoot" class="send-split" :class="[sendAction, { on: sendOpen }]">
+          <div v-else ref="sendRoot" class="send-split" :class="[`as-${sendAction}`, { on: sendOpen }]">
             <button type="button" class="send-main" :title="`${currentSend.hint} (${currentSend.keys})`" :disabled="!info" @click="sendAs(sendAction)">
               <Icon :name="currentSend.icon" :size="13" /> {{ currentSend.label }}
             </button>
@@ -992,6 +1013,17 @@ onUnmounted(() => offs.forEach((f) => f()))
 .md :deep(code) { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 .md :deep(pre) { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); overflow-x: auto; }
 .md :deep(pre code) { background: transparent; padding: 0; }
+.md :deep(.code-wrap) { position: relative; }
+.md :deep(.code-wrap .copy) {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  border: 1px solid transparent; background: var(--panel-2); color: var(--faint); opacity: 0; transition: opacity 0.12s, color 0.12s;
+}
+.md :deep(.code-wrap:hover .copy), .md :deep(.code-wrap .copy:focus-visible), .md :deep(.code-wrap .copy.done) { opacity: 1; }
+.md :deep(.code-wrap .copy:hover) { color: var(--text); border-color: var(--border); }
+.md :deep(.code-wrap .copy svg:last-child) { display: none; }
+.md :deep(.code-wrap .copy.done) { color: var(--add); }
+.md :deep(.code-wrap .copy.done svg:first-child) { display: none; }
+.md :deep(.code-wrap .copy.done svg:last-child) { display: block; }
 .md :deep(a) { color: var(--accent); }
 .md :deep(table) { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
 .md :deep(td), .md :deep(th) { border: 1px solid var(--border); padding: 4px 8px; }
@@ -1081,7 +1113,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .send { width: 34px; height: 34px; border-radius: 50%; flex: none; }
 /* botão de envio dividido: a ação escolhida à esquerda, a seta abre o menu para trocar */
 .send-split { position: relative; display: inline-flex; height: 34px; flex: none; border-radius: 999px; background: var(--text); color: var(--bg); }
-.send-split.now { background: var(--accent); color: var(--on-accent); }
+.send-split.as-now { background: var(--accent); color: var(--on-accent); }
 .send-main, .send-more { height: 100%; border: 0; background: transparent; color: inherit; }
 .send-main { padding: 0 10px 0 14px; gap: 6px; font-size: 12.5px; font-weight: 600; border-radius: 999px 0 0 999px; }
 .send-more { width: 28px; padding: 0 4px 0 0; border-radius: 0 999px 999px 0; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); }

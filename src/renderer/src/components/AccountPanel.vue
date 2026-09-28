@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AuthStatus, CliProvider } from '@shared/types'
 import { api, openTerminalTab, toast } from '../store'
 import Icon from './Icon.vue'
+import AgentLogo from './AgentLogo.vue'
 
 const props = defineProps<{ provider: CliProvider }>()
 
@@ -102,7 +103,7 @@ watch(
 
 <template>
   <div class="account">
-    <div v-if="!status" class="row faint"><span class="spinner" /> Verificando {{ LABEL[provider].name }}…</div>
+    <div v-if="!status" class="row faint"><AgentLogo :source="provider" :size="15" /> <span class="spinner" /> Verificando {{ LABEL[provider].name }}…</div>
 
     <template v-else-if="!status.installed">
       <p class="bad">{{ LABEL[provider].name }} não encontrado.</p>
@@ -132,6 +133,8 @@ watch(
 
     <template v-else>
       <div class="row">
+        <AgentLogo :source="provider" :size="15" />
+        <span class="name">{{ LABEL[provider].name }}</span>
         <span class="dot" :class="status.loggedIn ? 'ok' : 'off'" />
         <span v-if="status.loggedIn">
           Conectado<span v-if="status.detail" class="muted"> · {{ status.detail }}</span>
@@ -162,6 +165,7 @@ watch(
 .row { display: flex; align-items: center; gap: 8px; }
 .spacer { flex: 1; }
 p { margin: 0; font-size: 12px; }
+.name { font-weight: 600; margin-right: 4px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .dot.ok { background: var(--add); }
 .dot.off { background: var(--faint); }
