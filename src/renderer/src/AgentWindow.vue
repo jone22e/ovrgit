@@ -565,7 +565,13 @@ const SEND_ACTIONS = computed<{ id: SendAction; icon: 'list' | 'zap'; label: str
 const sendAction = ref<SendAction>('queue')
 const sendOpen = ref(false)
 const sendRoot = ref<HTMLElement>()
-const currentSend = computed(() => SEND_ACTIONS.value.find((a) => a.id === sendAction.value) ?? SEND_ACTIONS.value[0])
+/** ⌘ (ou Ctrl) pressionado: o botão mostra "Agora" enquanto a tecla estiver segurada, como prévia do ⌘Enter */
+const modHeld = ref(false)
+const onModKey = (e: KeyboardEvent) => (modHeld.value = e.metaKey || e.ctrlKey)
+const onModReset = () => (modHeld.value = false)
+/** Ação efetiva: a escolhida no menu, ou "agora" enquanto ⌘ está segurado */
+const effectiveSend = computed<SendAction>(() => (modHeld.value ? 'now' : sendAction.value))
+const currentSend = computed(() => SEND_ACTIONS.value.find((a) => a.id === effectiveSend.value) ?? SEND_ACTIONS.value[0])
 const nowVerb = computed(() => (provider.value === 'claude' ? 'envia agora, sem interromper' : 'interrompe e envia agora'))
 function sendAs(action: SendAction) {
   if (action === 'now') sendNow()
@@ -697,6 +703,14 @@ onMounted(async () => {
   offs.push(api.onAgentEvent((u, ev) => u === uid && apply(ev)))
   document.addEventListener('mousedown', onDocClick)
   offs.push(() => document.removeEventListener('mousedown', onDocClick))
+  window.addEventListener('keydown', onModKey)
+  window.addEventListener('keyup', onModKey)
+  window.addEventListener('blur', onModReset)
+  offs.push(() => {
+    window.removeEventListener('keydown', onModKey)
+    window.removeEventListener('keyup', onModKey)
+    window.removeEventListener('blur', onModReset)
+  })
   const onTheme = () => undefined
   window.addEventListener('ovseer-theme', onTheme)
   offs.push(() => window.removeEventListener('ovseer-theme', onTheme))
@@ -934,8 +948,8 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="spacer" />
         <template v-if="running">
           <button v-if="!canCompose" type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
-          <div v-else ref="sendRoot" class="send-split" :class="[`as-${sendAction}`, { on: sendOpen }]">
-            <button type="button" class="send-main" :title="`${currentSend.hint} (${currentSend.keys})`" :disabled="!info" @click="sendAs(sendAction)">
+          <div v-else ref="sendRoot" class="send-split" :class="[`as-${effectiveSend}`, { on: sendOpen }]">
+            <button type="button" class="send-main" :title="`${currentSend.hint} (${currentSend.keys})`" :disabled="!info" @click="sendAs(effectiveSend)">
               <Icon :name="currentSend.icon" :size="13" /> {{ currentSend.label }}
             </button>
             <button type="button" class="send-more" title="Escolher como enviar" @click="sendOpen = !sendOpen"><Icon name="chevron" :size="11" class="chev" /></button>
