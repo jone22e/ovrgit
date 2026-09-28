@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { commit, generateMessage, ovseerReady, push, reviewWithAi, setMessage, state } from '../store'
 import PrStatus from './PrStatus.vue'
 import TaskPicker from './TaskPicker.vue'
@@ -28,6 +28,20 @@ watch(() => state.message, () => nextTick(fit))
 onMounted(fit)
 const canCommit = computed(() => nSelected.value > 0 && state.message.trim() !== '' && !state.busy)
 const mod = window.ovrgit.platform === 'darwin' ? '⌘' : 'Ctrl'
+
+// com arquivos marcados, o envio vira "Salvar e enviar"; o menu da setinha permite apenas salvar
+const saveAndSend = computed(() => nSelected.value > 0 && !state.repo?.operation && sendMode.value !== 'publishRepo')
+const menuOpen = ref(false)
+const split = ref<HTMLElement>()
+const onDoc = (e: MouseEvent) => {
+  if (menuOpen.value && split.value && !split.value.contains(e.target as Node)) menuOpen.value = false
+}
+onMounted(() => document.addEventListener('mousedown', onDoc))
+onUnmounted(() => document.removeEventListener('mousedown', onDoc))
+function saveOnly() {
+  menuOpen.value = false
+  commit()
+}
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -69,16 +83,6 @@ function onKey(e: KeyboardEvent) {
         Resolva a faixa acima (juntar versões) para voltar a salvar.
       </span>
       <template v-else>
-      <button
-        class="primary"
-        :disabled="!canCommit"
-        :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados, no seu computador. Para mandar para o servidor, use Enviar. (commit · ${mod}+Enter)`"
-        @click="commit"
-      >
-        <span v-if="state.busy === 'commit'" class="spinner" />
-        <Icon v-else name="commit" />
-        Salvar versão<span v-if="nSelected" class="n">{{ nSelected }}</span>
-      </button>
       <TaskPicker v-if="ovseerReady" v-model="state.commitTaskId" up />
       <button
         class="ghost review"
@@ -105,6 +109,46 @@ function onKey(e: KeyboardEvent) {
         <Icon v-else name="down" />
         Baixar<span v-if="state.repo?.behind" class="n">{{ state.repo.behind }}</span>
       </button>
+      <div v-if="saveAndSend" ref="split" class="split">
+        <button
+          class="primary main"
+          :disabled="!canCommit"
+          :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados e já manda para o servidor (commit + push)`"
+          @click="commit(true)"
+        >
+          <span v-if="state.busy === 'commit' || state.busy === 'push'" class="spinner" />
+          <Icon v-else name="up" />
+          {{ sendMode === 'send' ? 'Salvar e enviar' : 'Salvar e publicar' }}<span class="n">{{ nSelected }}</span>
+        </button>
+        <button
+          class="primary icon more"
+          :disabled="!canCommit"
+          title="Outras opções"
+          @click="menuOpen = !menuOpen"
+        >
+          <Icon name="chevron" :size="14" class="caret" />
+        </button>
+        <div v-if="menuOpen" class="menu">
+          <button class="ghost item" @click="saveOnly">
+            <Icon name="commit" :size="14" />
+            <span>Apenas salvar</span>
+            <kbd class="faint">{{ mod }}+Enter</kbd>
+          </button>
+          <p class="faint hint">Guarda a versão só no seu computador, sem enviar.</p>
+        </div>
+      </div>
+      <button
+        v-else-if="nSelected && sendMode === 'publishRepo'"
+        class="primary"
+        :disabled="!canCommit"
+        :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados, no seu computador (commit · ${mod}+Enter)`"
+        @click="commit()"
+      >
+        <span v-if="state.busy === 'commit'" class="spinner" />
+        <Icon v-else name="commit" />
+        Salvar versão<span class="n">{{ nSelected }}</span>
+      </button>
+      <template v-if="!saveAndSend">
       <button
         v-if="sendMode === 'send'"
         :disabled="!!state.busy || !!state.repo?.operation"
@@ -131,6 +175,7 @@ function onKey(e: KeyboardEvent) {
         {{ sendMode === 'publishRepo' ? 'Publicar' : 'Publicar branch' }}
         <span v-if="state.repo?.unpublished" class="n">{{ state.repo.unpublished }}</span>
       </button>
+      </template>
     </div>
   </footer>
 </template>
@@ -168,4 +213,19 @@ textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; paddin
   background: rgba(127, 127, 127, 0.18);
 }
 .primary .n { background: rgba(255, 255, 255, 0.25); }
+.split { position: relative; display: inline-flex; }
+.split .main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split .more {
+  width: 28px; border-top-left-radius: 0; border-bottom-left-radius: 0;
+  border-left-color: color-mix(in srgb, var(--on-accent) 35%, var(--accent));
+}
+.caret { transform: rotate(-90deg); }
+.menu {
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 60; width: 260px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+.menu .item { width: 100%; justify-content: flex-start; }
+.menu .item span { flex: 1; text-align: left; }
+.menu kbd { font-family: var(--mono); font-size: 11px; }
+.menu .hint { font-size: 11.5px; margin: 2px 8px 4px; }
 </style>

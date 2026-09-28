@@ -574,7 +574,8 @@ async function afterOperation(title: string, r: OperationResult, quiet = false) 
   if (!r.ok || !quiet) state.result = { ...r, title }
 }
 
-export async function commit() {
+/** Salva a versão; com `andPush`, envia ao servidor logo em seguida (se salvou). */
+export async function commit(andPush = false) {
   const files = [...state.selected]
   if (!files.length) return toast('Marque ao menos um arquivo.')
   if (!state.message.trim()) return toast('Escreva o que você fez.')
@@ -591,7 +592,7 @@ export async function commit() {
     const proceed = await new Promise<boolean>((resolve) => (state.review = { source: 'check', findings, resolve }))
     if (!proceed) return
   }
-  await guard('commit', async () => {
+  const saved = await guard('commit', async () => {
     const r = partial.length
       ? await api.commitPartial(full, partial, state.message.trim())
       : await api.commit(files, state.message.trim())
@@ -599,8 +600,10 @@ export async function commit() {
     state.messageEdited = false
     if (r.ok) await linkToTasks(r, () => state.commitTaskId)
     await afterOperation('Salvar versão', r, true)
-    if (r.ok && !state.commitTaskId) toast('Versão salva no seu computador. Use Enviar para mandar ao servidor.')
+    if (r.ok && !state.commitTaskId && !andPush) toast('Versão salva no seu computador. Use Enviar para mandar ao servidor.')
+    return r.ok
   })
+  if (saved && andPush) await push()
 }
 
 export async function pull(stash: boolean): Promise<'dirty' | void> {
