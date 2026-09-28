@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentSession, AuthEvent, OvrGitApi } from '../shared/types'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { AgentChatEvent, AgentSession, AuthEvent, OvrGitApi } from '../shared/types'
 
 const api: OvrGitApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -141,6 +141,38 @@ const api: OvrGitApi = {
     return () => ipcRenderer.off('agents:finished', h)
   },
   setWindowTheme: (background, symbols) => ipcRenderer.send('window:theme', background, symbols),
+  agentOpen: (opts) => ipcRenderer.invoke('agent:open', opts),
+  agentInfo: (uid) => ipcRenderer.invoke('agent:info', uid),
+  agentSend: (uid, text, opts, attachments) => ipcRenderer.invoke('agent:send', uid, text, opts, attachments ?? []),
+  agentCancel: (uid) => ipcRenderer.invoke('agent:cancel', uid),
+  agentPickFiles: (uid) => ipcRenderer.invoke('agent:pick', uid),
+  agentHistory: (cwd) => ipcRenderer.invoke('agent:history', cwd),
+  agentSaveTranscript: (uid, turns) => ipcRenderer.invoke('agent:saveTranscript', uid, turns),
+  agentLoadTranscript: (sessionId) => ipcRenderer.invoke('agent:loadTranscript', sessionId),
+  agentForget: (sessionId) => ipcRenderer.invoke('agent:forget', sessionId),
+  agentSetTitle: (uid, title) => ipcRenderer.invoke('agent:setTitle', uid, title),
+  agentSaveBlob: (uid, file) => ipcRenderer.invoke('agent:blob', uid, file),
+  filePath: (file) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  },
+  agentFocus: (sessionId) => ipcRenderer.invoke('agent:focus', sessionId),
+  agentWindows: () => ipcRenderer.invoke('agent:windows'),
+  knownModels: () => ipcRenderer.invoke('agents:models'),
+  usage: (force) => ipcRenderer.invoke('usage:get', !!force),
+  onAgentEvent: (cb) => {
+    const h = (_e: unknown, uid: string, ev: AgentChatEvent) => cb(uid, ev)
+    ipcRenderer.on('agent:event', h)
+    return () => ipcRenderer.off('agent:event', h)
+  },
+  onAgentWindows: (cb) => {
+    const h = (_e: unknown, ids: string[]) => cb(ids)
+    ipcRenderer.on('agents:windows', h)
+    return () => ipcRenderer.off('agents:windows', h)
+  },
   platform: process.platform
 }
 

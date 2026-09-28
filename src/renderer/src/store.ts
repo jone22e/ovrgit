@@ -77,6 +77,13 @@ export const state = reactive({
   showSshImport: false,
   /** Tarefas de agentes externos (ChatGPT/Codex e Claude) */
   agents: [] as AgentSession[],
+  /** Sessões de agentes com janela aberta pelo OvrGit */
+  agentWindows: [] as string[],
+  showNewAgent: false,
+  /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
+  newAgentTask: null as OvseerTask | null,
+  /** Pedido pronto para o novo agente (ex.: resolver os conflitos do merge), mostrado no diálogo */
+  newAgentBrief: null as { label: string; message: string } | null,
   /** Pull Request da linha atual */
   pr: null as PullRequestInfo | null,
   showPrDialog: false,
@@ -792,6 +799,8 @@ function listenAgents() {
   agentsListening = true
   api.agents().then((l) => (state.agents = l)).catch(() => undefined)
   api.onAgents((l) => (state.agents = l))
+  api.agentWindows().then((l) => (state.agentWindows = l)).catch(() => undefined)
+  api.onAgentWindows((l) => (state.agentWindows = l))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`
@@ -919,6 +928,36 @@ export const myDoingCount = computed(() => state.tasks.filter((t) => t.status ==
 
 export function ovseerTaskUrl(key: string) {
   return `${(state.ovseer?.url ?? state.settings?.ovseerUrl ?? '').replace(/\/+$/, '')}/roadmap?task=${encodeURIComponent(key)}`
+}
+
+/** Abre o diálogo "Novo agente" (precisa de um projeto aberto: o agente trabalha na pasta dele). */
+export function openNewAgent(task: OvseerTask | null = null, brief: { label: string; message: string } | null = null) {
+  if (!state.repo) return toast('Abra um projeto para iniciar um agente nele.')
+  state.newAgentTask = task
+  state.newAgentBrief = brief
+  state.showNewAgent = true
+}
+
+/** Abre um agente para resolver os conflitos da operação em andamento (merge, rebase…). */
+export function resolveWithAgent() {
+  const repo = state.repo
+  if (!repo?.operation) return
+  const files = repo.files.filter((f) => f.kind === 'conflict').map((f) => f.path)
+  const NAME: Record<string, string> = { merge: 'merge', rebase: 'rebase', 'cherry-pick': 'cherry-pick', revert: 'revert' }
+  const op = NAME[repo.operation] ?? repo.operation
+  const message =
+    `Há um ${op} em andamento neste repositório com ${files.length} arquivo${files.length === 1 ? '' : 's'} em conflito:\n` +
+    files.map((f) => `- ${f}`).join('\n') +
+    `\n\nResolva os conflitos editando esses arquivos: remova as marcações <<<<<<<, ======= e >>>>>>> e mantenha a intenção das duas versões (use git log e git diff para entender o que cada lado mudou). ` +
+    `Depois rode os testes ou o typecheck dos arquivos afetados para garantir que ficou coerente.\n\n` +
+    `Não faça commit, não rode "git ${op} --continue" nem "git add": eu concluo o ${op} pelo OvrGit. Ao terminar, resuma como resolveu cada arquivo.`
+  openNewAgent(null, { label: `Resolver ${files.length} conflito${files.length === 1 ? '' : 's'} do ${op}`, message })
+}
+
+/** Texto que o agente recebe para executar uma tarefa do Ovseer: chave, título e plano aprovado. */
+export function taskBrief(task: { key: string; title: string }, plan: string): string {
+  const body = plan.trim() ? `Plano aprovado:\n\n${plan.trim()}` : 'Não há plano escrito; siga o título e pergunte se algo não estiver claro.'
+  return `Tarefa ${task.key}: ${task.title}\n\n${body}\n\nExecute esta tarefa seguindo o plano. Ao terminar, resuma o que foi feito, os arquivos alterados e como validar. Não faça commit: eu salvo a versão pelo OvrGit.`
 }
 
 export function openNewTask() {

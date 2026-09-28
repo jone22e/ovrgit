@@ -20,6 +20,8 @@ const DEFAULTS: Settings = {
   model: '',
   claudeModel: 'sonnet',
   codexModel: '',
+  agyModel: '',
+  agentInstructions: '',
   recentProjects: [],
   lastProject: null
 }

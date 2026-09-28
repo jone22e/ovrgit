@@ -8,8 +8,8 @@ import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
-  ProjectOverview, TaskHint,
-  Analysis, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
+  ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn,
+  Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -22,12 +22,15 @@ import * as assist from './assist'
 import * as clone from './clone'
 import * as sshImport from './sshImport'
 import * as agentWatch from './agentWatch'
+import * as agentChat from './agentChat'
+import * as agentHistory from './agentHistory'
+import { getUsage } from './usage'
 import { commitWithHunks } from './partial'
 import { createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
 import { analysisHash, analyze, taskContext, cancelAnalysis, commitMessage, detectProviders, listModels } from './ai'
 import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
-import { authStatus, cancelLogin, logout, sendCode, startLogin } from './auth'
+import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from './auth'
 import * as g from './git'
 import { getSettings, rememberProject, saveSettings } from './settings'
 
@@ -84,11 +87,16 @@ function initialBackground(): string {
   return process.platform === 'win32' ? '#202020' : '#1e1e1e'
 }
 
+/** Manda para a janela principal, se ela ainda existir (as janelas de agente mantêm o app vivo sem ela). */
+function toMain(channel: string, ...args: unknown[]) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
+}
+
 /** Liga o acompanhamento das tarefas do Codex e repassa para a janela. */
 function startAgents() {
   agentWatch.startAgentWatch({
-    onUpdate: (list) => win?.webContents.send('agents:update', list),
-    onFinished: (s) => win?.webContents.send('agents:finished', s)
+    onUpdate: (list) => toMain('agents:update', list),
+    onFinished: (s) => toMain('agents:finished', s)
   })
 }
 
@@ -115,11 +123,19 @@ function createWindow() {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  win.on('closed', () => {
+    win = null
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
   })
-  win.webContents.on('will-navigate', (e) => e.preventDefault())
+  // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
+  // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
+  const wc = win.webContents
+  wc.on('will-navigate', (e, url) => {
+    if (url.split('#')[0] !== wc.getURL().split('#')[0]) e.preventDefault()
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(path.join(__dirname, '../renderer/index.html'))
@@ -127,7 +143,10 @@ function createWindow() {
 
 function buildMenu() {
   const isMac = process.platform === 'darwin'
-  const send = (ch: string) => () => win?.webContents.send('menu', ch)
+  const send = (ch: string) => () => {
+    if (!win || win.isDestroyed()) createWindow()
+    else toMain('menu', ch)
+  }
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : []),
     {
@@ -343,19 +362,15 @@ function registerIpc() {
   ipcMain.handle('editor:open', () => openInEditor(requireRoot()))
   ipcMain.handle('ai:models', () => listModels(getSettings()))
   ipcMain.handle('ai:detect', () => detectProviders(getSettings()))
-  const provider = (p: unknown): CliProvider => {
-    if (p !== 'claude' && p !== 'codex') throw new Error('Provedor inválido.')
-    return p
-  }
-  ipcMain.handle('auth:status', (_e, p: CliProvider) => authStatus(provider(p)))
-  ipcMain.handle('auth:login', (e, p: CliProvider) =>
-    startLogin(provider(p), (ev) => {
+  ipcMain.handle('auth:status', (_e, p: CliProvider) => (p === 'agy' ? agyStatus() : authStatus(authProvider(p))))
+  ipcMain.handle('auth:login', (e, p: AuthProvider) =>
+    startLogin(authProvider(p), (ev) => {
       if (!e.sender.isDestroyed()) e.sender.send('auth:event', ev)
     })
   )
   ipcMain.handle('auth:code', (_e, code: string) => sendCode(String(code)))
   ipcMain.handle('auth:cancel', () => cancelLogin())
-  ipcMain.handle('auth:logout', (_e, p: CliProvider) => logout(provider(p)))
+  ipcMain.handle('auth:logout', (_e, p: AuthProvider) => logout(authProvider(p)))
   ipcMain.on('window:theme', (e, background: string, symbols: string) => {
     const w = BrowserWindow.fromWebContents(e.sender)
     if (!w || !/^#[0-9a-f]{6}$/i.test(background)) return
@@ -442,6 +457,14 @@ function registerIpc() {
     })
   })
   ipcMain.handle('agents:list', () => agentWatch.listAgents())
+  const provider = (p: unknown): CliProvider => {
+    if (p !== 'claude' && p !== 'codex' && p !== 'agy') throw new Error('Provedor inválido.')
+    return p
+  }
+  const authProvider = (p: unknown): AuthProvider => {
+    if (p !== 'claude' && p !== 'codex') throw new Error('Provedor inválido.')
+    return p
+  }
   ipcMain.handle('projects:overview', (_e, roots: string[]) =>
     Promise.all(
       roots.slice(0, 30).map(async (root): Promise<ProjectOverview> => {
@@ -462,6 +485,63 @@ function registerIpc() {
     if (on) startAgents()
     else agentWatch.stopAgentWatch()
   })
+  // janela exclusiva de um agente de IA (Claude Code / Codex)
+  ipcMain.handle('agent:open', (_e, opts: AgentChatOpen) => {
+    const cwd = typeof opts?.cwd === 'string' && opts.cwd ? opts.cwd : requireRoot()
+    if (!existsSync(cwd)) throw new Error('Pasta do projeto não encontrada.')
+    return agentChat.openAgentWindow({
+      provider: provider(opts?.provider),
+      model: String(opts?.model ?? '').slice(0, 80),
+      effort: opts?.effort,
+      mode: agentChat.normalizeMode(opts?.mode),
+      cwd,
+      firstMessage: typeof opts?.firstMessage === 'string' ? opts.firstMessage.slice(0, 50000) : undefined,
+      resumeId: typeof opts?.resumeId === 'string' && /^[\w-]{8,80}$/.test(opts.resumeId) ? opts.resumeId : undefined
+    })
+  })
+  ipcMain.handle('agent:info', (_e, uid: string) => agentChat.agentInfo(String(uid)))
+  ipcMain.handle('agent:send', (_e, uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]) =>
+    agentChat.sendToAgent(
+      String(uid),
+      String(text ?? '').slice(0, 200000),
+      {
+        model: String(opts?.model ?? ''),
+        effort: opts?.effort,
+        mode: agentChat.normalizeMode(opts?.mode),
+        provider: opts?.provider === 'claude' || opts?.provider === 'codex' || opts?.provider === 'agy' ? opts.provider : undefined
+      },
+      (Array.isArray(attachments) ? attachments : []).slice(0, 20).map((a) => agentChat.describeFile(String(a?.path ?? '')))
+    )
+  )
+  ipcMain.handle('agent:pick', async (e, uid: string) => {
+    const owner = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Anexar arquivos',
+      defaultPath: agentChat.agentInfo(String(uid))?.cwd,
+      properties: ['openFile', 'multiSelections']
+    }
+    const res = owner ? await dialog.showOpenDialog(owner, opts) : await dialog.showOpenDialog(opts)
+    return res.canceled ? [] : res.filePaths.slice(0, 20).map((p) => agentChat.describeFile(p))
+  })
+  ipcMain.handle('agent:blob', (_e, uid: string, file: { name: string; type: string; data: ArrayBuffer }) =>
+    agentChat.saveBlob(String(uid), String(file?.name ?? 'arquivo').slice(0, 120), String(file?.type ?? ''), new Uint8Array(file.data))
+  )
+  ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
+  ipcMain.handle('agent:history', (_e, cwd?: string) => agentHistory.listHistory(typeof cwd === 'string' && cwd ? cwd : undefined))
+  ipcMain.handle('agent:saveTranscript', (_e, uid: string, turns: AgentTurn[]) => {
+    const info = agentChat.agentInfo(String(uid))
+    if (info && Array.isArray(turns)) agentHistory.saveTranscript(info, turns)
+  })
+  ipcMain.handle('agent:loadTranscript', (_e, sessionId: string) => agentHistory.loadTranscript(String(sessionId)))
+  ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
+  ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
+  ipcMain.handle('agent:focus', (_e, sessionId: string) => agentChat.focusAgentWindow(String(sessionId)))
+  ipcMain.handle('agent:windows', () => agentChat.agentWindows())
+  ipcMain.handle('agents:models', async () => {
+    await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)
+    return agentWatch.knownModels()
+  })
+  ipcMain.handle('usage:get', (_e, force?: boolean) => getUsage(!!force))
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => saveSettings(patch))
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
@@ -482,10 +562,12 @@ app.whenReady().then(() => {
   })
   registerIpc()
   buildMenu()
+  agentChat.setupAgentWindows({ icon, background: initialBackground })
   createWindow()
-  if (getSettings().watchAgents) win?.webContents.once('did-finish-load', startAgents)
+  if (getSettings().watchAgents) startAgents()
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // clicar no Dock com só janelas de agente abertas: reabre a principal
+    if (!win || win.isDestroyed()) createWindow()
   })
 })
 
@@ -494,6 +576,7 @@ app.on('before-quit', () => {
   ovseer.cancelLogin()
   ovseer.stopStream()
   agentWatch.stopAgentWatch()
+  agentChat.shutdownAgents()
   killAllTerminals()
 })
 

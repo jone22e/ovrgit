@@ -87,3 +87,20 @@ describe('Claude (app e Claude Code)', () => {
     rmSync(croot, { recursive: true, force: true })
   }, 20_000)
 })
+
+describe('título da sessão do Codex', () => {
+  it('ignora o AGENTS.md injetado antes do pedido', async () => {
+    const d2 = path.join(dir, 'rollout-agents-md.jsonl')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      d2,
+      line({ type: 'session_meta', payload: { id: 's-agents', cwd: '/Users/jone/Flexi/flexi2', git: { branch: 'main' } } }) +
+        line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions for flexi2\n\n<INSTRUCTIONS>…' }] } }) +
+        line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Investigue o pedido 35529601' }] } }) +
+        line({ type: 'event_msg', payload: { type: 'task_started', started_at: Math.floor(Date.now() / 1000) } })
+    )
+    startAgentWatch({ onUpdate: () => {}, onFinished: () => {} })
+    const s = listAgents().find((a) => a.id === 's-agents')
+    expect(s?.title).toBe('Investigue o pedido 35529601')
+  })
+})

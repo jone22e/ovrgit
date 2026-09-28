@@ -223,6 +223,12 @@ async function start(tab: Tab) {
   }
   try {
     tab.termId = await api.termCreate(s.term.cols, s.term.rows, { ...tab.spec })
+    // comando inicial (ex.: login de um CLI): entra assim que o shell abrir
+    if (tab.spec.kind === 'local' && tab.spec.command) {
+      const cmd = tab.spec.command
+      const id = tab.termId
+      setTimeout(() => api.termWrite(id, `${cmd}\r`), 400)
+    }
   } catch (e) {
     tab.exited = true
     const msg = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -381,7 +387,7 @@ watch(
   () => tabs.map((t) => (t.spec.kind === 'ssh' ? `ssh:${t.spec.connectionId}` : 'local')).join(','),
   () => {
     try {
-      localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map((t) => ({ ...t.spec }))))
+      localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map((t) => (t.spec.kind === 'local' ? { kind: 'local' } : { ...t.spec }))))
     } catch {
       /* só nesta sessão */
     }

@@ -11,6 +11,15 @@ export default defineConfig({
   },
   renderer: {
     server: { port: 15173 },
+    // duas páginas: o app principal e a janela exclusiva de cada agente de IA
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          agent: resolve('src/renderer/agent.html')
+        }
+      }
+    },
     resolve: {
       alias: {
         '@shared': resolve('src/shared'),

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { abortOperation, continueOperation, openInEditor, state } from '../store'
+import { abortOperation, continueOperation, openInEditor, resolveWithAgent, state } from '../store'
 import Icon from './Icon.vue'
 
 const op = computed(() => state.repo?.operation)
@@ -19,6 +19,9 @@ const NAME = { merge: 'Merge', rebase: 'Rebase', 'cherry-pick': 'Cherry-pick', r
       </span>
       <span v-else> · conflitos resolvidos. Pode concluir.</span>
     </div>
+    <button v-if="conflicts" class="small" title="Abre um agente de IA com a lista de conflitos para resolver; você conclui o merge depois" @click="resolveWithAgent">
+      <Icon name="squarePen" :size="13" /> Resolver com agente
+    </button>
     <button class="small" @click="openInEditor"><Icon name="external" :size="13" /> Abrir no editor</button>
     <button class="small" :disabled="!!state.busy" @click="abortOperation">Abortar</button>
     <button class="small primary" :disabled="conflicts > 0 || !!state.busy" @click="continueOperation">

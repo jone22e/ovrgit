@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import os from 'node:os'
-import type { AuthEvent, AuthStatus, CliProvider } from '../shared/types'
+import path from 'node:path'
+import type { AuthEvent, AuthStatus, AuthProvider as CliProvider } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 
 const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex' }
@@ -34,6 +36,33 @@ export async function authStatus(provider: CliProvider): Promise<AuthStatus> {
     return { installed: true, loggedIn, detail: loggedIn ? text.split('\n')[0] : undefined }
   } catch (e) {
     return { installed: true, loggedIn: false, error: (e as Error).message }
+  }
+}
+
+/**
+ * Antigravity (`agy`): não há comando de login separado; o próprio `agy` entra na primeira vez.
+ * A situação vem dos arquivos que ele guarda: o token OAuth (existe = conectado) e o e-mail dentro do id_token.
+ * Só o e-mail é lido; o token não sai daqui.
+ */
+export async function agyStatus(): Promise<AuthStatus> {
+  const bin = await findBinary('agy')
+  if (!bin) return { installed: false, loggedIn: false }
+  try {
+    const raw = JSON.parse(readFileSync(path.join(os.homedir(), '.gemini', 'jetski-standalone-oauth-token'), 'utf8')) as { id_token?: string; token?: unknown }
+    if (!raw.token && !raw.id_token) return { installed: true, loggedIn: false }
+    let email: string | undefined
+    const payload = raw.id_token?.split('.')[1]
+    if (payload) {
+      try {
+        const claims = JSON.parse(Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as { email?: string }
+        email = claims.email
+      } catch {
+        /* id_token fora do formato esperado: fica só "conectado" */
+      }
+    }
+    return { installed: true, loggedIn: true, detail: email }
+  } catch {
+    return { installed: true, loggedIn: false }
   }
 }
 

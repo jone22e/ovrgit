@@ -169,7 +169,7 @@ export interface Analysis {
   warning?: string
 }
 
-export type AiProvider = 'claude' | 'codex' | 'ollama' | 'none'
+export type AiProvider = 'claude' | 'codex' | 'agy' | 'ollama' | 'none'
 
 /** Conexão SSH salva. Senhas nunca são guardadas: se pedir, digita-se no terminal. */
 export interface SshConnection {
@@ -203,7 +203,8 @@ export interface Snippet {
   connectionId?: string | null
 }
 
-export type TerminalSpec = { kind: 'local' } | { kind: 'ssh'; connectionId: string }
+/** local: shell na pasta do projeto, com um comando inicial opcional (ex.: "agy" para fazer login) */
+export type TerminalSpec = { kind: 'local'; command?: string } | { kind: 'ssh'; connectionId: string }
 
 export interface Settings {
   /** Id do tema (ver shared/themes.ts) */
@@ -232,6 +233,10 @@ export interface Settings {
   claudeModel: string
   /** Modelo do Codex (vazio = padrão da conta) */
   codexModel: string
+  /** Modelo do Antigravity (vazio = padrão da conta) */
+  agyModel: string
+  /** Instruções personalizadas para os agentes (janela do agente): estilo, regras do time, o que evitar */
+  agentInstructions: string
   recentProjects: string[]
   lastProject: string | null
 }
@@ -269,7 +274,156 @@ export interface FeaturePreview {
   dirty: boolean
 }
 
-export type CliProvider = 'claude' | 'codex'
+/** CLIs de agente: Claude Code, Codex (ChatGPT) e Antigravity (Google, comando `agy`) */
+export type CliProvider = 'claude' | 'codex' | 'agy'
+/** CLIs com login gerenciado nas Configurações */
+export type AuthProvider = 'claude' | 'codex'
+
+/** Nível de esforço (raciocínio) do agente; cada CLI aceita um subconjunto (ver shared/models.ts) */
+export type AgentEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+
+/** Modelo conhecido de um CLI (catálogo do próprio CLI ou visto nas sessões) */
+export interface ModelInfo {
+  id: string
+  label: string
+  description?: string
+  /** Níveis de esforço aceitos por este modelo (ausente = os padrões do provedor) */
+  efforts?: AgentEffort[]
+  defaultEffort?: AgentEffort
+}
+
+/** plan: só lê e propõe um plano; safe: edita arquivos e roda comandos só dentro do projeto; full: sem perguntas nem sandbox */
+export type AgentMode = 'plan' | 'safe' | 'full'
+
+/** Pedido para abrir a janela exclusiva de um agente */
+export interface AgentChatOpen {
+  provider: CliProvider
+  model: string
+  effort: AgentEffort
+  mode: AgentMode
+  cwd: string
+  /** Primeira tarefa, enviada assim que a janela abrir */
+  firstMessage?: string
+  /** Continuar uma conversa já existente (id da sessão do CLI) */
+  resumeId?: string
+}
+
+export interface AgentWindowInfo extends AgentChatOpen {
+  uid: string
+  /** Nome da pasta do projeto */
+  project: string
+  branch: string | null
+  /** Id da sessão do CLI (definido depois da primeira resposta) */
+  sessionId: string | null
+  running: boolean
+  /** Título da conversa: dado pela IA depois da primeira resposta, ou pelo usuário */
+  title: string
+  /** O usuário renomeou: a IA não mexe mais */
+  renamed: boolean
+}
+
+/** Arquivo anexado a uma mensagem: imagens vão em linha; os demais pelo caminho (o agente lê com as ferramentas) */
+export interface AgentAttachment {
+  name: string
+  /** Caminho absoluto no computador (original ou cópia guardada pelo app) */
+  path: string
+  mime: string
+  size: number
+  kind: 'image' | 'audio' | 'file'
+}
+
+/** Opções de uma mensagem enviada ao agente (podem mudar a cada mensagem) */
+export interface AgentSendOptions {
+  model: string
+  effort: AgentEffort
+  mode: AgentMode
+  /** Troca de provedor: só vale antes da primeira mensagem (a sessão de um CLI não é legível pelo outro) */
+  provider?: CliProvider
+}
+
+/** Evento da conversa, já traduzido do formato de cada CLI */
+export type AgentChatEvent =
+  | { type: 'session'; sessionId: string; model?: string }
+  | { type: 'text'; delta: string }
+  | { type: 'thinking'; delta?: string }
+  | { type: 'tool'; id: string; name: string; title: string; detail?: string }
+  | { type: 'toolResult'; id: string; ok: boolean; output?: string }
+  | { type: 'files'; paths: string[] }
+  | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
+  | { type: 'title'; title: string }
+
+/** Bloco de uma resposta do agente, como fica na janela e na transcrição guardada */
+export type AgentBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; id: string; name: string; title: string; detail?: string; ok: boolean | null; output?: string; open: boolean }
+  | { kind: 'files'; paths: string[] }
+
+/** Uma vez da conversa: pedido do usuário e a resposta do agente */
+export interface AgentTurn {
+  id: string
+  user: string
+  attachments: AgentAttachment[]
+  blocks: AgentBlock[]
+  running: boolean
+  thinking: boolean
+  /** Última atividade vista enquanto roda (linha de andamento) */
+  activity?: 'thinking' | 'tools' | 'writing'
+  startedAt?: number
+  error?: string
+  durationMs?: number
+  costUsd?: number
+}
+
+/** Conversa aberta pelo OvrGit, guardada para reabrir depois (a sessão continua no CLI) */
+export interface AgentHistoryItem {
+  sessionId: string
+  provider: CliProvider
+  model: string
+  effort: AgentEffort
+  mode: AgentMode
+  cwd: string
+  project: string
+  /** Título (da IA, do usuário, ou o primeiro pedido resumido) */
+  title: string
+  renamed?: boolean
+  createdAt: number
+  updatedAt: number
+  turns: number
+}
+
+/** Janela de limite de uso da assinatura (5 horas ou semanal): percentual usado e quando zera */
+export interface UsageWindow {
+  pct: number
+  resetsAt: number | null
+}
+
+export interface ProviderUsage {
+  fiveHour: UsageWindow | null
+  week: UsageWindow | null
+  plan?: string
+  /** Quando o dado foi obtido */
+  at: number
+  error?: string
+}
+
+/** Consumo das assinaturas Claude e ChatGPT (Codex) */
+export interface UsageInfo {
+  claude: ProviderUsage | null
+  codex: ProviderUsage | null
+  /** Antigravity não expõe limites localmente: só a conta */
+  agy: ProviderUsage | null
+}
+
+/** Modelos de cada CLI: vistos nas sessões recentes (ids reais) e o catálogo que o CLI guarda localmente */
+export interface KnownModels {
+  claude: string[]
+  codex: string[]
+  /** Catálogo do Codex (~/.codex/models_cache.json), na ordem do app */
+  codexCatalog: ModelInfo[]
+  /** Catálogo do Antigravity (`agy models`) */
+  agyCatalog: ModelInfo[]
+  agy: string[]
+}
 
 export interface AuthStatus {
   installed: boolean
@@ -394,6 +548,7 @@ export interface PublishInfo {
 export interface ProviderStatus {
   claude: string | null
   codex: string | null
+  agy: string | null
   ollama: boolean
 }
 
@@ -457,11 +612,12 @@ export interface OvrGitApi {
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   listModels(): Promise<string[]>
   detectProviders(): Promise<ProviderStatus>
+  /** Situação do login de um CLI (o Antigravity só informa; o login é pelo próprio comando) */
   authStatus(provider: CliProvider): Promise<AuthStatus>
-  authLogin(provider: CliProvider): Promise<void>
+  authLogin(provider: AuthProvider): Promise<void>
   authSendCode(code: string): Promise<void>
   authCancel(): Promise<void>
-  authLogout(provider: CliProvider): Promise<AuthStatus>
+  authLogout(provider: AuthProvider): Promise<AuthStatus>
   onAuthEvent(cb: (e: AuthEvent) => void): () => void
   ovseerStatus(): Promise<OvseerStatus>
   ovseerLogin(): Promise<OvseerStatus>
@@ -495,6 +651,34 @@ export interface OvrGitApi {
   onAgents(cb: (list: AgentSession[]) => void): () => void
   onAgentFinished(cb: (s: AgentSession) => void): () => void
   setWindowTheme(background: string, symbols: string): void
+  /** Janela exclusiva de um agente de IA (Claude Code ou Codex) */
+  agentOpen(opts: AgentChatOpen): Promise<AgentWindowInfo>
+  agentInfo(uid: string): Promise<AgentWindowInfo | null>
+  agentSend(uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]): Promise<void>
+  agentCancel(uid: string): Promise<void>
+  /** Escolher arquivos para anexar (diálogo do sistema) */
+  agentPickFiles(uid: string): Promise<AgentAttachment[]>
+  /** Guarda um arquivo sem caminho (imagem colada, gravação) e devolve o anexo */
+  agentSaveBlob(uid: string, file: { name: string; type: string; data: ArrayBuffer }): Promise<AgentAttachment>
+  /** Caminho real de um arquivo arrastado para a janela (vazio se não houver) */
+  filePath(file: File): string
+  /** Histórico de conversas abertas pelo OvrGit (todas, ou só de um projeto) */
+  agentHistory(cwd?: string): Promise<AgentHistoryItem[]>
+  /** Guarda a transcrição da janela (só depois que a sessão do CLI existe) */
+  agentSaveTranscript(uid: string, turns: AgentTurn[]): Promise<void>
+  agentLoadTranscript(sessionId: string): Promise<AgentTurn[] | null>
+  agentForget(sessionId: string): Promise<void>
+  /** Renomeia a conversa (vazio volta ao título automático) */
+  agentSetTitle(uid: string, title: string): Promise<string>
+  /** Traz para frente a janela da conversa; false se ela não foi aberta pelo OvrGit */
+  agentFocus(sessionId: string): Promise<boolean>
+  /** Ids das sessões com janela aberta no OvrGit */
+  agentWindows(): Promise<string[]>
+  knownModels(): Promise<KnownModels>
+  /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */
+  usage(force?: boolean): Promise<UsageInfo>
+  onAgentEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
+  onAgentWindows(cb: (sessionIds: string[]) => void): () => void
   termCreate(cols: number, rows: number, spec: TerminalSpec): Promise<number>
   pickSshKey(): Promise<string | null>
   /** Chaves privadas encontradas em ~/.ssh (só os caminhos) */

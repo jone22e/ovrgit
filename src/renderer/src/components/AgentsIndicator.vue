@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AgentSession } from '@shared/types'
-import { agentName, isInside, linkAgent, loadProject, loadProjectIcon, projectIcons, state, suggestTasks, taskOfAgent } from '../store'
+import { agentName, api, isInside, linkAgent, loadProject, loadProjectIcon, projectIcons, state, suggestTasks, taskOfAgent } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
@@ -103,7 +103,7 @@ onUnmounted(() => {
       <section v-for="g in groups" :key="g.cwd">
         <div class="proj">
           <img v-if="projectIcons.get(g.cwd)" :src="projectIcons.get(g.cwd)!" class="fav" alt="" />
-          <span v-else class="badge">{{ g.name.slice(0, 2).toUpperCase() }}</span>
+          <span v-else class="initials">{{ g.name.slice(0, 2).toUpperCase() }}</span>
           <span class="pname ellipsis" :title="g.cwd">{{ g.name }}</span>
           <span v-if="g.items[0].branch" class="branch ellipsis"><Icon name="branch" :size="11" />{{ g.items[0].branch }}</span>
           <button class="ghost open" title="Abrir este projeto no OvrGit" @click="openProject(g.cwd)">
@@ -138,6 +138,14 @@ onUnmounted(() => {
               @click.stop="startLink(a)"
             >
               <Icon name="task" :size="11" /> Tarefa
+            </button>
+            <button
+              v-if="state.agentWindows.includes(a.id)"
+              class="win-btn"
+              title="Esta conversa está aberta numa janela do OvrGit. Clique para trazê-la para frente"
+              @click.stop="api.agentFocus(a.id)"
+            >
+              <Icon name="external" :size="11" /> Janela
             </button>
             <span class="meta">
               <span v-if="took(a)" class="took" :title="a.running ? 'Trabalhando há' : 'Levou'">{{ took(a) }}</span>
@@ -197,9 +205,9 @@ section { padding: 2px 6px 4px; }
 section + section { border-top: 1px solid var(--border); padding-top: 6px; }
 .proj { display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-width: 0; }
 .fav { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; flex: none; }
-.badge {
-  width: 18px; height: 18px; border-radius: 4px; flex: none; display: grid; place-items: center;
-  font-size: 8.5px; font-weight: 800; color: #fff; background: var(--accent);
+.initials {
+  width: 18px; height: 18px; border-radius: 4px; flex: none; display: grid; place-items: center; padding: 0;
+  font-size: 8.5px; line-height: 1; font-weight: 800; color: #fff; background: var(--accent); letter-spacing: 0;
 }
 .pname { font-size: 12.5px; font-weight: 700; flex: none; max-width: 45%; }
 .branch { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); min-width: 0; }
@@ -225,6 +233,10 @@ section + section { border-top: 1px solid var(--border); padding-top: 6px; }
 .task-chip {
   height: 18px; padding: 0 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em; flex: none;
   color: var(--accent); background: var(--accent-soft); border: 0; border-radius: 999px; font-family: var(--mono, monospace);
+}
+.win-btn {
+  height: 20px; padding: 0 7px; gap: 4px; font-size: 11px; flex: none; color: var(--accent);
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); background: transparent;
 }
 .link-btn {
   height: 20px; padding: 0 7px; gap: 4px; font-size: 11px; flex: none; color: var(--muted);

@@ -21,7 +21,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <style scoped>
 .backdrop {
-  position: fixed; inset: 0; background: rgba(10, 8, 16, 0.45);
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
   display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px;
   animation: fade 0.12s ease-out;
 }

@@ -293,6 +293,35 @@ async function viaCodex(task: Task, settings: Settings, context: string, signal:
   }
 }
 
+/** Antigravity CLI (`agy`): usa a conta Google já logada; --json-schema devolve `structured_output`. */
+async function viaAgy(task: Task, settings: Settings, context: string, signal: AbortSignal): Promise<unknown> {
+  const bin = await findBinary('agy')
+  if (!bin) throw new Error('Antigravity CLI não encontrado. Instale o Antigravity (Google) e rode "agy" uma vez para entrar.')
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ovrgit-agy-'))
+  try {
+    const schemaFile = path.join(dir, 'schema.json')
+    await writeFile(schemaFile, JSON.stringify(task.schema))
+    const prompt = userPrompt(task, context, { withSystem: true, withSchema: false })
+    // modo plano: só lê; esforço baixo: é preencher um JSON
+    const args = ['--output-format', 'json', '--mode', 'plan', '--effort', 'low', `--json-schema=${schemaFile}`, `--print=${prompt}`]
+    const model = safeModel(settings.agyModel)
+    if (model) args.push('--model', model)
+    const r = await runCli(bin, args, '', dir, CLI_TIMEOUT, signal)
+    let env: { status?: string; response?: string; structured_output?: unknown; error?: string }
+    try {
+      env = JSON.parse(r.stdout)
+    } catch {
+      const msg = (r.stderr || r.stdout).trim().slice(0, 300)
+      if (/login|auth|unauthorized|401/i.test(msg)) throw new Error('sem login. Rode "agy" no terminal e entre com sua conta Google')
+      throw new Error(msg || `agy saiu com código ${r.code}`)
+    }
+    if (env.status && !/success/i.test(env.status)) throw new Error(env.error ?? `Antigravity terminou com status ${env.status}`)
+    return env.structured_output ?? extractJson(env.response ?? '')
+  } finally {
+    rm(dir, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
 /** O modo estrito do Codex exige additionalProperties:false e todos os campos em "required". */
 function codexSchema(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(codexSchema)
@@ -309,13 +338,14 @@ function codexSchema(schema: unknown): unknown {
 const PROVIDER_NAME: Record<AiProvider, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  agy: 'Antigravity',
   ollama: 'Ollama',
   none: 'IA'
 }
 
 /** Identifica o conteúdo analisado (e com qual IA): se mudar, a análise salva está desatualizada. */
 export function analysisHash(settings: Settings, context: string): string {
-  const model = { claude: settings.claudeModel, codex: settings.codexModel, ollama: settings.model, none: '' }[
+  const model = { claude: settings.claudeModel, codex: settings.codexModel, agy: settings.agyModel, ollama: settings.model, none: '' }[
     settings.provider
   ]
   return contextHash([settings.provider, model, context])
@@ -361,6 +391,7 @@ export async function analyze(
 function runTask(task: Task, settings: Settings, context: string, signal: AbortSignal): Promise<unknown> {
   if (settings.provider === 'claude') return viaClaude(task, settings, context, signal)
   if (settings.provider === 'codex') return viaCodex(task, settings, context, signal)
+  if (settings.provider === 'agy') return viaAgy(task, settings, context, signal)
   return viaOllama(task, settings, context, signal)
 }
 
@@ -412,13 +443,14 @@ export async function runJsonTask<T>(
 }
 
 export async function detectProviders(settings: Settings): Promise<ProviderStatus> {
-  const [claude, codex, ollama] = await Promise.all([
+  const [claude, codex, agy, ollama] = await Promise.all([
     findBinary('claude'),
     findBinary('codex'),
+    findBinary('agy'),
     listModels(settings).then(
       () => true,
       () => false
     )
   ])
-  return { claude, codex, ollama }
+  return { claude, codex, agy, ollama }
 }

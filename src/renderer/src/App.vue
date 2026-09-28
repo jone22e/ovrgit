@@ -10,6 +10,7 @@ import FileList from './components/FileList.vue'
 import HistoryView from './components/HistoryView.vue'
 import MergeBanner from './components/MergeBanner.vue'
 import DeliveryDialog from './components/DeliveryDialog.vue'
+import NewAgentDialog from './components/NewAgentDialog.vue'
 import NewTaskDialog from './components/NewTaskDialog.vue'
 import PlanDialog from './components/PlanDialog.vue'
 import ResolveDialog from './components/ResolveDialog.vue'
@@ -157,6 +158,7 @@ onUnmounted(() => {
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
     <PlanDialog />
     <NewTaskDialog v-if="state.showNewTask" @close="state.showNewTask = false" />
+    <NewAgentDialog v-if="state.showNewAgent" @close="(state.showNewAgent = false), (state.newAgentTask = null), (state.newAgentBrief = null)" />
     <DeliveryDialog v-if="state.deliveryTask" @close="state.deliveryTask = null" />
     <SshDialog v-if="state.sshEdit" @close="state.sshEdit = null" />
     <TaskDetailDialog v-if="state.detailTaskId" @close="state.detailTaskId = null" />

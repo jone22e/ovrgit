@@ -1,0 +1,854 @@
+<script setup lang="ts">
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import type {
+  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, KnownModels
+} from '@shared/types'
+import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
+import AgentLogo from './components/AgentLogo.vue'
+import Icon from './components/Icon.vue'
+import ModelPicker from './components/ModelPicker.vue'
+import { applyTheme } from './theme'
+
+/**
+ * Janela exclusiva de um agente: só a conversa. Cada mensagem roda o CLI (Claude Code ou Codex)
+ * continuando a mesma sessão; modelo e esforço podem mudar entre uma mensagem e outra.
+ */
+const api = window.ovrgit
+const uid = new URLSearchParams(location.search).get('uid') ?? ''
+
+type Block = AgentBlock
+type ToolBlock = Extract<Block, { kind: 'tool' }>
+
+interface Turn extends AgentTurn {
+  attachments: Shown[]
+}
+
+/** Blocos como aparecem: ferramentas seguidas viram um único grupo discreto (como nos apps do Claude e do Codex) */
+type DisplayBlock = Exclude<Block, { kind: 'tool' }> | { kind: 'tools'; key: string; items: ToolBlock[] }
+
+/** Anexo com prévia (imagens coladas/arrastadas têm os bytes aqui; as escolhidas pelo diálogo, só o caminho) */
+interface Shown extends AgentAttachment {
+  preview?: string
+}
+
+const info = ref<AgentWindowInfo | null>(null)
+const turns = reactive<Turn[]>([])
+const pending = reactive<Shown[]>([])
+const dragging = ref(false)
+const attachError = ref<string | null>(null)
+const draft = ref('')
+const running = ref(false)
+const sessionId = ref<string | null>(null)
+const known = ref<KnownModels | null>(null)
+/** Último modelo/esforço de cada IA, guardado pelo diálogo "Novo agente" (mesma origem: compartilhado) */
+const pickerDefaults = (() => {
+  try {
+    const p = JSON.parse(localStorage.getItem('ovrgit.agent.prefs') ?? '{}') as { model?: Record<string, string>; effort?: Record<string, AgentEffort> }
+    return Object.fromEntries(
+      (['claude', 'codex', 'agy'] as CliProvider[]).map((k) => [k, { model: p.model?.[k] ?? DEFAULT_MODEL[k], effort: p.effort?.[k] ?? DEFAULT_EFFORT[k] }])
+    )
+  } catch {
+    return undefined
+  }
+})()
+const provider = ref<CliProvider>('codex')
+const model = ref('')
+const effort = ref<AgentEffort>('high')
+const mode = ref<AgentMode>('safe')
+const thread = ref<HTMLElement>()
+const box = ref<HTMLTextAreaElement>()
+const fatal = ref<string | null>(null)
+const offs: (() => void)[] = []
+
+const providerName = computed(() => PROVIDER_LABEL[provider.value])
+/** Situação do agente no cabeçalho: cinza sem conversa, pulsando trabalhando, check verde ao terminar, × vermelho se falhou. */
+const statusKind = computed<'idle' | 'live' | 'done' | 'error'>(() => {
+  if (running.value) return 'live'
+  if (!turns.length) return 'idle'
+  return turns[turns.length - 1].error ? 'error' : 'done'
+})
+const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', done: 'concluído', error: 'falhou' })[statusKind.value])
+const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
+const modeOpen = ref(false)
+const modeRoot = ref<HTMLElement>()
+const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[1])
+const onDocClick = (e: MouseEvent) => {
+  if (modeOpen.value && modeRoot.value && !modeRoot.value.contains(e.target as Node)) modeOpen.value = false
+}
+const current = () => [...turns].reverse().find((t) => t.running) ?? null
+
+// ---------- ferramentas agrupadas ----------
+/** Grupos abertos pelo usuário (chave = id da primeira ferramenta do grupo) */
+const openGroups = reactive(new Set<string>())
+function display(t: Turn): DisplayBlock[] {
+  const out: DisplayBlock[] = []
+  for (const b of t.blocks) {
+    if (b.kind !== 'tool') {
+      out.push(b)
+      continue
+    }
+    const last = out[out.length - 1]
+    if (last?.kind === 'tools') last.items.push(b)
+    else out.push({ kind: 'tools', key: b.id, items: [b] })
+  }
+  return out
+}
+/** "8 comandos · 3 leituras · 2 edições" */
+function groupSummary(items: ToolBlock[]): string {
+  const n = { cmd: 0, read: 0, edit: 0, other: 0 }
+  for (const i of items) {
+    if (i.name === 'Bash') n.cmd++
+    else if (/Read|Grep|Glob|Search|Fetch/.test(i.name)) n.read++
+    else if (/Edit|Write/.test(i.name)) n.edit++
+    else n.other++
+  }
+  const parts: string[] = []
+  if (n.cmd) parts.push(`${n.cmd} ${n.cmd === 1 ? 'comando' : 'comandos'}`)
+  if (n.read) parts.push(`${n.read} ${n.read === 1 ? 'leitura' : 'leituras'}`)
+  if (n.edit) parts.push(`${n.edit} ${n.edit === 1 ? 'edição' : 'edições'}`)
+  if (n.other) parts.push(`${n.other} ${n.other === 1 ? 'outra ação' : 'outras ações'}`)
+  return parts.join(' · ')
+}
+const groupBusy = (items: ToolBlock[]) => items.some((i) => i.ok === null)
+const groupFailed = (items: ToolBlock[]) => items.some((i) => i.ok === false)
+/** Enquanto roda, mostra o que está fazendo agora */
+const groupNow = (items: ToolBlock[]) => {
+  const cur = items.find((i) => i.ok === null) ?? items[items.length - 1]
+  return cur ? `${cur.title}${cur.detail ? ` ${cur.detail}` : ''}` : ''
+}
+function toggleGroup(key: string) {
+  if (openGroups.has(key)) openGroups.delete(key)
+  else openGroups.add(key)
+}
+
+const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/** Markdown do agente → HTML seguro. */
+function md(text: string) {
+  return DOMPurify.sanitize(marked.parse(text, { async: false, gfm: true, breaks: false }))
+}
+
+// ---------- título: a IA dá um depois da primeira resposta; o usuário pode renomear ----------
+const chatTitle = ref('')
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const titleInput = ref<HTMLInputElement>()
+async function startRename() {
+  titleDraft.value = chatTitle.value
+  editingTitle.value = true
+  await nextTick()
+  titleInput.value?.select()
+}
+async function saveTitle() {
+  if (!editingTitle.value) return
+  editingTitle.value = false
+  const t = titleDraft.value.trim()
+  if (t === chatTitle.value) return
+  try {
+    chatTitle.value = await api.agentSetTitle(uid, t)
+  } catch (e) {
+    attachError.value = clean(e)
+  }
+}
+
+function apply(ev: AgentChatEvent) {
+  if (ev.type === 'session') {
+    sessionId.value = ev.sessionId
+    return
+  }
+  if (ev.type === 'title') {
+    if (!editingTitle.value) chatTitle.value = ev.title
+    return
+  }
+  const t = current()
+  if (!t) return
+  if (ev.type === 'text') {
+    t.thinking = false
+    t.activity = 'writing'
+    const last = t.blocks[t.blocks.length - 1]
+    if (last?.kind === 'text') last.text += ev.delta
+    else if (ev.delta.trim()) t.blocks.push({ kind: 'text', text: ev.delta.replace(/^\n+/, '') })
+  } else if (ev.type === 'thinking') {
+    t.thinking = true
+    t.activity = 'thinking'
+  } else if (ev.type === 'tool') {
+    t.thinking = false
+    t.activity = 'tools'
+    t.blocks.push({ kind: 'tool', id: ev.id, name: ev.name, title: ev.title, detail: ev.detail, ok: null, open: false })
+  } else if (ev.type === 'toolResult') {
+    const b = t.blocks.find((x): x is ToolBlock => x.kind === 'tool' && x.id === ev.id)
+    if (b) {
+      b.ok = ev.ok
+      b.output = ev.output
+    }
+  } else if (ev.type === 'files') {
+    const last = t.blocks[t.blocks.length - 1]
+    if (last?.kind === 'files') last.paths.push(...ev.paths.filter((p) => !last.paths.includes(p)))
+    else t.blocks.push({ kind: 'files', paths: [...ev.paths] })
+  } else if (ev.type === 'done') {
+    t.running = false
+    t.thinking = false
+    t.error = ev.error
+    t.durationMs = ev.durationMs
+    t.costUsd = ev.costUsd
+    running.value = false
+    // texto vazio no fim: tira o bloco; o CLI repete o erro como texto: fica só a caixa de erro
+    t.blocks = t.blocks.filter((b) => b.kind !== 'text' || (b.text.trim() && !(ev.error && /^API Error/i.test(b.text.trim()))))
+    notifyDone(t)
+    nextTick(() => box.value?.focus())
+    // interrompida para dar lugar a outra mensagem: não é erro
+    if (sendAfterStop && t.error === 'Interrompido.') t.error = undefined
+    flushQueue()
+  }
+}
+
+function notifyDone(t: Turn) {
+  if (document.hasFocus() || !('Notification' in window)) return
+  const text = t.blocks.filter((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text').map((b) => b.text).join(' ')
+  try {
+    new Notification(`${providerName.value} terminou em ${info.value?.project ?? 'projeto'}`, {
+      body: t.error ?? text.replace(/[*_`#>]+/g, '').slice(0, 180) ?? 'Tarefa concluída'
+    })
+  } catch {
+    /* notificações desativadas */
+  }
+}
+
+// ---------- anexos: clipe, arrastar, colar ----------
+const isImage = (type: string, name: string) => /^image\//.test(type) || /\.(png|jpe?g|gif|webp)$/i.test(name)
+const isAudio = (type: string, name: string) => /^audio\//.test(type) || /\.(mp3|m4a|wav|ogg|webm|aac|flac|opus)$/i.test(name)
+
+function pushPending(a: Shown) {
+  if (pending.some((p) => p.path === a.path)) return
+  if (pending.length >= 20) {
+    attachError.value = 'Máximo de 20 anexos por mensagem.'
+    return
+  }
+  pending.push(a)
+}
+
+async function pickFiles() {
+  attachError.value = null
+  try {
+    for (const a of await api.agentPickFiles(uid)) pushPending(a)
+  } catch (e) {
+    attachError.value = clean(e)
+  }
+}
+
+/** Arquivos vindos do sistema (arrastados) ou só com bytes (colados): os sem caminho são guardados pelo app. */
+async function addFiles(files: File[]) {
+  attachError.value = null
+  for (const f of files) {
+    try {
+      const preview = isImage(f.type, f.name) ? URL.createObjectURL(f) : undefined
+      const real = api.filePath(f)
+      if (real) {
+        const kind = isImage(f.type, f.name) ? 'image' : isAudio(f.type, f.name) ? 'audio' : 'file'
+        pushPending({ name: f.name, path: real, mime: f.type, size: f.size, kind, preview })
+      } else {
+        const name = f.name && f.name !== 'image.png' ? f.name : `colado-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`
+        const saved = await api.agentSaveBlob(uid, { name, type: f.type, data: await f.arrayBuffer() })
+        pushPending({ ...saved, preview })
+      }
+    } catch (e) {
+      attachError.value = clean(e)
+    }
+  }
+}
+
+function onDrop(e: DragEvent) {
+  dragging.value = false
+  const files = [...(e.dataTransfer?.files ?? [])]
+  if (files.length) addFiles(files)
+}
+/** Texto colado grande vira um cartão (como no app do ChatGPT), em vez de tomar o campo inteiro */
+const PASTE_CHARS = 1200
+const PASTE_LINES = 12
+const pastes = reactive<{ id: string; text: string; lines: number }[]>([])
+function onPaste(e: ClipboardEvent) {
+  const files = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter((f): f is File => !!f)
+  if (files.length) {
+    e.preventDefault()
+    addFiles(files)
+    return
+  }
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+  const lines = text.split('\n').length
+  if (text.length > PASTE_CHARS || lines > PASTE_LINES) {
+    e.preventDefault()
+    pastes.push({ id: crypto.randomUUID(), text, lines })
+  }
+}
+function pasteToField(i: number) {
+  const [p] = pastes.splice(i, 1)
+  if (!p) return
+  draft.value = draft.value ? `${draft.value}\n${p.text}` : p.text
+  nextTick(autosize)
+}
+const pastePreview = (t: string) => t.trim().split('\n')[0].slice(0, 60)
+/** Mensagens longas aparecem recolhidas no balão; clique mostra tudo */
+const LONG_USER = 700
+const expandedUsers = reactive(new Set<string>())
+const isLongUser = (t: Turn) => t.user.length > LONG_USER || t.user.split('\n').length > PASTE_LINES
+function removePending(i: number) {
+  const [a] = pending.splice(i, 1)
+  if (a?.preview) URL.revokeObjectURL(a.preview)
+}
+const sizeOf = (n: number) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+
+/** Mensagem pronta para ir ao agente: texto (digitado + colados) e anexos */
+interface Payload {
+  id: string
+  body: string
+  attachments: Shown[]
+}
+const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
+
+/** Tira do campo o que foi digitado, colado e anexado; null se não há nada. */
+function takePayload(text = draft.value): Payload | null {
+  const typed = text.trim()
+  const pasted = pastes.splice(0, pastes.length).map((p) => p.text.trim()).filter(Boolean)
+  const msg = [typed, ...pasted].filter(Boolean).join('\n\n')
+  if (!msg && !pending.length) return null
+  const attachments = pending.splice(0, pending.length)
+  const body = msg || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.')
+  draft.value = ''
+  nextTick(autosize) // depois do campo esvaziar no DOM (senão mede a altura antiga)
+  return { id: crypto.randomUUID(), body, attachments }
+}
+
+async function dispatch(p: Payload) {
+  if (!info.value) return
+  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now() }
+  turns.push(turn)
+  running.value = true
+  scrollToEnd(true)
+  try {
+    await api.agentSend(
+      uid,
+      p.body,
+      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value },
+      p.attachments.map(({ preview: _p, ...a }) => a)
+    )
+  } catch (e) {
+    turn.running = false
+    turn.thinking = false
+    turn.error = clean(e)
+    running.value = false
+    flushQueue()
+  }
+}
+
+/** Agente livre: envia; ocupado: entra na fila (sai sozinha quando a resposta atual terminar). */
+async function send(text = draft.value) {
+  const p = takePayload(text)
+  if (!p || !info.value) return
+  if (running.value) queue.push(p)
+  else await dispatch(p)
+}
+
+// ---------- fila e "enviar agora" ----------
+const queue = reactive<Payload[]>([])
+/** Mensagem que deve sair assim que a interrupção for confirmada */
+let sendAfterStop: Payload | null = null
+function removeQueued(i: number) {
+  const [p] = queue.splice(i, 1)
+  if (!p) return
+  // volta para o campo, para não perder o texto
+  draft.value = draft.value ? `${draft.value}\n${p.body}` : p.body
+  pending.push(...p.attachments)
+  nextTick(autosize)
+}
+/** Chamado quando uma resposta termina: primeiro o "enviar agora", depois a fila. */
+function flushQueue() {
+  if (running.value) return
+  const next = sendAfterStop ?? queue.shift()
+  sendAfterStop = null
+  if (next) dispatch(next)
+}
+/** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela). */
+function sendNow() {
+  const p = takePayload()
+  if (!p) return
+  if (!running.value) return dispatch(p)
+  sendAfterStop = p
+  api.agentCancel(uid)
+}
+
+function stop() {
+  api.agentCancel(uid)
+}
+
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
+  e.preventDefault()
+  if (e.metaKey || e.ctrlKey) sendNow()
+  else send()
+}
+
+function autosize() {
+  const el = box.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+}
+
+// rolagem: acompanha o fim enquanto o usuário não subiu para ler algo
+let stick = true
+function onScroll() {
+  const el = thread.value
+  if (!el) return
+  stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+}
+function scrollToEnd(force = false) {
+  if (!force && !stick) return
+  nextTick(() => {
+    const el = thread.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+watch(turns, () => scrollToEnd(), { deep: true })
+
+// a conversa é guardada: nesta janela (sobrevive a recargas) e, assim que a sessão do CLI existe,
+// em disco pelo processo principal (histórico: dá para fechar o app e reabrir depois)
+const STORE = `ovrgit.agent.${uid}`
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+const plainTurns = (): AgentTurn[] => turns.map((t) => ({ ...t, attachments: t.attachments.map(({ preview: _p, ...a }) => a) }))
+watch(
+  [turns, sessionId],
+  () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      const plain = plainTurns() // prévias (blob:) não sobrevivem à recarga
+      try {
+        sessionStorage.setItem(STORE, JSON.stringify(plain))
+      } catch {
+        /* sem espaço: segue sem guardar */
+      }
+      if (sessionId.value && plain.length) api.agentSaveTranscript(uid, JSON.parse(JSON.stringify(plain))).catch(() => undefined)
+    }, 400)
+  },
+  { deep: true }
+)
+function adopt(saved: AgentTurn[], stillRunning: boolean) {
+  for (const t of saved) {
+    if (t.running && !stillRunning) {
+      t.running = false
+      t.thinking = false
+      if (!t.blocks.length) t.error = 'A resposta foi interrompida antes de terminar.'
+    }
+    turns.push(t)
+  }
+  if (turns.length && stillRunning) running.value = true
+}
+async function restore(i: AgentWindowInfo) {
+  try {
+    const local = JSON.parse(sessionStorage.getItem(STORE) ?? '[]') as AgentTurn[]
+    if (local.length) return adopt(local, i.running)
+  } catch {
+    /* sem estado local */
+  }
+  // conversa reaberta do histórico: transcrição guardada em disco
+  if (i.sessionId) {
+    const saved = await api.agentLoadTranscript(i.sessionId).catch(() => null)
+    if (saved?.length) adopt(saved, i.running)
+  }
+}
+
+// linha de andamento enquanto o agente trabalha: tempo decorrido e o que está fazendo agora
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | undefined
+watch(
+  running,
+  (on) => {
+    clearInterval(clock)
+    if (on) clock = setInterval(() => (now.value = Date.now()), 1000)
+  },
+  { immediate: true }
+)
+onUnmounted(() => clearInterval(clock))
+const elapsed = (t: Turn) => {
+  const s = Math.max(0, Math.round((now.value - (t.startedAt ?? now.value)) / 1000))
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
+}
+const ACTIVITY = { thinking: 'Pensando…', tools: 'Executando ferramentas…', writing: 'Escrevendo…' }
+const activityLabel = (t: Turn) => ACTIVITY[t.activity ?? 'thinking']
+
+const toolIcon = (name: string) =>
+  name === 'Bash' ? 'terminal' : /Edit|Write/.test(name) ? 'pencil' : /Read|Grep|Glob|Search|Fetch/.test(name) ? 'search' : /Agent|Task/.test(name) ? 'bot' : 'zap'
+const took = (ms?: number) => (!ms ? '' : ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`)
+const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p
+const fileDir = (p: string) => p.split(/[\\/]/).slice(0, -1).join('/')
+
+onMounted(async () => {
+  try {
+    const s = await api.getSettings()
+    applyTheme(s.theme)
+  } catch {
+    /* tema padrão */
+  }
+  offs.push(api.onAgentEvent((u, ev) => u === uid && apply(ev)))
+  document.addEventListener('mousedown', onDocClick)
+  offs.push(() => document.removeEventListener('mousedown', onDocClick))
+  const onTheme = () => undefined
+  window.addEventListener('ovrgit-theme', onTheme)
+  offs.push(() => window.removeEventListener('ovrgit-theme', onTheme))
+
+  const i = await api.agentInfo(uid).catch(() => null)
+  if (!i) {
+    fatal.value = 'Esta janela perdeu a ligação com o agente. Feche e abra um agente novo.'
+    return
+  }
+  info.value = i
+  provider.value = i.provider
+  model.value = i.model
+  effort.value = i.effort
+  mode.value = i.mode
+  chatTitle.value = i.title
+  sessionId.value = i.sessionId
+  await restore(i)
+  scrollToEnd(true)
+  known.value = await api.knownModels().catch(() => null)
+  box.value?.focus()
+  // a primeira tarefa só é enviada uma vez (não de novo numa recarga)
+  if (i.firstMessage && !turns.length) send(i.firstMessage)
+})
+onUnmounted(() => offs.forEach((f) => f()))
+</script>
+
+<template>
+  <div
+    class="agent"
+    @dragover.prevent="dragging = true"
+    @dragleave.self="dragging = false"
+    @drop.prevent="onDrop"
+  >
+    <header class="bar">
+      <AgentLogo v-if="info" :source="provider" :size="16" />
+      <div v-if="info" class="head-text">
+        <input
+          v-if="editingTitle"
+          ref="titleInput"
+          v-model="titleDraft"
+          type="text"
+          class="title-input"
+          maxlength="120"
+          placeholder="Título da conversa"
+          @keydown.enter.prevent="saveTitle"
+          @keydown.esc.prevent="editingTitle = false"
+          @blur="saveTitle"
+        />
+        <button v-else type="button" class="title" :class="{ none: !chatTitle }" title="Clique para renomear" @click="startRename">
+          <span class="ellipsis">{{ chatTitle || `Nova conversa com ${providerName}` }}</span>
+          <Icon name="pencil" :size="11" class="pen" />
+        </button>
+        <span class="sub ellipsis" :title="info.cwd">
+          {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }}
+          · <Icon name="folder" :size="11" /> {{ info.project }}<template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
+        </span>
+      </div>
+      <span class="spacer" />
+      <span class="status" :class="statusKind" :title="statusTitle">
+        <span class="ball">
+          <Icon v-if="statusKind === 'done'" name="check" :size="10" />
+          <Icon v-else-if="statusKind === 'error'" name="x" :size="10" />
+        </span>
+        {{ statusLabel }}
+      </span>
+    </header>
+
+    <main ref="thread" class="thread" @scroll="onScroll">
+      <p v-if="fatal" class="fatal">{{ fatal }}</p>
+      <div v-else-if="!turns.length" class="empty">
+        <AgentLogo v-if="info" :source="provider" :size="36" />
+        <h2>O que você quer fazer em {{ info?.project ?? 'este projeto' }}?</h2>
+        <p class="faint">
+          O agente trabalha direto na pasta do projeto, como no app do {{ providerName }}. Enter envia; Shift+Enter quebra a linha.
+        </p>
+        <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
+      </div>
+
+      <article v-for="t in turns" :key="t.id" class="turn">
+        <div class="user">
+          <div class="bubble">
+            <div v-if="t.attachments.length" class="atts">
+              <span v-for="a in t.attachments" :key="a.path" class="att" :title="a.path">
+                <img v-if="a.preview" :src="a.preview" alt="" />
+                <Icon v-else :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
+                <span class="ellipsis">{{ a.name }}</span>
+              </span>
+            </div>
+            <p :class="{ clamp: isLongUser(t) && !expandedUsers.has(t.id) }">{{ t.user }}</p>
+            <button v-if="isLongUser(t)" type="button" class="ghost more" @click="expandedUsers.has(t.id) ? expandedUsers.delete(t.id) : expandedUsers.add(t.id)">
+              {{ expandedUsers.has(t.id) ? 'Mostrar menos' : 'Mostrar tudo' }}
+            </button>
+          </div>
+        </div>
+        <div class="answer">
+          <template v-for="(b, i) in display(t)" :key="i">
+            <div v-if="b.kind === 'text'" class="md" v-html="md(b.text)" />
+            <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
+              <!-- linha discreta: enquanto roda mostra o que está fazendo; depois, só o resumo. Clique abre a lista. -->
+              <button type="button" class="ghost tools-line" @click="toggleGroup(b.key)">
+                <span v-if="groupBusy(b.items)" class="spinner tiny" />
+                <Icon v-else-if="groupFailed(b.items)" name="alert" :size="12" class="bad" />
+                <Icon v-else name="chevron" :size="12" class="caret" />
+                <span class="tools-sum">{{ groupSummary(b.items) }}</span>
+                <span v-if="groupBusy(b.items)" class="tools-now mono ellipsis">{{ groupNow(b.items) }}</span>
+              </button>
+              <div v-if="openGroups.has(b.key)" class="tools-list">
+                <div v-for="tb in b.items" :key="tb.id" class="tool" :class="{ open: tb.open, click: tb.output }" @click="tb.output && (tb.open = !tb.open)">
+                  <div class="tool-line">
+                    <Icon :name="toolIcon(tb.name)" :size="12" class="tool-ic" />
+                    <span class="tool-title">{{ tb.title }}</span>
+                    <span v-if="tb.detail" class="tool-detail mono ellipsis" :title="tb.detail">{{ tb.detail }}</span>
+                    <span class="tool-state">
+                      <span v-if="tb.ok === null" class="spinner tiny" />
+                      <Icon v-else-if="tb.ok" name="check" :size="11" class="ok" />
+                      <Icon v-else name="x" :size="11" class="bad" />
+                    </span>
+                  </div>
+                  <pre v-if="tb.open && tb.output" class="tool-out">{{ tb.output }}</pre>
+                </div>
+              </div>
+            </div>
+            <div v-else class="files">
+              <div class="files-head"><Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}</div>
+              <div v-for="p in b.paths" :key="p" class="file"><span class="faint">{{ fileDir(p) }}<template v-if="fileDir(p)">/</template></span>{{ fileName(p) }}</div>
+            </div>
+          </template>
+          <div v-if="t.running" class="progress">
+            <AgentLogo :source="provider" :size="13" class="spin-logo" />
+            <span class="mono">{{ elapsed(t) }}</span> · {{ activityLabel(t) }}
+          </div>
+          <p v-if="t.error" class="err"><Icon name="alert" :size="13" /> {{ t.error }}</p>
+          <p v-if="!t.running && (t.durationMs || t.costUsd)" class="meta faint">
+            <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
+            <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <footer class="composer" :class="{ drop: dragging }">
+      <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="16" /> Solte para anexar</div>
+      <div v-if="pending.length" class="pending">
+        <span v-for="(a, i) in pending" :key="a.path" class="att" :title="`${a.path}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
+          <img v-if="a.preview" :src="a.preview" alt="" />
+          <Icon v-else :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
+          <span class="ellipsis">{{ a.name }}</span>
+          <button type="button" class="ghost rm" title="Remover" @click="removePending(i)"><Icon name="x" :size="11" /></button>
+        </span>
+      </div>
+      <div v-if="pastes.length" class="pending">
+        <span v-for="(p, i) in pastes" :key="p.id" class="att paste" :title="p.text.slice(0, 400)">
+          <Icon name="list" :size="12" />
+          <span class="paste-text">
+            <span class="ellipsis">{{ pastePreview(p.text) }}</span>
+            <small class="faint">Texto colado · {{ p.lines }} linhas · <a @click.prevent="pasteToField(i)">mostrar no campo</a></small>
+          </span>
+          <button type="button" class="ghost rm" title="Remover" @click="pastes.splice(i, 1)"><Icon name="x" :size="11" /></button>
+        </span>
+      </div>
+      <p v-if="attachError" class="att-err">{{ attachError }}</p>
+      <div v-if="queue.length" class="queue">
+        <div v-for="(q, i) in queue" :key="q.id" class="queued" :title="q.body">
+          <Icon name="list" :size="12" class="faint" />
+          <span class="q-text ellipsis">{{ q.body }}</span>
+          <small class="faint">na fila{{ q.attachments.length ? ` · ${q.attachments.length} anexo${q.attachments.length === 1 ? '' : 's'}` : '' }}</small>
+          <button type="button" class="ghost rm" title="Tirar da fila (volta para o campo)" @click="removeQueued(i)"><Icon name="x" :size="11" /></button>
+        </div>
+      </div>
+      <textarea
+        ref="box"
+        v-model="draft"
+        rows="1"
+        :placeholder="running ? 'Agente trabalhando… Enter põe na fila, ⌘Enter interrompe e envia agora' : 'Faça qualquer coisa'"
+        :disabled="!info"
+        @input="autosize"
+        @keydown="onKey"
+        @paste="onPaste"
+      />
+      <div class="row">
+        <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole na janela)" :disabled="!info" @click="pickFiles">
+          <Icon name="paperclip" :size="15" />
+        </button>
+        <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
+        <div ref="modeRoot" class="mode-menu">
+          <button type="button" class="chip" :class="[mode, { on: modeOpen }]" :title="currentMode.hint" @click="modeOpen = !modeOpen">
+            <Icon :name="currentMode.icon" :size="12" />
+            {{ currentMode.label }}
+            <Icon name="chevron" :size="11" class="chev" />
+          </button>
+          <div v-if="modeOpen" class="pop">
+            <button v-for="m in MODES" :key="m.id" type="button" class="ghost opt" :class="{ cur: mode === m.id }" @click="(mode = m.id), (modeOpen = false)">
+              <Icon :name="m.icon" :size="13" />
+              <span class="opt-text"><strong>{{ m.label }}</strong><small>{{ m.hint }}</small></span>
+              <Icon v-if="mode === m.id" name="check" :size="13" class="ok" />
+            </button>
+          </div>
+        </div>
+        <span class="spacer" />
+        <template v-if="running">
+          <button type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
+          <button type="button" class="send-opt" title="Enviar quando a resposta atual terminar (Enter)" :disabled="!canCompose || !info" @click="send()">
+            <Icon name="list" :size="13" /> Fila
+          </button>
+          <button type="button" class="send-opt now" title="Interromper a resposta atual e enviar agora (⌘/Ctrl+Enter)" :disabled="!canCompose || !info" @click="sendNow">
+            <Icon name="zap" :size="13" /> Agora
+          </button>
+        </template>
+        <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
+      </div>
+    </footer>
+  </div>
+</template>
+
+<style scoped>
+.agent { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+.bar {
+  height: var(--titlebar); display: flex; align-items: center; gap: 8px; padding: 0 14px; flex: none;
+  border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
+}
+:root[data-platform='darwin'] .bar { padding-left: 90px; }
+:root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
+.head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; }
+.title { height: 20px; padding: 0 4px; margin-left: -4px; gap: 6px; border: 0; background: transparent; font-size: 13px; font-weight: 700; justify-content: flex-start; max-width: 100%; min-width: 0; }
+.title.none { font-weight: 500; color: var(--muted); }
+.title .pen { color: var(--faint); opacity: 0; flex: none; }
+.title:hover .pen { opacity: 1; }
+.title-input { height: 22px; padding: 0 6px; margin-left: -6px; font-size: 13px; font-weight: 700; width: min(100%, 420px); }
+.sub { display: block; font-size: 11px; color: var(--muted); min-width: 0; }
+.sub svg { vertical-align: -1px; }
+.spacer { flex: 0 0 8px; }
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); -webkit-app-region: no-drag; }
+.ball { width: 14px; height: 14px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--faint); color: #fff; }
+.status.idle .ball { background: var(--faint); opacity: 0.6; }
+.status.live { color: var(--accent); }
+.status.live .ball { width: 9px; height: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; box-shadow: 0 0 0 3px var(--accent-soft); }
+.status.done { color: var(--add); }
+.status.done .ball { background: var(--add); }
+.status.error { color: var(--del); }
+.status.error .ball { background: var(--del); }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+.thread { flex: 1; overflow-y: auto; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
+.fatal { color: var(--del); }
+.empty { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.empty h2 { margin: 6px 0 0; font-size: 18px; font-weight: 700; }
+.empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
+
+.turn { display: flex; flex-direction: column; gap: 14px; }
+.user { display: flex; justify-content: flex-end; }
+.bubble {
+  max-width: 78%; padding: 10px 14px; border-radius: 16px 16px 4px 16px;
+  background: var(--panel-2); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;
+}
+.bubble p { margin: 0; white-space: pre-wrap; user-select: text; line-height: 1.5; }
+.atts, .pending { display: flex; flex-wrap: wrap; gap: 6px; }
+.pending { padding: 2px 4px 0; }
+.att {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; max-width: 220px;
+  border-radius: 8px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; color: var(--muted);
+}
+.att img { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex: none; }
+.att.paste { height: auto; padding: 6px 8px 6px 8px; max-width: 320px; align-items: flex-start; }
+.paste-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+.paste-text small { font-family: var(--font); font-size: 11px; }
+.paste-text a { color: var(--accent); cursor: pointer; }
+.bubble p.clamp { display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+.more { height: 22px; padding: 0 6px; margin: -4px 0 0 -6px; align-self: flex-start; font-size: 11.5px; color: var(--accent); }
+.att .rm { width: 18px; height: 18px; padding: 0; color: var(--faint); flex: none; }
+.att-err { margin: 0 6px; font-size: 12px; color: var(--del); }
+.attach { width: 30px; height: 30px; border-radius: 50%; color: var(--muted); flex: none; }
+.composer.drop { border-color: var(--accent); background: var(--accent-soft); }
+.drop-hint { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px; color: var(--accent); font-weight: 600; font-size: 12.5px; }
+.answer { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.md { user-select: text; line-height: 1.6; font-size: 13.5px; }
+.md :deep(p) { margin: 0 0 10px; }
+.md :deep(p:last-child) { margin-bottom: 0; }
+.md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
+.md :deep(li) { margin: 3px 0; }
+.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 12px 0 6px; font-size: 14.5px; }
+.md :deep(code) { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+.md :deep(pre) { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); overflow-x: auto; }
+.md :deep(pre code) { background: transparent; padding: 0; }
+.md :deep(a) { color: var(--accent); }
+.md :deep(table) { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
+.md :deep(td), .md :deep(th) { border: 1px solid var(--border); padding: 4px 8px; }
+.md :deep(blockquote) { margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
+
+/* grupo de ferramentas: uma linha apagada, como nos apps; abre a lista ao clicar */
+.tools { display: flex; flex-direction: column; gap: 2px; }
+.tools-line { justify-content: flex-start; gap: 8px; height: 26px; padding: 0 8px; margin-left: -8px; font-size: 12px; font-weight: 500; color: var(--faint); min-width: 0; max-width: 100%; }
+.tools-line:hover { color: var(--muted); }
+.tools-line .caret { transition: transform 0.12s; }
+.tools.open .tools-line .caret { transform: rotate(90deg); }
+.tools-sum { flex: none; }
+.tools-now { min-width: 0; font-size: 11.5px; color: var(--faint); font-weight: 400; }
+.tools-list { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 4px 6px; padding-left: 10px; border-left: 2px solid var(--border); }
+.tool { border-radius: 8px; border: 1px solid transparent; }
+.tool.click { cursor: pointer; }
+.tool.click:hover, .tool.open { background: var(--panel); border-color: var(--border); }
+.tool-line { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; min-width: 0; font-size: 12px; }
+.tool-ic { color: var(--faint); }
+.tool-title { color: var(--faint); flex: none; }
+.tool-detail { min-width: 0; font-size: 11.5px; color: var(--muted); }
+.tool-state { margin-left: auto; flex: none; display: grid; place-items: center; width: 16px; }
+.tool-state .ok { color: var(--add); }
+.tool-state .bad { color: var(--del); }
+.spinner.tiny { width: 11px; height: 11px; border-width: 1.5px; }
+.tool-out {
+  margin: 0 8px 8px; padding: 8px 10px; max-height: 260px; overflow: auto; border-radius: 8px;
+  background: var(--panel-2); font-family: var(--mono); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; user-select: text;
+}
+.files { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 10px; font-size: 12.5px; }
+.files-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; }
+.file { font-family: var(--mono); font-size: 12px; padding: 2px 0 2px 18px; user-select: text; }
+.progress { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; padding: 2px 0; }
+.progress .mono { font-size: 12px; font-variant-numeric: tabular-nums; }
+.spin-logo { animation: breathe 1.6s ease-in-out infinite; margin-right: 2px; }
+@keyframes breathe { 50% { opacity: 0.35; transform: scale(0.9); } }
+.err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
+.meta { margin: 0; font-size: 11px; }
+
+.composer {
+  flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
+  background: var(--panel); border: 1px solid var(--border); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.composer:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.composer textarea { border: 0; background: transparent; padding: 6px 6px 2px; font-size: 13.5px; line-height: 1.45; max-height: 200px; overflow-y: auto; }
+.composer textarea:focus { box-shadow: none; }
+.row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
+.chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
+.chip.plan { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
+.chip.on { background: var(--hover); }
+.chip .chev { transform: rotate(-90deg); color: var(--faint); }
+.mode-menu { position: relative; flex: none; }
+.mode-menu .pop {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 30; width: 300px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.opt { justify-content: flex-start; gap: 10px; height: auto; padding: 8px 10px; text-align: left; white-space: normal; color: var(--text); }
+.opt.cur { background: var(--accent-soft); }
+.opt-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.opt-text strong { font-size: 12.5px; }
+.opt-text small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.opt .ok { color: var(--accent); flex: none; }
+.send { width: 34px; height: 34px; border-radius: 50%; flex: none; }
+.send-opt { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; flex: none; }
+.send-opt.now { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.queue { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 0; }
+.queued { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 8px; background: var(--panel-2); font-size: 12px; min-width: 0; }
+.q-text { flex: 1; min-width: 0; }
+.queued small { font-size: 11px; flex: none; }
+.queued .rm { width: 18px; height: 18px; padding: 0; color: var(--faint); flex: none; }
+.send.stop { background: var(--text); color: var(--bg); border-color: var(--text); }
+</style>

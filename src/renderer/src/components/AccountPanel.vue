@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AuthStatus, CliProvider } from '@shared/types'
-import { api } from '../store'
+import { api, openTerminalTab, toast } from '../store'
 import Icon from './Icon.vue'
 
 const props = defineProps<{ provider: CliProvider }>()
@@ -18,8 +18,16 @@ const LABEL: Record<CliProvider, { name: string; account: string; install: strin
     account: 'conta ChatGPT',
     install: 'https://github.com/openai/codex',
     installHint: 'Instale com "npm i -g @openai/codex" e reabra esta tela.'
+  },
+  agy: {
+    name: 'Antigravity CLI',
+    account: 'conta Google',
+    install: 'https://antigravity.google',
+    installHint: 'Instale o Antigravity (antigravity.google) e rode "agy" uma vez no terminal.'
   }
 }
+/** O Antigravity só entra pelo próprio comando: abrimos o terminal já com "agy" digitado */
+const isAgy = props.provider === 'agy'
 
 const status = ref<AuthStatus | null>(null)
 const loggingIn = ref(false)
@@ -36,6 +44,11 @@ async function load() {
 
 async function login() {
   error.value = null
+  if (props.provider === 'agy') {
+    openTerminalTab({ kind: 'local', command: 'agy' })
+    toast('Terminal aberto com o Antigravity: conclua o login lá e volte aqui em "Verificar de novo".')
+    return
+  }
   url.value = null
   code.value = ''
   loggingIn.value = true
@@ -54,6 +67,7 @@ async function cancel() {
 }
 
 async function logout() {
+  if (props.provider === 'agy') return
   busy.value = true
   try {
     status.value = await api.authLogout(props.provider)
@@ -124,10 +138,14 @@ watch(
         </span>
         <span v-else class="muted">Não conectado</span>
         <span class="spacer" />
-        <button v-if="status.loggedIn" class="small ghost" :disabled="busy" @click="logout">Sair</button>
+        <button v-if="status.loggedIn && isAgy" class="small ghost" @click="load">Verificar de novo</button>
+        <button v-else-if="status.loggedIn" class="small ghost" :disabled="busy" @click="logout">Sair</button>
         <button v-else class="small primary" @click="login">Entrar com a {{ LABEL[provider].account }}</button>
       </div>
-      <p v-if="!status.loggedIn" class="faint">
+      <p v-if="!status.loggedIn && isAgy" class="faint">
+        O login é feito pelo próprio <span class="mono">agy</span>: o botão abre o terminal com o comando; siga as instruções e depois clique em "Verificar de novo".
+      </p>
+      <p v-else-if="!status.loggedIn" class="faint">
         O login usa sua assinatura, sem API key. O navegador vai abrir para você autorizar.
       </p>
     </template>

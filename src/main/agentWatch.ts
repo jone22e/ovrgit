@@ -1,7 +1,7 @@
-import { closeSync, existsSync, openSync, readdirSync, readSync, statSync, watch, type FSWatcher } from 'node:fs'
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, watch, type FSWatcher } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { AgentSession } from '../shared/types'
+import type { AgentEffort, AgentSession, KnownModels, ModelInfo, ProviderUsage, UsageWindow } from '../shared/types'
 
 /**
  * Acompanha agentes de IA pelos registros locais que eles mesmos gravam. Nada sai do computador.
@@ -106,6 +106,119 @@ function threadName(id: string): string | null {
   return names.map.get(id) ?? null
 }
 
+// modelos que aparecem nas sessões (ids reais que o usuário usa): alimentam o seletor de modelo dos agentes
+const seenModels: Record<AgentSession['source'], Map<string, number>> = { codex: new Map(), claude: new Map() }
+function sawModel(source: AgentSession['source'], model: unknown, at: number) {
+  if (typeof model !== 'string' || !/^[\w.:/-]{2,80}$/.test(model)) return
+  const prev = seenModels[source].get(model) ?? 0
+  if (at > prev) seenModels[source].set(model, at)
+}
+
+// limites de uso da conta ChatGPT: o Codex grava o percentual usado em cada evento de contagem de tokens
+interface CodexWindow {
+  used_percent?: number
+  window_minutes?: number
+  resets_at?: number
+}
+let codexLimits: { at: number; primary: CodexWindow | null; secondary: CodexWindow | null; plan?: string } | null = null
+function sawCodexLimits(raw: unknown, at: number) {
+  if (!raw || typeof raw !== 'object') return
+  const r = raw as { primary?: CodexWindow | null; secondary?: CodexWindow | null; plan_type?: string }
+  if (codexLimits && codexLimits.at > at) return
+  codexLimits = { at, primary: r.primary ?? null, secondary: r.secondary ?? null, plan: typeof r.plan_type === 'string' ? r.plan_type : undefined }
+}
+
+/** Consumo da assinatura ChatGPT visto pelo Codex: janela de 5 horas e semanal (o que houver nos registros). */
+export function codexUsage(): ProviderUsage | null {
+  if (!codexLimits) return null
+  const wins = [codexLimits.primary, codexLimits.secondary].filter((w): w is CodexWindow => !!w && typeof w.used_percent === 'number')
+  const pick = (test: (m: number) => boolean): UsageWindow | null => {
+    const w = wins.find((x) => test(x.window_minutes ?? 0))
+    return w ? { pct: Math.max(0, Math.min(100, w.used_percent!)), resetsAt: w.resets_at ? w.resets_at * 1000 : null } : null
+  }
+  return {
+    fiveHour: pick((m) => m > 0 && m <= 600),
+    week: pick((m) => m >= 7 * 24 * 60 - 60),
+    plan: codexLimits.plan,
+    at: codexLimits.at
+  }
+}
+
+/** Modelos vistos recentemente em cada CLI, do mais recente para o mais antigo, e o catálogo do Codex. */
+export function knownModels(): KnownModels {
+  const sorted = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id).slice(0, 12)
+  return { claude: sorted(seenModels.claude), codex: sorted(seenModels.codex), agy: [], codexCatalog: codexCatalog(), agyCatalog: agyCache?.list ?? [] }
+}
+
+// catálogo do Antigravity: `agy models` consulta o serviço, então fica em cache por 1 h
+let agyCache: { at: number; list: ModelInfo[] } | null = null
+export async function refreshAgyCatalog(findBinary: (name: string) => Promise<string | null>, run: (bin: string, args: string[]) => Promise<string>) {
+  if (agyCache && Date.now() - agyCache.at < 3600_000) return agyCache.list
+  const bin = await findBinary('agy')
+  if (!bin) return []
+  try {
+    const out = await run(bin, ['models'])
+    const list: ModelInfo[] = []
+    for (const line of out.split('\n')) {
+      const m = /^([\w.-]+)\t(.+)$/.exec(line.trim())
+      if (m) list.push({ id: m[1], label: m[2].trim() })
+    }
+    agyCache = { at: Date.now(), list }
+    return list
+  } catch {
+    return agyCache?.list ?? []
+  }
+}
+
+const EFFORT_IDS = new Set<AgentEffort>(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+
+/** Descrições do catálogo do Codex vêm em inglês; as conhecidas ficam em português. */
+const CODEX_DESCRIPTIONS: Record<string, string> = {
+  'Frontier intelligence for the most demanding work.': 'O mais capaz, para o trabalho mais exigente.',
+  'Workhorse model for coding and everyday work.': 'Modelo de trabalho para código e tarefas do dia a dia.',
+  'Fast and affordable model for easier tasks.': 'Rápido e econômico, para tarefas mais simples.',
+  'Fast and affordable agentic coding model.': 'Rápido e econômico, para código com agentes.',
+  'Older coding model for complex work.': 'Geração anterior, para trabalho complexo em código.',
+  'Older balanced model for straightforward work.': 'Geração anterior, equilibrado, para trabalho direto.',
+  'Older fast and efficient model.': 'Geração anterior, rápido e eficiente.',
+  'Legacy coding model.': 'Modelo antigo de código.'
+}
+const describeCodex = (d: string | undefined) => (d ? CODEX_DESCRIPTIONS[d.trim()] ?? d : undefined)
+
+/** Catálogo de modelos que o Codex baixa e guarda em ~/.codex/models_cache.json (os mesmos do app). */
+export function codexCatalog(): ModelInfo[] {
+  const file = path.join(path.dirname(sessionsDir()), 'models_cache.json')
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as {
+      models?: {
+        slug?: string
+        display_name?: string
+        description?: string
+        visibility?: string
+        priority?: number
+        default_reasoning_level?: string
+        supported_reasoning_levels?: { effort?: string }[]
+      }[]
+    }
+    return (raw.models ?? [])
+      .filter((m) => m.slug && m.visibility !== 'hide')
+      .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
+      .map((m) => {
+        const efforts = (m.supported_reasoning_levels ?? []).map((l) => l.effort).filter((e): e is AgentEffort => EFFORT_IDS.has(e as AgentEffort))
+        return {
+          id: m.slug!,
+          // "GPT-5.6-Sol" → "GPT-5.6 Sol", como no app
+          label: (m.display_name ?? m.slug!).replace(/^(GPT-[\d.]+)-/i, '$1 '),
+          description: describeCodex(m.description),
+          efforts: efforts.length ? efforts : undefined,
+          defaultEffort: EFFORT_IDS.has(m.default_reasoning_level as AgentEffort) ? (m.default_reasoning_level as AgentEffort) : undefined
+        }
+      })
+  } catch {
+    return []
+  }
+}
+
 function finished(s: Tracked, live: boolean) {
   if (live && s.completedAt && s.completedAt >= startedAt - 5000) handlers?.onFinished(publicView(s))
 }
@@ -127,13 +240,17 @@ function apply(s: Tracked, line: string, live: boolean) {
     if (git?.branch) s.branch = git.branch
   } else if (o.type === 'turn_context') {
     if (typeof p.cwd === 'string') s.cwd = p.cwd
+    sawModel('codex', p.model, Date.parse(String((o as { timestamp?: string }).timestamp ?? '')) || s.updatedAt)
   } else if (kind === 'response_item/message' && p.role === 'user' && !s.title) {
-    // primeira mensagem de verdade do usuário (ignora blocos de contexto injetados, que começam com "<")
+    // primeira mensagem de verdade do usuário (ignora blocos de contexto injetados: começam com "<",
+    // ou são o AGENTS.md que o Codex coloca antes do pedido)
     const t = textOf(p.content)
-    if (t && !t.startsWith('<')) {
+    if (t && !t.startsWith('<') && !/^#\s*AGENTS\.md/i.test(t)) {
       s.request = cleanRequest(t)
       s.title = s.request.slice(0, 90)
     }
+  } else if (kind === 'event_msg/token_count') {
+    sawCodexLimits(p.rate_limits, Date.parse(String((o as { timestamp?: string }).timestamp ?? '')) || s.updatedAt)
   } else if (kind === 'event_msg/task_started') {
     s.running = true
     s.stale = false
@@ -159,7 +276,7 @@ interface ClaudeLine {
   isSidechain?: boolean
   customTitle?: string
   summary?: string
-  message?: { role?: string; stop_reason?: string | null; content?: unknown }
+  message?: { role?: string; model?: string; stop_reason?: string | null; content?: unknown }
 }
 
 /** Texto digitado pelo usuário (não resultado de ferramenta nem mensagem interna). */
@@ -204,6 +321,7 @@ function applyClaude(s: Tracked, line: string, live: boolean) {
       s.title = s.request.slice(0, 90)
     }
   } else if (o.type === 'assistant') {
+    sawModel('claude', o.message?.model, ts)
     const stop = o.message?.stop_reason
     if (stop === 'end_turn') {
       if (!s.running) return // resposta curta fora de uma vez (ex.: aviso de tarefa em segundo plano)

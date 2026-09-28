@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { OvseerTask } from '@shared/types'
-import { agentByTask, agentName, loadTasks, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
+import { agentByTask, agentName, loadTasks, openNewAgent, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
@@ -134,6 +134,14 @@ const initials = (name: string) =>
                 </template>
                 <span v-if="t.priority" class="pill" :class="`p-${t.priority}`">{{ PRIORITY[t.priority] ?? t.priority }}</span>
                 <span class="spacer" />
+                <button
+                  v-if="sectionOf(t) === 'waiting_execution' || sectionOf(t) === 'paused'"
+                  class="ghost deliver"
+                  title="Cria a linha de trabalho da tarefa e abre um agente de IA com o plano aprovado"
+                  @click.stop="openNewAgent(t)"
+                >
+                  <Icon name="squarePen" :size="12" /> Iniciar com agente
+                </button>
                 <button v-if="t.canDeliver" class="ghost deliver" title="Preparar entrega" @click.stop="state.deliveryTask = t">
                   Entregar
                 </button>
