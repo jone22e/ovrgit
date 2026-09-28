@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { AgentSession } from '@shared/types'
 import { agentName, isInside, linkAgent, loadProject, loadProjectIcon, projectIcons, state, suggestTasks, taskOfAgent } from '../store'
+import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
 /** Tarefas dos agentes (ChatGPT/Codex e Claude): trabalhando agora e as que terminaram há pouco, agrupadas por projeto. */
@@ -120,10 +121,7 @@ onUnmounted(() => {
             <Icon name="chevron" :size="11" class="caret" :class="{ hide: !a.lastMessage }" />
             <span v-if="a.running" class="dot live" />
             <span v-else class="ok"><Icon name="check" :size="10" /></span>
-            <span class="src" :class="a.source" :title="agentName(a)">
-              <svg v-if="a.source === 'claude'" viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M12 2.5l1.6 6.1 5.5-3.2-3.2 5.5 6.1 1.6-6.1 1.6 3.2 5.5-5.5-3.2L12 22.5l-1.6-6.1-5.5 3.2 3.2-5.5-6.1-1.6 6.1-1.6-3.2-5.5 5.5 3.2z"/></svg>
-              <svg v-else viewBox="0 0 24 24" width="12" height="12"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>
-            </span>
+            <AgentLogo :source="a.source" :size="13" :title="agentName(a)" />
             <span class="title ellipsis" :title="`${agentName(a)}: ${a.title}`">{{ a.title || `Tarefa do ${agentName(a)}` }}</span>
             <button
               v-if="taskOfAgent(a)"
@@ -220,9 +218,6 @@ section + section { border-top: 1px solid var(--border); padding-top: 6px; }
   background: var(--add-bg); color: var(--add);
 }
 .line > .dot { margin: 0 3.5px; }
-.src { flex: none; display: grid; place-items: center; width: 14px; height: 14px; color: var(--faint); }
-.src.claude { color: #d97757; }
-.src.codex { color: var(--muted); }
 .title { flex: 1; min-width: 0; font-size: 12.5px; }
 .meta { display: flex; gap: 10px; flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
 .took { color: var(--faint); }

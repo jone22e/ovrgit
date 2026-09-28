@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { OvseerTask } from '@shared/types'
 import { agentByTask, agentName, loadTasks, openNewTask, openTaskDetail, ovseerReady, ovseerWorkspace, setShowTasks, state } from '../store'
+import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
 /** Mesmas etapas, textos e cores da tela de tarefas do Ovseer. */
@@ -122,6 +123,7 @@ const initials = (name: string) =>
               >
                 <span v-if="agentByTask.get(t.id)!.running" class="apulse" />
                 <Icon v-else name="check" :size="11" />
+                <AgentLogo :source="agentByTask.get(t.id)!.source" :size="11" />
                 <span class="ellipsis">{{ agentName(agentByTask.get(t.id)!) }} {{ agentByTask.get(t.id)!.running ? 'trabalhando' : 'terminou' }} · {{ agentByTask.get(t.id)!.title }}</span>
               </div>
               <div class="c-foot">
