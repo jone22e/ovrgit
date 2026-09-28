@@ -3,13 +3,15 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
-  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, KnownModels
+  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
+import { GRID_DEFAULT, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import AgentLogo from './components/AgentLogo.vue'
 import Icon from './components/Icon.vue'
 import ModelPicker from './components/ModelPicker.vue'
+import WindowGrid from './components/WindowGrid.vue'
 import { applyTheme } from './theme'
 
 /**
@@ -97,6 +99,23 @@ const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MOD
 const onDocClick = (e: MouseEvent) => {
   if (modeOpen.value && modeRoot.value && !modeRoot.value.contains(e.target as Node)) modeOpen.value = false
   if (sendOpen.value && sendRoot.value && !sendRoot.value.contains(e.target as Node)) sendOpen.value = false
+  if (gridOpen.value && gridRoot.value && !gridRoot.value.contains(e.target as Node)) gridOpen.value = false
+}
+
+// ---------- posição da janela: grid no cabeçalho ----------
+const gridOpen = ref(false)
+const gridRoot = ref<HTMLElement>()
+/** Colunas × linhas do grid: carregado das configurações do app ao abrir a janela; a troca é gravada lá
+ * (o app também usa esse tamanho para abrir janelas novas na próxima área livre) */
+const gridSize = ref<GridSize>({ ...GRID_DEFAULT })
+function setGridSize(s: GridSize) {
+  gridSize.value = normalizeGrid(s)
+  api.saveSettings({ agentGrid: gridSize.value }).catch(() => undefined)
+}
+/** Escolha feita no grid: a janela vai para a área correspondente da tela e o menu fecha */
+async function placeWindow(p: GridPlacement) {
+  gridOpen.value = false
+  await api.agentPlace(uid, p).catch(() => undefined)
 }
 const current = () => [...turns].reverse().find((t) => t.running) ?? null
 
@@ -198,6 +217,31 @@ watch(questionTurn, () => {
 })
 const question = computed(() => questions.value[qi.value])
 const showAsk = computed(() => askOpen.value && !!question.value)
+
+// ---------- fim do plano: o app pergunta se deseja iniciar a implementação ----------
+/** A última vez foi em modo plano e terminou bem, com texto e sem perguntas do modelo: o plano está pronto */
+const planDone = computed(() => {
+  const t = turns[turns.length - 1]
+  if (!t || t.running || running.value || t.error || t.mode !== 'plan' || questions.value.length) return false
+  return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
+})
+const showPlanAsk = computed(() => askOpen.value && planDone.value)
+/** Modos que executam, na ordem do menu: cada um vira uma opção do cartão */
+const PLAN_STARTS = MODES.filter((m) => m.id !== 'plan')
+/** Implementa o plano: troca o modo e pede na mesma sessão (o agente lembra o plano que acabou de escrever) */
+async function startPlan(m: AgentMode) {
+  mode.value = m
+  askOpen.value = false
+  await dispatch({ id: crypto.randomUUID(), body: 'Implemente o plano acima.', attachments: [] })
+}
+/** Ajuste ao plano: continua em modo plano com o que o usuário escreveu */
+async function adjustPlan() {
+  const text = otherText.value.trim()
+  if (!text) return
+  otherText.value = ''
+  askOpen.value = false
+  await dispatch({ id: crypto.randomUUID(), body: text, attachments: [] })
+}
 /** Escolhe (ou pula, com null) a pergunta atual; segue para a próxima sem decisão, ou envia tudo numa mensagem só */
 async function decide(choice: string | null) {
   const qs = questions.value
@@ -296,7 +340,9 @@ function apply(ev: AgentChatEvent) {
     if (target) {
       target.paths.push(...ev.paths.filter((p) => !target.paths.includes(p)))
       if (ev.stats) target.stats = { ...(target.stats ?? {}), ...ev.stats }
-    } else t.blocks.push({ kind: 'files', paths: [...ev.paths], stats: ev.stats })
+      if (ev.repos) target.repos = { ...(target.repos ?? {}), ...ev.repos }
+    } else t.blocks.push({ kind: 'files', paths: [...ev.paths], stats: ev.stats, repos: ev.repos })
+    if (ev.repos) for (const r of Object.values(ev.repos)) loadRepoIcon(r.root)
   } else if (ev.type === 'done') {
     t.running = false
     t.thinking = false
@@ -447,7 +493,7 @@ function takePayload(text = draft.value): Payload | null {
 
 async function dispatch(p: Payload) {
   if (!info.value) return
-  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now() }
+  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value }
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
@@ -518,7 +564,7 @@ async function sendAfter(p: Payload) {
         cur.running = false
         cur.thinking = false
       }
-      turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now() })
+      turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value })
       scrollToEnd(true)
       return
     }
@@ -554,6 +600,13 @@ async function newChat() {
     fatal.value = e instanceof Error ? e.message : String(e)
     return
   }
+  sessionStorage.removeItem(STORE)
+  location.reload()
+}
+/** Dá para voltar à conversa anterior enquanto a nova ainda não recebeu a primeira mensagem */
+const canGoBack = computed(() => !!info.value?.previousSessionId && !turns.length && !queue.length)
+async function backToPrevious() {
+  if (!(await api.agentBack(uid).catch(() => false))) return
   sessionStorage.removeItem(STORE)
   location.reload()
 }
@@ -650,6 +703,7 @@ function adopt(saved: AgentTurn[], stillRunning: boolean) {
       if (!t.blocks.length) t.error = 'A resposta foi interrompida antes de terminar.'
     }
     turns.push(t)
+    for (const b of t.blocks) if (b.kind === 'files' && b.repos) for (const r of Object.values(b.repos)) loadRepoIcon(r.root)
   }
   if (turns.length && stillRunning) running.value = true
 }
@@ -692,20 +746,55 @@ function took(ms?: number): string {
   return !ms ? '' : ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`
 }
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p
-/** Caminho a partir da pasta do projeto; fora dela, fica como veio */
-const relPath = (p: string) => {
-  const root = info.value?.cwd?.replace(/[\\/]+$/, '')
-  if (!root) return p
+/** Caminho a partir de uma pasta raiz; fora dela, fica como veio */
+const under = (p: string, root: string | undefined) => {
+  const r = root?.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+  if (!r) return p
   const norm = p.replace(/\\/g, '/')
-  const r = root.replace(/\\/g, '/')
   return norm === r ? fileName(p) : norm.startsWith(r + '/') ? norm.slice(r.length + 1) : p
 }
-const fileDir = (p: string) => relPath(p).split('/').slice(0, -1).join('/')
+/** Caminho relativo ao projeto da janela ou, se o arquivo é de outro repositório, à raiz desse repositório */
+const relPath = (p: string, b?: FilesBlock) => {
+  const repo = b?.repos?.[p]
+  if (repo) return under(/^([a-zA-Z]:)?[\\/]/.test(p) ? p : absPath(p), repo.root)
+  return under(p, info.value?.cwd)
+}
+const fileDir = (p: string, b?: FilesBlock) => relPath(p, b).split('/').slice(0, -1).join('/')
+/** Caminho absoluto de um caminho relativo à pasta do projeto (resolve `..` como o agente vê) */
+function absPath(p: string): string {
+  const root = info.value?.cwd?.replace(/[\\/]+$/, '').replace(/\\/g, '/') ?? ''
+  const parts = root.split('/')
+  for (const seg of p.replace(/\\/g, '/').split('/')) {
+    if (seg === '..') parts.pop()
+    else if (seg && seg !== '.') parts.push(seg)
+  }
+  return parts.join('/')
+}
+/** Repositórios (fora do projeto) que aparecem num card de arquivos, sem repetição */
+const otherRepos = (b: FilesBlock): FileRepo[] => {
+  const seen = new Map<string, FileRepo>()
+  for (const p of b.paths) {
+    const r = b.repos?.[p]
+    if (r && !seen.has(r.root)) seen.set(r.root, r)
+  }
+  return [...seen.values()]
+}
+/** Ícone (favicon) de cada repositório citado nos cards, carregado uma vez */
+const repoIcons = reactive(new Map<string, string | null>())
+function loadRepoIcon(root: string) {
+  if (repoIcons.has(root)) return
+  repoIcons.set(root, null)
+  api
+    .projectIcon(root)
+    .then((icon) => repoIcons.set(root, icon))
+    .catch(() => undefined)
+}
 
 onMounted(async () => {
   try {
     const s = await api.getSettings()
     applyTheme(s.theme)
+    gridSize.value = normalizeGrid(s.agentGrid)
   } catch {
     /* tema padrão */
   }
@@ -780,8 +869,19 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <span class="spacer" />
-      <button v-if="turns.length" type="button" class="ghost icon new-chat" title="Nova conversa com este agente" @click="newChat">
-        <Icon name="plus" :size="14" />
+      <div ref="gridRoot" class="grid-menu">
+        <button type="button" class="ghost icon head-btn" :class="{ on: gridOpen }" title="Posicionar a janela na tela" @click="gridOpen = !gridOpen">
+          <Icon name="grid" :size="14" />
+        </button>
+        <div v-if="gridOpen" class="pop">
+          <WindowGrid :model-value="gridSize" @update:model-value="setGridSize" @place="placeWindow" />
+        </div>
+      </div>
+      <button v-if="canGoBack" type="button" class="ghost icon head-btn back" title="Voltar à conversa anterior" @click="backToPrevious">
+        <Icon name="undo" :size="14" />
+      </button>
+      <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa com este agente (a atual fica no histórico)" @click="newChat">
+        <Icon name="compose" :size="14" />
       </button>
       <span class="status" :class="statusKind" :title="statusTitle">
         <span class="ball">
@@ -850,10 +950,18 @@ onUnmounted(() => offs.forEach((f) => f()))
             <div v-else class="files">
               <div class="files-head">
                 <Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}
+                <template v-for="(r, i) in otherRepos(b)" :key="r.root">
+                  <span class="faint">{{ i === 0 ? 'em' : 'e' }}</span>
+                  <span class="repo" :title="r.root">
+                    <img v-if="repoIcons.get(r.root)" :src="repoIcons.get(r.root)!" class="favicon" alt="" />
+                    <Icon v-else name="folder" :size="12" />
+                    {{ r.name }}
+                  </span>
+                </template>
                 <span v-if="sumStats(b)" class="stat"><b class="add">+{{ sumStats(b)!.add }}</b> <b class="del">−{{ sumStats(b)!.del }}</b></span>
               </div>
               <div v-for="p in b.paths" :key="p" class="file">
-                <span class="ellipsis"><span class="faint">{{ fileDir(p) }}<template v-if="fileDir(p)">/</template></span>{{ fileName(p) }}</span>
+                <span class="ellipsis" :title="p"><span class="faint">{{ fileDir(p, b) }}<template v-if="fileDir(p, b)">/</template></span>{{ fileName(p) }}</span>
                 <span v-if="b.stats?.[p]" class="stat"><b class="add">+{{ b.stats[p]!.add }}</b> <b class="del">−{{ b.stats[p]!.del }}</b></span>
               </div>
             </div>
@@ -891,6 +999,33 @@ onUnmounted(() => offs.forEach((f) => f()))
               <input v-model="otherText" type="text" :placeholder="`Não, e diga ao ${providerName} o que fazer diferente`" maxlength="2000" />
               <button v-if="otherText.trim()" type="submit" class="small primary">Responder</button>
               <button v-else type="button" class="small skip" @click="decide(null)">Pular</button>
+            </form>
+          </div>
+          <div v-else-if="t.id === questionTurn && showPlanAsk" class="ask">
+            <div class="ask-head">
+              <p class="ask-q">Deseja iniciar a implementação do plano?</p>
+              <button type="button" class="ghost nav" title="Fechar: continue pelo campo de mensagem" @click="askOpen = false"><Icon name="x" :size="13" /></button>
+            </div>
+            <div class="ask-opts">
+              <button v-for="(m, i) in PLAN_STARTS" :key="m.id" type="button" class="ghost ask-opt" @click="startPlan(m.id)">
+                <span class="num">{{ i + 1 }}</span>
+                <span class="opt-body">
+                  <span class="opt-label">Sim, implementar em "{{ m.label }}"<span v-if="m.id === 'safe'" class="pill">Recomendado</span></span>
+                  <span class="opt-detail">{{ m.hint }}</span>
+                </span>
+              </button>
+              <button type="button" class="ghost ask-opt" @click="askOpen = false">
+                <span class="num">{{ PLAN_STARTS.length + 1 }}</span>
+                <span class="opt-body">
+                  <span class="opt-label">Não, continuar planejando</span>
+                  <span class="opt-detail">Fecha este cartão; a conversa segue no modo Plano.</span>
+                </span>
+              </button>
+            </div>
+            <form class="ask-other" @submit.prevent="adjustPlan()">
+              <Icon name="pencil" :size="13" class="pen" />
+              <input v-model="otherText" type="text" :placeholder="`Não, e diga ao ${providerName} o que ajustar no plano`" maxlength="2000" />
+              <button v-if="otherText.trim()" type="submit" class="small primary">Enviar</button>
             </form>
           </div>
         </div>
@@ -1004,8 +1139,13 @@ onUnmounted(() => offs.forEach((f) => f()))
 .sub { display: block; font-size: 11px; color: var(--muted); min-width: 0; }
 .sub svg { vertical-align: -1px; }
 .spacer { flex: 0 0 8px; }
-.new-chat { width: 26px; height: 26px; border-radius: 8px; color: var(--muted); flex: none; margin-right: 6px; -webkit-app-region: no-drag; }
-.new-chat:hover { color: var(--text); }
+.head-btn { width: 26px; height: 26px; border-radius: 8px; color: var(--muted); flex: none; margin-right: 6px; -webkit-app-region: no-drag; }
+.head-btn:hover, .head-btn.on { color: var(--text); }
+.head-btn.on { background: var(--hover); }
+.head-btn.back { color: var(--accent); }
+.grid-menu { position: relative; flex: none; -webkit-app-region: no-drag; }
+/* o menu do grid abre para baixo, encostado à direita do botão (mais específico que .pop, que vem depois e abre para cima) */
+.grid-menu .pop { left: auto; right: 0; bottom: auto; top: calc(100% + 6px); width: 320px; -webkit-app-region: no-drag; }
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); -webkit-app-region: no-drag; }
 .ball { width: 14px; height: 14px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--faint); color: #fff; }
 .status.idle .ball { background: var(--faint); opacity: 0.6; }
@@ -1018,20 +1158,21 @@ onUnmounted(() => offs.forEach((f) => f()))
 .status-took { color: var(--faint); font-weight: 400; margin-left: -1px; font-variant-numeric: tabular-nums; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
-.thread { flex: 1; overflow-y: auto; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
+/* só rola na vertical: textos longos quebram e código/tabelas rolam por dentro do próprio bloco */
+.thread { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
 .fatal { color: var(--del); }
 .empty { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .empty h2 { margin: 6px 0 0; font-size: 18px; font-weight: 700; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
-.turn { display: flex; flex-direction: column; gap: 14px; }
+.turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
 .user { display: flex; justify-content: flex-end; }
 .bubble {
   max-width: 78%; padding: 10px 14px; border-radius: 16px 16px 4px 16px;
   background: var(--panel-2); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;
 }
-.bubble p { margin: 0; white-space: pre-wrap; user-select: text; line-height: 1.5; }
+.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; line-height: 1.5; }
 .atts, .pending { display: flex; flex-wrap: wrap; gap: 6px; }
 .pending { padding: 2px 4px 0; }
 .att {
@@ -1051,7 +1192,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .composer.drop { border-color: var(--accent); background: var(--accent-soft); }
 .drop-hint { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px; color: var(--accent); font-weight: 600; font-size: 12.5px; }
 .answer { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.md { user-select: text; line-height: 1.6; font-size: 13.5px; }
+.md { user-select: text; line-height: 1.6; font-size: 13.5px; min-width: 0; overflow-wrap: anywhere; }
 .md :deep(p) { margin: 0 0 10px; }
 .md :deep(p:last-child) { margin-bottom: 0; }
 .md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
@@ -1072,7 +1213,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .md :deep(.code-wrap .copy.done svg:first-child) { display: none; }
 .md :deep(.code-wrap .copy.done svg:last-child) { display: block; }
 .md :deep(a) { color: var(--accent); }
-.md :deep(table) { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
+.md :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
 .md :deep(td), .md :deep(th) { border: 1px solid var(--border); padding: 4px 8px; }
 .md :deep(blockquote) { margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
 
@@ -1101,7 +1242,10 @@ onUnmounted(() => offs.forEach((f) => f()))
   background: var(--panel-2); font-family: var(--mono); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; user-select: text;
 }
 .files { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 10px; font-size: 12.5px; }
-.files-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; }
+.files-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; min-width: 0; }
+.files-head .faint { font-weight: 400; }
+.repo { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.repo .favicon { width: 13px; height: 13px; object-fit: contain; border-radius: 3px; flex: none; }
 .file { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; padding: 2px 0 2px 18px; user-select: text; min-width: 0; }
 .file > .ellipsis { flex: 1; min-width: 0; }
 .stat { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11.5px; font-weight: 500; }

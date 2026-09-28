@@ -237,6 +237,8 @@ export interface Settings {
   agyModel: string
   /** Instruções personalizadas para os agentes (janela do agente): estilo, regras do time, o que evitar */
   agentInstructions: string
+  /** Grid de posicionamento das janelas de agente (colunas × linhas da área útil da tela) */
+  agentGrid: GridSize
   recentProjects: string[]
   lastProject: string | null
 }
@@ -320,6 +322,8 @@ export interface AgentWindowInfo extends AgentChatOpen {
   title: string
   /** O usuário renomeou: a IA não mexe mais */
   renamed: boolean
+  /** Conversa que estava aberta antes de "Nova conversa": dá para voltar a ela até a nova receber a primeira mensagem */
+  previousSessionId?: string | null
 }
 
 /** Arquivo anexado a uma mensagem: imagens vão em linha; os demais pelo caminho (o agente lê com as ferramentas) */
@@ -348,7 +352,7 @@ export type AgentChatEvent =
   | { type: 'thinking'; delta?: string }
   | { type: 'tool'; id: string; name: string; title: string; detail?: string }
   | { type: 'toolResult'; id: string; ok: boolean; output?: string }
-  | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null> }
+  | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
 
@@ -358,11 +362,19 @@ export interface FileStat {
   del: number
 }
 
+/** Repositório de um arquivo alterado fora do projeto da janela (chave: caminho como veio do agente) */
+export interface FileRepo {
+  /** Raiz do repositório (pasta com .git) */
+  root: string
+  /** Nome da pasta do repositório */
+  name: string
+}
+
 /** Bloco de uma resposta do agente, como fica na janela e na transcrição guardada */
 export type AgentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'tool'; id: string; name: string; title: string; detail?: string; ok: boolean | null; output?: string; open: boolean }
-  | { kind: 'files'; paths: string[]; stats?: Record<string, FileStat | null> }
+  | { kind: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
 
 /** Uma vez da conversa: pedido do usuário e a resposta do agente */
 export interface AgentTurn {
@@ -378,6 +390,21 @@ export interface AgentTurn {
   error?: string
   durationMs?: number
   costUsd?: number
+  /** Modo em que o pedido foi enviado (em `plan`, ao terminar o app pergunta se deseja implementar) */
+  mode?: AgentMode
+}
+
+export interface GridSize {
+  cols: number
+  rows: number
+}
+
+/** Área escolhida no grid de posicionamento: a tela dividida em `cols` × `rows`, célula inicial (0-based) e extensão */
+export interface GridPlacement extends GridSize {
+  col: number
+  colSpan: number
+  row: number
+  rowSpan: number
 }
 
 export interface WindowBounds {
@@ -675,6 +702,8 @@ export interface OvseerApi {
   agentCancel(uid: string): Promise<void>
   /** Conversa nova na mesma janela, com o mesmo agente (interrompe a resposta em curso) */
   agentNewChat(uid: string): Promise<void>
+  /** Volta à conversa anterior a "Nova conversa"; false se a nova já começou */
+  agentBack(uid: string): Promise<boolean>
   /** Entrega a mensagem ao agente no meio da resposta, sem interromper (só Claude). false: não havia resposta em andamento */
   agentSteer(uid: string, text: string, attachments?: AgentAttachment[]): Promise<boolean>
   /** Escolher arquivos para anexar (diálogo do sistema) */
@@ -695,6 +724,8 @@ export interface OvseerApi {
   agentFocus(sessionId: string): Promise<boolean>
   /** Ids das sessões com janela aberta no Ovseer */
   agentWindows(): Promise<string[]>
+  /** Move e redimensiona a janela do agente para a área do grid, na tela onde ela está */
+  agentPlace(uid: string, p: GridPlacement): Promise<WindowBounds>
   knownModels(): Promise<KnownModels>
   /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */
   usage(force?: boolean): Promise<UsageInfo>

@@ -149,6 +149,12 @@ describe('modo plano', () => {
     expect(normalizeMode('x')).toBe('safe')
   })
 
+  it('codex: a orientação do modo plano deixa a pergunta "implementar?" para o app', async () => {
+    const { CODEX_PLAN_INSTRUCTIONS } = await import('../src/main/agentChat')
+    expect(CODEX_PLAN_INSTRUCTIONS).toMatch(/Não pergunte se deve implementar/)
+    expect(CODEX_PLAN_INSTRUCTIONS).toMatch(/o próprio app\npergunta ao usuário/)
+  })
+
   it('o plano do Claude aparece como texto ao sair do modo plano', async () => {
     const { parseClaudeLine } = await import('../src/main/agentChat')
     const evs = parseClaudeLine(
@@ -240,5 +246,94 @@ describe('perguntas ao usuário', () => {
     expect(formatAnswers(qs.slice(0, 1), ['x'])).toBe('x')
     expect(formatAnswers(qs, ['x', 'outra coisa'])).toBe('Respostas:\n1. A?\n   → x\n2. B?\n   → outra coisa')
     expect(formatAnswers(qs, ['x', undefined])).toBe('Respostas:\n1. A?\n   → x\n2. B?\n   → (sem resposta)')
+  })
+})
+
+describe('grid de posicionamento da janela', () => {
+  const area = { x: 0, y: 25, width: 1200, height: 775 }
+
+  it('divide a área útil da tela em colunas × linhas e cobre a extensão escolhida', async () => {
+    const { gridBounds } = await import('../src/main/agentChat')
+    expect(gridBounds(area, { cols: 6, rows: 2, col: 0, colSpan: 3, row: 0, rowSpan: 2 })).toEqual({ x: 0, y: 25, width: 600, height: 775 })
+    expect(gridBounds(area, { cols: 6, rows: 2, col: 3, colSpan: 3, row: 1, rowSpan: 1 })).toEqual({ x: 600, y: 413, width: 600, height: 387 })
+    expect(gridBounds(area, { cols: 1, rows: 1, col: 0, colSpan: 1, row: 0, rowSpan: 1 })).toEqual(area)
+  })
+
+  it('células vizinhas encostam sem fresta e a escolha fora do grid é encaixada', async () => {
+    const { gridBounds } = await import('../src/main/agentChat')
+    const a = gridBounds(area, { cols: 7, rows: 3, col: 2, colSpan: 1, row: 1, rowSpan: 1 })
+    const b = gridBounds(area, { cols: 7, rows: 3, col: 3, colSpan: 1, row: 2, rowSpan: 1 })
+    expect(a.x + a.width).toBe(b.x)
+    expect(a.y + a.height).toBe(b.y)
+    expect(gridBounds(area, { cols: 4, rows: 2, col: 9, colSpan: 5, row: -1, rowSpan: 0 })).toEqual({ x: 900, y: 25, width: 300, height: 388 })
+  })
+})
+
+describe('janela nova na próxima área livre do grid', () => {
+  const area = { x: 0, y: 25, width: 1200, height: 775 }
+
+  it('células menores que a janela mínima juntam vizinhas; a primeira área livre vence', async () => {
+    const { freeGridSlot } = await import('../src/main/agentChat')
+    // 6 × 2 em 1200 × 775: célula de 200 × 387 → a janela mínima (420 × 480) ocupa 3 colunas e 2 linhas
+    const left = { x: 0, y: 25, width: 600, height: 775 }
+    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [])).toEqual(left)
+    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left])).toEqual({ x: 600, y: 25, width: 600, height: 775 })
+    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left, { x: 600, y: 25, width: 600, height: 775 }])).toBeNull()
+  })
+
+  it('só uma janela cobrindo boa parte da célula a ocupa; grid inválido volta ao padrão', async () => {
+    const { freeGridSlot } = await import('../src/main/agentChat')
+    const { normalizeGrid } = await import('../src/shared/grid')
+    const wide = { x: 0, y: 0, width: 1920, height: 1055 }
+    // 2 × 1: um pedaço pequeno de janela na célula esquerda não a ocupa
+    expect(freeGridSlot(wide, { cols: 2, rows: 1 }, [{ x: 900, y: 0, width: 200, height: 300 }])).toEqual({ x: 0, y: 0, width: 960, height: 1055 })
+    // janela colocada à mão cobrindo metade da célula esquerda: passa para a direita
+    expect(freeGridSlot(wide, { cols: 2, rows: 1 }, [{ x: 100, y: 0, width: 700, height: 900 }])).toEqual({ x: 960, y: 0, width: 960, height: 1055 })
+    expect(normalizeGrid(undefined)).toEqual({ cols: 6, rows: 2 })
+    expect(normalizeGrid({ cols: 40, rows: 0 })).toEqual({ cols: 12, rows: 1 })
+  })
+})
+
+describe('contagem de linhas por repositório', () => {
+  it('arquivos de outro repositório são contados lá e identificados pelo nome da pasta', async () => {
+    const { execFileSync } = await import('node:child_process')
+    const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { fileStats } = await import('../src/main/agentChat')
+    const tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-stats-'))
+    const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
+    const mk = (name: string) => {
+      const dir = path.join(tmp, name)
+      mkdirSync(path.join(dir, 'src'), { recursive: true })
+      sh(tmp, 'init', '-q', '-b', 'main', dir)
+      sh(dir, 'config', 'user.name', 'Teste')
+      sh(dir, 'config', 'user.email', 'teste@example.com')
+      writeFileSync(path.join(dir, 'src', 'a.ts'), 'a\nb\n')
+      sh(dir, 'add', '.')
+      sh(dir, 'commit', '-q', '-m', 'inicial')
+      return dir
+    }
+    try {
+      const home = mk('flexi2')
+      const other = mk('separador')
+      writeFileSync(path.join(home, 'src', 'a.ts'), 'a\nb\nc\n')
+      writeFileSync(path.join(other, 'src', 'a.ts'), 'x\n')
+      writeFileSync(path.join(other, 'src', 'novo.ts'), '1\n2\n3\n')
+      const outside = path.join(tmp, 'solto.txt')
+      writeFileSync(outside, 'nada')
+      const { stats, repos } = await fileStats(home, ['src/a.ts', '../separador/src/a.ts', path.join(other, 'src', 'novo.ts'), outside])
+      expect(stats['src/a.ts']).toEqual({ add: 1, del: 0 })
+      expect(stats['../separador/src/a.ts']).toEqual({ add: 1, del: 2 })
+      expect(stats[path.join(other, 'src', 'novo.ts')]).toEqual({ add: 3, del: 0 })
+      expect(stats[outside]).toBeNull()
+      expect(repos['src/a.ts']).toBeUndefined()
+      expect(repos[outside]).toBeUndefined()
+      const real = (p: string) => sh(p, 'rev-parse', '--show-toplevel').trim()
+      expect(repos['../separador/src/a.ts']).toEqual({ root: real(other), name: 'separador' })
+      expect(repos[path.join(other, 'src', 'novo.ts')]).toEqual({ root: real(other), name: 'separador' })
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })

@@ -1,12 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileStat, WindowBounds } from '../shared/types'
+import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
+import { normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, loadTranscript, setHistoryBounds, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -61,6 +62,44 @@ function visibleBounds(b: WindowBounds | null): Partial<WindowBounds> {
   return inside ? b : { width: b.width, height: b.height }
 }
 
+const MIN_WIN = { width: 420, height: 480 }
+
+/**
+ * Próxima área livre do grid para uma janela nova: percorre as células em ordem de leitura e devolve a primeira
+ * onde cabe uma janela do tamanho mínimo (células pequenas juntam vizinhas) sem esbarrar nas janelas já abertas.
+ * Uma célula conta como ocupada quando uma janela cobre pelo menos um quarto dela. Sem espaço: null.
+ */
+export function freeGridSlot(area: WindowBounds, grid: GridSize, occupied: WindowBounds[], min = MIN_WIN): WindowBounds | null {
+  const { cols, rows } = normalizeGrid(grid)
+  const cw = area.width / cols
+  const ch = area.height / rows
+  const colSpan = Math.min(cols, Math.max(1, Math.ceil(min.width / cw)))
+  const rowSpan = Math.min(rows, Math.max(1, Math.ceil(min.height / ch)))
+  const covered = (cell: WindowBounds) =>
+    occupied.some((w) => {
+      const ox = Math.max(0, Math.min(cell.x + cell.width, w.x + w.width) - Math.max(cell.x, w.x))
+      const oy = Math.max(0, Math.min(cell.y + cell.height, w.y + w.height) - Math.max(cell.y, w.y))
+      return ox * oy >= cell.width * cell.height * 0.25
+    })
+  for (let row = 0; row + rowSpan <= rows; row++) {
+    for (let col = 0; col + colSpan <= cols; col++) {
+      let free = true
+      for (let r = row; free && r < row + rowSpan; r++) {
+        for (let c = col; free && c < col + colSpan; c++) {
+          if (covered(gridBounds(area, { cols, rows, col: c, row: r, colSpan: 1, rowSpan: 1 }))) free = false
+        }
+      }
+      if (free) return gridBounds(area, { cols, rows, col, row, colSpan, rowSpan })
+    }
+  }
+  return null
+}
+
+/** Janelas de agente abertas e visíveis, na tela onde o ponteiro está: são as que ocupam células do grid */
+function openAgentBounds(): WindowBounds[] {
+  return [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.win.isMinimized()).map((w) => w.win.getBounds())
+}
+
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
   const uid = crypto.randomUUID()
@@ -76,12 +115,15 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     renamed: !!prev?.renamed
   }
   const isMac = process.platform === 'darwin'
+  // conversa reaberta volta ao lugar de antes; janela nova vai para a próxima área livre do grid, na tela do ponteiro
+  const saved = visibleBounds(historyBounds(opts.resumeId))
+  const slot = saved.x === undefined ? freeGridSlot(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, getSettings().agentGrid, openAgentBounds()) : null
   const win = new BrowserWindow({
     width: 760,
     height: 800,
-    ...visibleBounds(historyBounds(opts.resumeId)),
-    minWidth: 420,
-    minHeight: 480,
+    ...(slot ?? saved),
+    minWidth: MIN_WIN.width,
+    minHeight: MIN_WIN.height,
     title: title(info),
     icon: setup?.icon,
     show: false,
@@ -123,14 +165,61 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     rmSync(blobDir(uid), { recursive: true, force: true })
   })
   wins.set(uid, { info, win, child: null, turnDone: true, exited: null })
-  if (process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
-  else win.loadFile(path.join(__dirname, '../renderer/agent.html'), { query: { uid } })
+  const load = () =>
+    process.env.ELECTRON_RENDERER_URL
+      ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
+      : win.loadFile(path.join(__dirname, '../renderer/agent.html'), { query: { uid } })
+  // a janela nunca fica em branco sem reação: falha de carregamento tenta de novo; renderer que caiu recarrega
+  let retries = 0
+  win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3 /* abortado por outra navegação */) return
+    console.error(`Janela do agente não carregou (${code} ${desc}) ${url}`)
+    if (retries++ < 5 && !win.isDestroyed()) setTimeout(() => !win.isDestroyed() && load().catch(() => undefined), 700)
+  })
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`Renderer da janela do agente caiu (${details.reason})`)
+    if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload()
+  })
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 3) console.error(`[janela do agente ${uid.slice(0, 8)}] ${message}`)
+  })
+  load().catch((e) => console.error('Janela do agente não carregou:', e))
   broadcastWindows()
   return info
 }
 
 export function agentInfo(uid: string): AgentWindowInfo | null {
   return wins.get(uid)?.info ?? null
+}
+
+/**
+ * Área da tela correspondente a uma escolha no grid: a área útil (sem barra de menu e Dock) da tela onde a
+ * janela está, dividida em colunas × linhas. Célula e extensão fora do grid são encaixadas nele.
+ */
+export function gridBounds(area: WindowBounds, p: GridPlacement): WindowBounds {
+  const cols = Math.max(1, Math.floor(p.cols))
+  const rows = Math.max(1, Math.floor(p.rows))
+  const col = Math.min(cols - 1, Math.max(0, Math.floor(p.col)))
+  const row = Math.min(rows - 1, Math.max(0, Math.floor(p.row)))
+  const colSpan = Math.min(cols - col, Math.max(1, Math.floor(p.colSpan)))
+  const rowSpan = Math.min(rows - row, Math.max(1, Math.floor(p.rowSpan)))
+  const cw = area.width / cols
+  const ch = area.height / rows
+  // bordas arredondadas a partir das linhas do grid: células vizinhas ficam encostadas, sem fresta nem sobreposição
+  const x = Math.round(area.x + col * cw)
+  const y = Math.round(area.y + row * ch)
+  return { x, y, width: Math.round(area.x + (col + colSpan) * cw) - x, height: Math.round(area.y + (row + rowSpan) * ch) - y }
+}
+
+/** Move e redimensiona a janela do agente para a área do grid, na tela onde ela está. */
+export function placeAgentWindow(uid: string, p: GridPlacement): WindowBounds {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) throw new Error('Janela do agente não encontrada.')
+  if (w.win.isFullScreen()) w.win.setFullScreen(false)
+  if (w.win.isMaximized()) w.win.unmaximize()
+  const b = gridBounds(screen.getDisplayMatching(w.win.getBounds()).workArea, p)
+  w.win.setBounds(b, true)
+  return w.win.getBounds()
 }
 
 export function agentWindows(): string[] {
@@ -262,6 +351,8 @@ trate como pedido para planejar a execução.
 
 Entregue um plano detalhado e completo em decisões, pronto para outro engenheiro ou agente implementar:
 objetivo, arquivos a alterar (com caminhos), passos na ordem, riscos e como validar. Responda em português do Brasil.
+Não pergunte se deve implementar nem explique como sair do Modo Plano: quando o plano terminar, o próprio app
+pergunta ao usuário se deseja iniciar a implementação.
 </collaboration_mode>
 
 `
@@ -348,7 +439,7 @@ export function describeClaudeTool(name: string, input: Record<string, unknown>,
     case 'TodoWrite':
       return { title: 'Atualizou a lista de tarefas' }
     case 'ExitPlanMode':
-      return { title: 'Plano pronto', detail: 'Para executar, troque o modo para "Só edições" ou "Tudo liberado" e peça para implementar.' }
+      return { title: 'Plano pronto', detail: 'Ao terminar, o cartão abaixo pergunta se deseja iniciar a implementação.' }
     case 'EnterPlanMode':
       return { title: 'Entrou no modo plano' }
     default:
@@ -683,6 +774,8 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.turnDone = false
   w.exited = new Promise((resolve) => child.on('close', () => resolve()))
   w.info.running = true
+  // a nova conversa começou: não dá mais para voltar à anterior
+  w.info.previousSessionId = null
 
   const claudeSt: ClaudeParseState = { cwd: w.info.cwd, streamed: 0, done: false }
   const codexSt: CodexParseState = { emitted: new Map(), error: null, done: false }
@@ -710,7 +803,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair
         if (provider === 'claude') child.stdin.end()
       }
-      if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then((stats) => emit(w, { type: 'files', paths: ev.paths, stats }))
+      if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then(({ stats, repos }) => emit(w, { type: 'files', paths: ev.paths, stats, repos }))
       if (ev.type === 'done' && ev.ok && firstTurn && !w.info.title && !w.info.renamed) {
         // título dado pela IA depois da primeira resposta; enquanto isso vale o pedido resumido
         w.info.title = shortTitle(text)
@@ -783,16 +876,56 @@ export function steerAgent(uid: string, text: string, attachments: AgentAttachme
   return true
 }
 
-/** Linhas acrescentadas/removidas nos arquivos que o agente alterou, em relação ao último commit (git diff --numstat). */
-async function fileStats(cwd: string, paths: string[]): Promise<Record<string, FileStat | null>> {
-  const stats: Record<string, FileStat | null> = {}
-  for (const p of paths) stats[p] = null
+/** Raiz do repositório git que contém a pasta (null: fora do git, pasta inexistente ou git ausente) */
+async function gitTop(dir: string): Promise<string | null> {
   try {
-    const top = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
-    if (!top) return stats
-    const abs = (p: string) => path.resolve(cwd, p)
+    const r = await runGit(dir, ['rev-parse', '--show-toplevel'])
+    return r.code === 0 ? r.stdout.trim() || null : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Linhas acrescentadas/removidas nos arquivos que o agente alterou, em relação ao último commit (git diff --numstat).
+ * Arquivos de outro repositório (fora do projeto da janela) são contados lá e vêm identificados em `repos`.
+ */
+export async function fileStats(cwd: string, paths: string[]): Promise<{ stats: Record<string, FileStat | null>; repos: Record<string, FileRepo> }> {
+  const stats: Record<string, FileStat | null> = {}
+  const repos: Record<string, FileRepo> = {}
+  for (const p of paths) stats[p] = null
+  // caminho real (sem links simbólicos, como /var → /private/var no macOS), igual ao que o git devolve
+  const abs = (p: string) => {
+    const full = path.resolve(cwd, p)
+    try {
+      return realpathSync.native(full)
+    } catch {
+      return full
+    }
+  }
+  const home = await gitTop(cwd)
+  // agrupa os arquivos pelo repositório a que pertencem (um rev-parse por pasta distinta)
+  const tops = new Map<string, Promise<string | null>>()
+  const groups = new Map<string, string[]>()
+  for (const p of paths) {
+    const dir = path.dirname(abs(p))
+    if (!tops.has(dir)) tops.set(dir, gitTop(dir))
+    const top = await tops.get(dir)!
+    if (!top) continue
+    if (top !== home) repos[p] = { root: top, name: path.basename(top) }
+    const g = groups.get(top)
+    if (g) g.push(p)
+    else groups.set(top, [p])
+  }
+  for (const [top, group] of groups) await countIn(top, abs, group, stats)
+  return { stats, repos }
+}
+
+/** Preenche `stats` para os arquivos de um repositório (todos dentro de `top`). */
+async function countIn(top: string, abs: (p: string) => string, paths: string[], stats: Record<string, FileStat | null>) {
+  try {
     const byAbs = new Map(paths.map((p) => [abs(p), p]))
-    const { stdout } = await runGit(cwd, ['diff', '--numstat', 'HEAD', '--', ...paths.map(abs)])
+    const { stdout } = await runGit(top, ['diff', '--numstat', 'HEAD', '--', ...paths.map(abs)])
     for (const line of stdout.split('\n')) {
       const [a, d, ...rest] = line.split('\t')
       const key = byAbs.get(path.resolve(top, rest.join('\t')))
@@ -801,16 +934,15 @@ async function fileStats(cwd: string, paths: string[]): Promise<Record<string, F
     // arquivo novo ainda não rastreado: tudo é acréscimo
     for (const [full, key] of byAbs) {
       if (stats[key] || !existsSync(full)) continue
-      const tracked = (await runGit(cwd, ['ls-files', '--error-unmatch', '--', full])).code === 0
+      const tracked = (await runGit(top, ['ls-files', '--error-unmatch', '--', full])).code === 0
       if (!tracked) {
         const text = readFileSync(full, 'utf8')
         stats[key] = { add: text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0, del: 0 }
       }
     }
   } catch {
-    // fora do git ou git ausente: fica sem contagem
+    // git ausente ou falha inesperada: fica sem contagem
   }
-  return stats
 }
 
 /** Renomeia a conversa. Vazio: volta a aceitar o título da IA (gerado na próxima resposta). */
@@ -875,6 +1007,8 @@ export async function newChat(uid: string) {
     terminate(w.child, w.info.provider)
     await w.exited
   }
+  // a conversa anterior fica ao alcance de "voltar" enquanto a nova não recebe a primeira mensagem
+  w.info.previousSessionId = w.info.sessionId
   w.info.sessionId = null
   w.info.resumeId = undefined
   w.info.firstMessage = undefined
@@ -884,6 +1018,23 @@ export async function newChat(uid: string) {
   w.turnDone = true
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
   broadcastWindows()
+}
+
+/** Desfaz "Nova conversa": a janela volta à anterior. Só enquanto a nova ainda não começou. */
+export function backToPreviousChat(uid: string): boolean {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  const prevId = w.info.previousSessionId
+  if (!prevId || w.info.sessionId || w.child) return false
+  const prev = findHistory(prevId)
+  w.info.previousSessionId = null
+  w.info.sessionId = prevId
+  w.info.resumeId = prevId
+  w.info.title = prev?.title ?? ''
+  w.info.renamed = !!prev?.renamed
+  if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+  broadcastWindows()
+  return true
 }
 
 export function cancelAgent(uid: string) {

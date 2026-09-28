@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
-  ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn,
+  ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement,
   Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
@@ -538,6 +538,7 @@ function registerIpc() {
   )
   ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
   ipcMain.handle('agent:new', (_e, uid: string) => agentChat.newChat(String(uid)))
+  ipcMain.handle('agent:back', (_e, uid: string) => agentChat.backToPreviousChat(String(uid)))
   ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[]) =>
     agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [])
   )
@@ -551,6 +552,7 @@ function registerIpc() {
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
   ipcMain.handle('agent:focus', (_e, sessionId: string) => agentChat.focusAgentWindow(String(sessionId)))
   ipcMain.handle('agent:windows', () => agentChat.agentWindows())
+  ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)
     return agentWatch.knownModels()

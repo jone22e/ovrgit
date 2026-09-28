@@ -147,6 +147,7 @@ const api: OvseerApi = {
   agentSend: (uid, text, opts, attachments) => ipcRenderer.invoke('agent:send', uid, text, opts, attachments ?? []),
   agentCancel: (uid) => ipcRenderer.invoke('agent:cancel', uid),
   agentNewChat: (uid) => ipcRenderer.invoke('agent:new', uid),
+  agentBack: (uid) => ipcRenderer.invoke('agent:back', uid),
   agentSteer: (uid, text, attachments) => ipcRenderer.invoke('agent:steer', uid, text, attachments ?? []),
   agentPickFiles: (uid) => ipcRenderer.invoke('agent:pick', uid),
   agentHistory: (cwd) => ipcRenderer.invoke('agent:history', cwd),
@@ -164,6 +165,7 @@ const api: OvseerApi = {
   },
   agentFocus: (sessionId) => ipcRenderer.invoke('agent:focus', sessionId),
   agentWindows: () => ipcRenderer.invoke('agent:windows'),
+  agentPlace: (uid, p) => ipcRenderer.invoke('agent:place', uid, p),
   knownModels: () => ipcRenderer.invoke('agents:models'),
   usage: (force) => ipcRenderer.invoke('usage:get', !!force),
   onAgentEvent: (cb) => {

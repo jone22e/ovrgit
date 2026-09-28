@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Settings } from '../shared/types'
+import { GRID_DEFAULT } from '../shared/grid'
 
 const DEFAULTS: Settings = {
   theme: 'ovseer',
@@ -22,6 +23,7 @@ const DEFAULTS: Settings = {
   codexModel: '',
   agyModel: '',
   agentInstructions: '',
+  agentGrid: GRID_DEFAULT,
   recentProjects: [],
   lastProject: null
 }
