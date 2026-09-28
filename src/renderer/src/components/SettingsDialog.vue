@@ -22,11 +22,11 @@ const SECTIONS: { id: Section; label: string; icon: 'settings' | 'sparkles' | 'b
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
   { id: 'tasks', label: 'Tarefas', icon: 'task' }
 ]
-const section = ref<Section>((localStorage.getItem('ovrgit.settings.section') as Section) || 'general')
+const section = ref<Section>((localStorage.getItem('ovseer.settings.section') as Section) || 'general')
 function go(id: Section) {
   section.value = id
   try {
-    localStorage.setItem('ovrgit.settings.section', id)
+    localStorage.setItem('ovseer.settings.section', id)
   } catch {
     /* só nesta sessão */
   }
@@ -183,7 +183,7 @@ async function save() {
                   type="button"
                   class="theme"
                   :class="{ active: theme === t.id }"
-                  :title="t.id === 'ovrgit' ? 'Segue o modo claro/escuro do sistema' : t.name"
+                  :title="t.id === 'ovseer' ? 'Segue o modo claro/escuro do sistema' : t.name"
                   @click="pickTheme(t.id)"
                 >
                   <span v-if="t.colors" class="swatch" :style="{ background: t.colors.bg, borderColor: t.colors.border }">

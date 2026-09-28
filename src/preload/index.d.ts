@@ -1,7 +1,7 @@
-import type { OvrGitApi } from '../shared/types'
+import type { OvseerApi } from '../shared/types'
 
 declare global {
   interface Window {
-    ovrgit: OvrGitApi
+    ovseer: OvseerApi
   }
 }

@@ -8,8 +8,8 @@ import { firstLine, friendlyGitError } from '../shared/gitErrors'
  * - desfazer/editar a última versão só quando ela ainda não foi enviada ao servidor.
  */
 
-const TRASH_PREFIX = 'ovrgit-lixeira:'
-const PULL_PREFIX = 'ovrgit: stash antes do pull'
+const TRASH_PREFIX = 'ovseer-lixeira:'
+const PULL_PREFIX = 'ovseer: stash antes do pull'
 
 function fail(steps: StepResult[], e: unknown, label?: string): OperationResult {
   const raw = e instanceof Error ? e.message : String(e)

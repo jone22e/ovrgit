@@ -32,14 +32,14 @@ const initials = (name: string) =>
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('')
-const mod = window.ovrgit.platform === 'darwin' ? '⌘' : 'Ctrl+'
+const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
 defineEmits<{ settings: [] }>()
 </script>
 
 <template>
   <header class="topbar">
-    <img :src="logo" class="logo" alt="OvrGit" title="OvrGit" />
+    <img :src="logo" class="logo" alt="Ovseer" title="Ovseer" />
     <span class="task-btns">
       <button
         class="ghost icon"

@@ -6,6 +6,7 @@ import type {
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, KnownModels
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
+import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import AgentLogo from './components/AgentLogo.vue'
 import Icon from './components/Icon.vue'
 import ModelPicker from './components/ModelPicker.vue'
@@ -15,11 +16,12 @@ import { applyTheme } from './theme'
  * Janela exclusiva de um agente: só a conversa. Cada mensagem roda o CLI (Claude Code ou Codex)
  * continuando a mesma sessão; modelo e esforço podem mudar entre uma mensagem e outra.
  */
-const api = window.ovrgit
+const api = window.ovseer
 const uid = new URLSearchParams(location.search).get('uid') ?? ''
 
 type Block = AgentBlock
 type ToolBlock = Extract<Block, { kind: 'tool' }>
+type FilesBlock = Extract<Block, { kind: 'files' }>
 
 interface Turn extends AgentTurn {
   attachments: Shown[]
@@ -36,7 +38,23 @@ interface Shown extends AgentAttachment {
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
 const pending = reactive<Shown[]>([])
+/** Arrasto de arquivos sobre a janela. `dragleave` dispara ao passar para um elemento filho, então o estado
+ * é um contador de entradas e saídas; se ele ficar preso (o arrasto foi cancelado fora da janela),
+ * o próximo movimento do mouse sem botão pressionado limpa. */
 const dragging = ref(false)
+let dragDepth = 0
+function onDragEnter() {
+  dragDepth++
+  dragging.value = true
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dragging.value = false
+}
+function dragReset() {
+  dragDepth = 0
+  dragging.value = false
+}
 const attachError = ref<string | null>(null)
 const draft = ref('')
 const running = ref(false)
@@ -45,7 +63,7 @@ const known = ref<KnownModels | null>(null)
 /** Último modelo/esforço de cada IA, guardado pelo diálogo "Novo agente" (mesma origem: compartilhado) */
 const pickerDefaults = (() => {
   try {
-    const p = JSON.parse(localStorage.getItem('ovrgit.agent.prefs') ?? '{}') as { model?: Record<string, string>; effort?: Record<string, AgentEffort> }
+    const p = JSON.parse(localStorage.getItem('ovseer.agent.prefs') ?? '{}') as { model?: Record<string, string>; effort?: Record<string, AgentEffort> }
     return Object.fromEntries(
       (['claude', 'codex', 'agy'] as CliProvider[]).map((k) => [k, { model: p.model?.[k] ?? DEFAULT_MODEL[k], effort: p.effort?.[k] ?? DEFAULT_EFFORT[k] }])
     )
@@ -59,6 +77,7 @@ const effort = ref<AgentEffort>('high')
 const mode = ref<AgentMode>('safe')
 const thread = ref<HTMLElement>()
 const box = ref<HTMLTextAreaElement>()
+const otherInput = ref<HTMLInputElement>()
 const fatal = ref<string | null>(null)
 const offs: (() => void)[] = []
 
@@ -76,6 +95,7 @@ const modeRoot = ref<HTMLElement>()
 const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[1])
 const onDocClick = (e: MouseEvent) => {
   if (modeOpen.value && modeRoot.value && !modeRoot.value.contains(e.target as Node)) modeOpen.value = false
+  if (sendOpen.value && sendRoot.value && !sendRoot.value.contains(e.target as Node)) sendOpen.value = false
 }
 const current = () => [...turns].reverse().find((t) => t.running) ?? null
 
@@ -126,8 +146,42 @@ function toggleGroup(key: string) {
 const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /** Markdown do agente → HTML seguro. */
-function md(text: string) {
-  return DOMPurify.sanitize(marked.parse(text, { async: false, gfm: true, breaks: false }))
+/** Markdown da resposta. Os blocos ```question saem do texto: viram o cartão de perguntas enquanto ele está
+ * ativo; em vezes já respondidas, ficam como texto comum (pergunta em negrito e opções em lista). */
+function md(text: string, card: boolean) {
+  const { text: rest, questions: qs } = splitQuestions(text)
+  const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o}`).join('\n')}`).join('')
+  return DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false }))
+}
+
+// ---------- perguntas do agente: cartão com botões, uma pergunta de cada vez ----------
+/** Perguntas da última resposta, enquanto o usuário não respondeu (a resposta vira uma vez nova) */
+const questions = computed<AgentQuestion[]>(() => {
+  const t = turns[turns.length - 1]
+  if (!t || t.running || running.value) return []
+  return t.blocks.flatMap((b) => (b.kind === 'text' ? splitQuestions(b.text).questions : []))
+})
+const answers = reactive<string[]>([])
+const otherOpen = ref(false)
+const otherText = ref('')
+const questionTurn = computed(() => turns[turns.length - 1]?.id)
+watch(questionTurn, () => {
+  answers.splice(0)
+  otherOpen.value = false
+  otherText.value = ''
+})
+const question = computed(() => questions.value[answers.length])
+async function answer(choice: string) {
+  const text = choice.trim()
+  if (!text || !question.value) return
+  answers.push(text)
+  otherOpen.value = false
+  otherText.value = ''
+  if (answers.length < questions.value.length) return
+  // todas respondidas: vai numa mensagem só
+  const qs = questions.value
+  const body = formatAnswers(qs, [...answers])
+  await dispatch({ id: crypto.randomUUID(), body, attachments: [] })
 }
 
 // ---------- título: a IA dá um depois da primeira resposta; o usuário pode renomear ----------
@@ -140,6 +194,21 @@ async function startRename() {
   editingTitle.value = true
   await nextTick()
   titleInput.value?.select()
+}
+/** O cabeçalho é região de arrasto, mas o título precisa receber o clique duplo (renomear), e uma região
+ * `-webkit-app-region: drag` não recebe cliques. Então o arrasto ali é feito à mão, mandando o deslocamento. */
+function dragWindow(e: MouseEvent) {
+  if (e.button !== 0 || editingTitle.value) return
+  const x0 = e.screenX
+  const y0 = e.screenY
+  api.windowDrag(0, 0, true)
+  const move = (ev: MouseEvent) => api.windowDrag(ev.screenX - x0, ev.screenY - y0)
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
 }
 async function saveTitle() {
   if (!editingTitle.value) return
@@ -178,15 +247,24 @@ function apply(ev: AgentChatEvent) {
     t.activity = 'tools'
     t.blocks.push({ kind: 'tool', id: ev.id, name: ev.name, title: ev.title, detail: ev.detail, ok: null, open: false })
   } else if (ev.type === 'toolResult') {
-    const b = t.blocks.find((x): x is ToolBlock => x.kind === 'tool' && x.id === ev.id)
+    // a ferramenta pode ser de uma vez anterior, se uma mensagem entrou no meio da resposta
+    const b = findTool(ev.id)
     if (b) {
       b.ok = ev.ok
       b.output = ev.output
     }
   } else if (ev.type === 'files') {
     const last = t.blocks[t.blocks.length - 1]
-    if (last?.kind === 'files') last.paths.push(...ev.paths.filter((p) => !last.paths.includes(p)))
-    else t.blocks.push({ kind: 'files', paths: [...ev.paths] })
+    // com `stats`, é a mesma lista chegando de novo com as contagens do git: entra no bloco que tem esses arquivos
+    const target = ev.stats
+      ? [...t.blocks].reverse().find((b): b is FilesBlock => b.kind === 'files' && ev.paths.some((p) => b.paths.includes(p)))
+      : last?.kind === 'files'
+        ? last
+        : undefined
+    if (target) {
+      target.paths.push(...ev.paths.filter((p) => !target.paths.includes(p)))
+      if (ev.stats) target.stats = { ...(target.stats ?? {}), ...ev.stats }
+    } else t.blocks.push({ kind: 'files', paths: [...ev.paths], stats: ev.stats })
   } else if (ev.type === 'done') {
     t.running = false
     t.thinking = false
@@ -202,6 +280,20 @@ function apply(ev: AgentChatEvent) {
     if (sendAfterStop && t.error === 'Interrompido.') t.error = undefined
     flushQueue()
   }
+}
+
+function findTool(id: string): ToolBlock | undefined {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const b = turns[i].blocks.find((x): x is ToolBlock => x.kind === 'tool' && x.id === id)
+    if (b) return b
+  }
+  return undefined
+}
+/** Soma das linhas +/− de um bloco de arquivos; null se nenhum arquivo tem contagem */
+function sumStats(b: FilesBlock): { add: number; del: number } | null {
+  const list = Object.values(b.stats ?? {}).filter((s): s is NonNullable<typeof s> => !!s)
+  if (!list.length) return null
+  return list.reduce((acc, s) => ({ add: acc.add + s.add, del: acc.del + s.del }), { add: 0, del: 0 })
 }
 
 function notifyDone(t: Turn) {
@@ -260,7 +352,7 @@ async function addFiles(files: File[]) {
 }
 
 function onDrop(e: DragEvent) {
-  dragging.value = false
+  dragReset()
   const files = [...(e.dataTransfer?.files ?? [])]
   if (files.length) addFiles(files)
 }
@@ -354,13 +446,54 @@ async function send(text = draft.value) {
 const queue = reactive<Payload[]>([])
 /** Mensagem que deve sair assim que a interrupção for confirmada */
 let sendAfterStop: Payload | null = null
-function removeQueued(i: number) {
+/** Tira da fila e descarta (texto e anexos). */
+function discardQueued(i: number) {
+  queue.splice(i, 1)
+}
+/** Tira da fila e devolve ao campo, para editar. */
+function editQueued(i: number) {
   const [p] = queue.splice(i, 1)
   if (!p) return
-  // volta para o campo, para não perder o texto
   draft.value = draft.value ? `${draft.value}\n${p.body}` : p.body
   pending.push(...p.attachments)
   nextTick(autosize)
+  box.value?.focus()
+}
+/** Tira da fila e manda agora: interrompe a resposta atual; o resto da fila continua depois. */
+function sendQueuedNow(i: number) {
+  const [p] = queue.splice(i, 1)
+  if (p) sendAfter(p)
+}
+/**
+ * "Agora": Claude recebe a mensagem no meio da resposta, sem interromper (ela entra no próximo passo);
+ * Codex e Antigravity não têm isso, então a resposta atual é interrompida e a mensagem sai em seguida.
+ * Se já havia uma mensagem esperando a interrupção, ela volta ao início da fila.
+ */
+async function sendAfter(p: Payload) {
+  if (!running.value) return dispatch(p)
+  if (provider.value === 'claude') {
+    let steered = false
+    try {
+      steered = await api.agentSteer(uid, p.body, p.attachments.map(({ preview: _p, ...a }) => a))
+    } catch {
+      steered = false
+    }
+    if (steered) {
+      // na interface, a vez atual encerra e a nova começa: os próximos eventos vão para ela
+      const cur = current()
+      if (cur) {
+        cur.running = false
+        cur.thinking = false
+      }
+      turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now() })
+      scrollToEnd(true)
+      return
+    }
+    if (!running.value) return dispatch(p) // a resposta terminou enquanto isso
+  }
+  if (sendAfterStop) queue.unshift(sendAfterStop)
+  sendAfterStop = p
+  api.agentCancel(uid)
 }
 /** Chamado quando uma resposta termina: primeiro o "enviar agora", depois a fila. */
 function flushQueue() {
@@ -372,21 +505,45 @@ function flushQueue() {
 /** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela). */
 function sendNow() {
   const p = takePayload()
-  if (!p) return
-  if (!running.value) return dispatch(p)
-  sendAfterStop = p
-  api.agentCancel(uid)
+  if (p) sendAfter(p)
 }
 
 function stop() {
   api.agentCancel(uid)
 }
 
+/** Com o agente ocupado, o botão de enviar escolhe entre pôr na fila (padrão) e interromper para enviar agora.
+ * A escolha vale para a resposta atual: quando o agente termina, volta para a fila. */
+type SendAction = 'queue' | 'now'
+const SEND_ACTIONS = computed<{ id: SendAction; icon: 'list' | 'zap'; label: string; hint: string; keys: string }[]>(() => [
+  { id: 'queue', icon: 'list', label: 'Fila', hint: 'Envia quando a resposta atual terminar', keys: 'Enter' },
+  {
+    id: 'now',
+    icon: 'zap',
+    label: 'Agora',
+    hint: provider.value === 'claude' ? 'Entrega no meio da resposta, sem interromper: o agente recebe no próximo passo' : 'Interrompe a resposta atual e envia em seguida',
+    keys: '⌘Enter'
+  }
+])
+const sendAction = ref<SendAction>('queue')
+const sendOpen = ref(false)
+const sendRoot = ref<HTMLElement>()
+const currentSend = computed(() => SEND_ACTIONS.value.find((a) => a.id === sendAction.value) ?? SEND_ACTIONS.value[0])
+const nowVerb = computed(() => (provider.value === 'claude' ? 'envia agora, sem interromper' : 'interrompe e envia agora'))
+function sendAs(action: SendAction) {
+  if (action === 'now') sendNow()
+  else send()
+}
+watch(running, (r) => {
+  if (!r) sendAction.value = 'queue'
+  sendOpen.value = false
+})
+
 function onKey(e: KeyboardEvent) {
   if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
   e.preventDefault()
   if (e.metaKey || e.ctrlKey) sendNow()
-  else send()
+  else sendAs(sendAction.value)
 }
 
 function autosize() {
@@ -414,7 +571,7 @@ watch(turns, () => scrollToEnd(), { deep: true })
 
 // a conversa é guardada: nesta janela (sobrevive a recargas) e, assim que a sessão do CLI existe,
 // em disco pelo processo principal (histórico: dá para fechar o app e reabrir depois)
-const STORE = `ovrgit.agent.${uid}`
+const STORE = `ovseer.agent.${uid}`
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 const plainTurns = (): AgentTurn[] => turns.map((t) => ({ ...t, attachments: t.attachments.map(({ preview: _p, ...a }) => a) }))
 watch(
@@ -494,8 +651,8 @@ onMounted(async () => {
   document.addEventListener('mousedown', onDocClick)
   offs.push(() => document.removeEventListener('mousedown', onDocClick))
   const onTheme = () => undefined
-  window.addEventListener('ovrgit-theme', onTheme)
-  offs.push(() => window.removeEventListener('ovrgit-theme', onTheme))
+  window.addEventListener('ovseer-theme', onTheme)
+  offs.push(() => window.removeEventListener('ovseer-theme', onTheme))
 
   const i = await api.agentInfo(uid).catch(() => null)
   if (!i) {
@@ -522,13 +679,15 @@ onUnmounted(() => offs.forEach((f) => f()))
 <template>
   <div
     class="agent"
-    @dragover.prevent="dragging = true"
-    @dragleave.self="dragging = false"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave="onDragLeave"
     @drop.prevent="onDrop"
+    @mousemove="dragging && dragReset()"
   >
     <header class="bar">
       <AgentLogo v-if="info" :source="provider" :size="16" />
-      <div v-if="info" class="head-text">
+      <div v-if="info" class="head-text" @mousedown="dragWindow">
         <input
           v-if="editingTitle"
           ref="titleInput"
@@ -541,10 +700,10 @@ onUnmounted(() => offs.forEach((f) => f()))
           @keydown.esc.prevent="editingTitle = false"
           @blur="saveTitle"
         />
-        <button v-else type="button" class="title" :class="{ none: !chatTitle }" title="Clique para renomear" @click="startRename">
+        <span v-else class="title" :class="{ none: !chatTitle }" title="Clique duas vezes para renomear" @dblclick="startRename">
           <span class="ellipsis">{{ chatTitle || `Nova conversa com ${providerName}` }}</span>
           <Icon name="pencil" :size="11" class="pen" />
-        </button>
+        </span>
         <span class="sub ellipsis" :title="info.cwd">
           {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }}
           · <Icon name="folder" :size="11" /> {{ info.project }}<template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
@@ -589,7 +748,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
-            <div v-if="b.kind === 'text'" class="md" v-html="md(b.text)" />
+            <div v-if="b.kind === 'text'" class="md" v-html="md(b.text, t.id === questionTurn && !!question)" />
             <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
               <!-- linha discreta: enquanto roda mostra o que está fazendo; depois, só o resumo. Clique abre a lista. -->
               <button type="button" class="ghost tools-line" @click="toggleGroup(b.key)">
@@ -616,8 +775,14 @@ onUnmounted(() => offs.forEach((f) => f()))
               </div>
             </div>
             <div v-else class="files">
-              <div class="files-head"><Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}</div>
-              <div v-for="p in b.paths" :key="p" class="file"><span class="faint">{{ fileDir(p) }}<template v-if="fileDir(p)">/</template></span>{{ fileName(p) }}</div>
+              <div class="files-head">
+                <Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}
+                <span v-if="sumStats(b)" class="stat"><b class="add">+{{ sumStats(b)!.add }}</b> <b class="del">−{{ sumStats(b)!.del }}</b></span>
+              </div>
+              <div v-for="p in b.paths" :key="p" class="file">
+                <span class="ellipsis"><span class="faint">{{ fileDir(p) }}<template v-if="fileDir(p)">/</template></span>{{ fileName(p) }}</span>
+                <span v-if="b.stats?.[p]" class="stat"><b class="add">+{{ b.stats[p]!.add }}</b> <b class="del">−{{ b.stats[p]!.del }}</b></span>
+              </div>
             </div>
           </template>
           <div v-if="t.running" class="progress">
@@ -629,6 +794,27 @@ onUnmounted(() => offs.forEach((f) => f()))
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
             <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
           </p>
+          <div v-if="t.id === questionTurn && question" class="ask">
+            <div v-for="(a, i) in answers" :key="i" class="ask-done">
+              <Icon name="check" :size="12" class="ok" />
+              <span class="ellipsis" :title="questions[i].text">{{ questions[i].text }}</span>
+              <b class="ellipsis">{{ a }}</b>
+            </div>
+            <div class="ask-head">
+              <Icon name="sparkles" :size="12" />
+              <span v-if="questions.length > 1">Pergunta {{ answers.length + 1 }} de {{ questions.length }}</span>
+              <span v-else>O agente pergunta</span>
+            </div>
+            <p class="ask-q">{{ question.text }}</p>
+            <div class="ask-opts">
+              <button v-for="o in question.options" :key="o" type="button" class="ask-opt" @click="answer(o)">{{ o }}</button>
+              <button type="button" class="ask-opt other" :class="{ on: otherOpen }" @click="(otherOpen = !otherOpen), otherOpen && nextTick(() => otherInput?.focus())">Outro…</button>
+            </div>
+            <form v-if="otherOpen" class="ask-other" @submit.prevent="answer(otherText)">
+              <input ref="otherInput" v-model="otherText" type="text" placeholder="Sua resposta" maxlength="2000" />
+              <button type="submit" class="primary small" :disabled="!otherText.trim()">Responder</button>
+            </form>
+          </div>
         </div>
       </article>
     </main>
@@ -659,14 +845,18 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon name="list" :size="12" class="faint" />
           <span class="q-text ellipsis">{{ q.body }}</span>
           <small class="faint">na fila{{ q.attachments.length ? ` · ${q.attachments.length} anexo${q.attachments.length === 1 ? '' : 's'}` : '' }}</small>
-          <button type="button" class="ghost rm" title="Tirar da fila (volta para o campo)" @click="removeQueued(i)"><Icon name="x" :size="11" /></button>
+          <span class="q-acts">
+            <button type="button" class="ghost qa now" :title="`Enviar esta agora: ${nowVerb}`" @click="sendQueuedNow(i)"><Icon name="zap" :size="12" /></button>
+            <button type="button" class="ghost qa" title="Voltar para o campo, para editar" @click="editQueued(i)"><Icon name="pencil" :size="11" /></button>
+            <button type="button" class="ghost qa" title="Descartar" @click="discardQueued(i)"><Icon name="x" :size="12" /></button>
+          </span>
         </div>
       </div>
       <textarea
         ref="box"
         v-model="draft"
         rows="1"
-        :placeholder="running ? 'Agente trabalhando… Enter põe na fila, ⌘Enter interrompe e envia agora' : 'Faça qualquer coisa'"
+        :placeholder="!running ? 'Faça qualquer coisa' : sendAction === 'now' ? `Agente trabalhando… Enter ${nowVerb}` : `Agente trabalhando… Enter põe na fila, ⌘Enter ${nowVerb}`"
         :disabled="!info"
         @input="autosize"
         @keydown="onKey"
@@ -693,13 +883,25 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
         <span class="spacer" />
         <template v-if="running">
-          <button type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
-          <button type="button" class="send-opt" title="Enviar quando a resposta atual terminar (Enter)" :disabled="!canCompose || !info" @click="send()">
-            <Icon name="list" :size="13" /> Fila
-          </button>
-          <button type="button" class="send-opt now" title="Interromper a resposta atual e enviar agora (⌘/Ctrl+Enter)" :disabled="!canCompose || !info" @click="sendNow">
-            <Icon name="zap" :size="13" /> Agora
-          </button>
+          <button v-if="!canCompose" type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
+          <div v-else ref="sendRoot" class="send-split" :class="[sendAction, { on: sendOpen }]">
+            <button type="button" class="send-main" :title="`${currentSend.hint} (${currentSend.keys})`" :disabled="!info" @click="sendAs(sendAction)">
+              <Icon :name="currentSend.icon" :size="13" /> {{ currentSend.label }}
+            </button>
+            <button type="button" class="send-more" title="Escolher como enviar" @click="sendOpen = !sendOpen"><Icon name="chevron" :size="11" class="chev" /></button>
+            <div v-if="sendOpen" class="pop">
+              <button v-for="a in SEND_ACTIONS" :key="a.id" type="button" class="ghost opt" :class="{ cur: sendAction === a.id }" @click="(sendAction = a.id), (sendOpen = false)">
+                <Icon :name="a.icon" :size="13" />
+                <span class="opt-text"><strong>{{ a.label }} <kbd>{{ a.keys }}</kbd></strong><small>{{ a.hint }}</small></span>
+                <Icon v-if="sendAction === a.id" name="check" :size="13" class="ok" />
+              </button>
+              <hr class="sep" />
+              <button type="button" class="ghost opt" @click="(sendOpen = false), stop()">
+                <Icon name="stop" :size="13" />
+                <span class="opt-text"><strong>Interromper</strong><small>Para a resposta atual; o texto continua no campo</small></span>
+              </button>
+            </div>
+          </div>
         </template>
         <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
       </div>
@@ -715,12 +917,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 }
 :root[data-platform='darwin'] .bar { padding-left: 90px; }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
-.head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; }
-.title { height: 20px; padding: 0 4px; margin-left: -4px; gap: 6px; border: 0; background: transparent; font-size: 13px; font-weight: 700; justify-content: flex-start; max-width: 100%; min-width: 0; }
+.head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; user-select: none; cursor: default; }
+.title { display: inline-flex; align-items: center; height: 20px; gap: 6px; font-size: 13px; font-weight: 700; max-width: 100%; min-width: 0; }
 .title.none { font-weight: 500; color: var(--muted); }
-.title .pen { color: var(--faint); opacity: 0; flex: none; }
+.title .pen { color: var(--faint); opacity: 0; flex: none; transition: opacity 0.12s; }
 .title:hover .pen { opacity: 1; }
-.title-input { height: 22px; padding: 0 6px; margin-left: -6px; font-size: 13px; font-weight: 700; width: min(100%, 420px); }
+.title-input { height: 22px; padding: 0 6px; margin-left: -6px; font-size: 13px; font-weight: 700; width: min(100%, 420px); -webkit-app-region: no-drag; }
 .sub { display: block; font-size: 11px; color: var(--muted); min-width: 0; }
 .sub svg { vertical-align: -1px; }
 .spacer { flex: 0 0 8px; }
@@ -808,13 +1010,31 @@ onUnmounted(() => offs.forEach((f) => f()))
 }
 .files { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 10px; font-size: 12.5px; }
 .files-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; }
-.file { font-family: var(--mono); font-size: 12px; padding: 2px 0 2px 18px; user-select: text; }
+.file { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; padding: 2px 0 2px 18px; user-select: text; min-width: 0; }
+.file > .ellipsis { flex: 1; min-width: 0; }
+.stat { margin-left: auto; flex: none; font-family: var(--mono); font-size: 11.5px; font-weight: 500; }
+.stat .add { color: var(--add); font-weight: inherit; }
+.stat .del { color: var(--del); font-weight: inherit; }
 .progress { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; padding: 2px 0; }
 .progress .mono { font-size: 12px; font-variant-numeric: tabular-nums; }
 .spin-logo { animation: breathe 1.6s ease-in-out infinite; margin-right: 2px; }
 @keyframes breathe { 50% { opacity: 0.35; transform: scale(0.9); } }
 .err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
 .meta { margin: 0; font-size: 11px; }
+/* cartão de pergunta do agente */
+.ask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); max-width: 640px; }
+.ask-done { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
+.ask-done .ok { color: var(--add); flex: none; }
+.ask-done b { color: var(--text); font-weight: 600; flex: none; max-width: 50%; }
+.ask-head { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.02em; }
+.ask-q { margin: 0; font-size: 13.5px; line-height: 1.5; user-select: text; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opt { height: auto; min-height: 30px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; white-space: normal; text-align: left; background: var(--panel); }
+.ask-opt:hover:not(:disabled) { border-color: var(--accent); }
+.ask-opt.other { color: var(--muted); }
+.ask-opt.other.on { border-color: var(--accent); color: var(--text); }
+.ask-other { display: flex; gap: 6px; }
+.ask-other input { flex: 1; min-width: 0; height: 30px; }
 
 .composer {
   flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
@@ -831,7 +1051,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .chip.on { background: var(--hover); }
 .chip .chev { transform: rotate(-90deg); color: var(--faint); }
 .mode-menu { position: relative; flex: none; }
-.mode-menu .pop {
+.pop {
   position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 30; width: 300px; padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
   display: flex; flex-direction: column; gap: 2px;
@@ -842,13 +1062,26 @@ onUnmounted(() => offs.forEach((f) => f()))
 .opt-text strong { font-size: 12.5px; }
 .opt-text small { font-size: 11px; color: var(--muted); line-height: 1.35; }
 .opt .ok { color: var(--accent); flex: none; }
+.opt kbd { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+.sep { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
 .send { width: 34px; height: 34px; border-radius: 50%; flex: none; }
-.send-opt { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; flex: none; }
-.send-opt.now { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+/* botão de envio dividido: a ação escolhida à esquerda, a seta abre o menu para trocar */
+.send-split { position: relative; display: inline-flex; height: 34px; flex: none; border-radius: 999px; background: var(--text); color: var(--bg); }
+.send-split.now { background: var(--accent); color: var(--on-accent); }
+.send-main, .send-more { height: 100%; border: 0; background: transparent; color: inherit; }
+.send-main { padding: 0 10px 0 14px; gap: 6px; font-size: 12.5px; font-weight: 600; border-radius: 999px 0 0 999px; }
+.send-more { width: 28px; padding: 0 4px 0 0; border-radius: 0 999px 999px 0; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+.send-main:hover:not(:disabled), .send-more:hover:not(:disabled), .send-split.on .send-more { background: color-mix(in srgb, currentColor 14%, transparent); }
+.send-split .chev { transform: rotate(90deg); color: inherit; }
+.send-split .pop { left: auto; right: 0; }
 .queue { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 0; }
 .queued { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 8px; background: var(--panel-2); font-size: 12px; min-width: 0; }
 .q-text { flex: 1; min-width: 0; }
 .queued small { font-size: 11px; flex: none; }
-.queued .rm { width: 18px; height: 18px; padding: 0; color: var(--faint); flex: none; }
+.q-acts { display: inline-flex; gap: 2px; flex: none; margin-right: -4px; }
+.qa { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--faint); }
+.qa:hover { color: var(--text); }
+.qa.now { color: var(--accent); }
+.qa.now:hover { background: var(--accent-soft) !important; }
 .send.stop { background: var(--text); color: var(--bg); border-color: var(--text); }
 </style>

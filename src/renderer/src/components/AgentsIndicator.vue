@@ -106,7 +106,7 @@ onUnmounted(() => {
           <span v-else class="initials">{{ g.name.slice(0, 2).toUpperCase() }}</span>
           <span class="pname ellipsis" :title="g.cwd">{{ g.name }}</span>
           <span v-if="g.items[0].branch" class="branch ellipsis"><Icon name="branch" :size="11" />{{ g.items[0].branch }}</span>
-          <button class="ghost open" title="Abrir este projeto no OvrGit" @click="openProject(g.cwd)">
+          <button class="ghost open" title="Abrir este projeto no Ovseer" @click="openProject(g.cwd)">
             Abrir <Icon name="chevron" :size="11" />
           </button>
         </div>
@@ -142,7 +142,7 @@ onUnmounted(() => {
             <button
               v-if="state.agentWindows.includes(a.id)"
               class="win-btn"
-              title="Esta conversa está aberta numa janela do OvrGit. Clique para trazê-la para frente"
+              title="Esta conversa está aberta numa janela do Ovseer. Clique para trazê-la para frente"
               @click.stop="api.agentFocus(a.id)"
             >
               <Icon name="external" :size="11" /> Janela

@@ -7,7 +7,7 @@ import '@fontsource/source-code-pro/500.css'
 import '@fontsource/source-code-pro/600.css'
 import '@fontsource/source-code-pro/700.css'
 
-document.documentElement.dataset.platform = window.ovrgit.platform
+document.documentElement.dataset.platform = window.ovseer.platform
 const app = createApp(App)
 // erro dentro de um componente: mostra na barra de erro em vez de sumir com o componente em silêncio
 app.config.errorHandler = (err, _instance, info) => {

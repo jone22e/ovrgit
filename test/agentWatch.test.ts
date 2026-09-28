@@ -4,9 +4,9 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentSession } from '../src/shared/types'
 
-const root = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-codex-'))
-process.env.OVRGIT_CODEX_DIR = root
-process.env.OVRGIT_CLAUDE_DIR = path.join(root, 'sem-claude')
+const root = mkdtempSync(path.join(os.tmpdir(), 'ovseer-codex-'))
+process.env.OVSEER_CODEX_DIR = root
+process.env.OVSEER_CLAUDE_DIR = path.join(root, 'sem-claude')
 const { startAgentWatch, stopAgentWatch, listAgents } = await import('../src/main/agentWatch')
 afterAll(() => {
   stopAgentWatch()
@@ -60,8 +60,8 @@ describe('títulos e mensagens do Codex', () => {
 
 describe('Claude (app e Claude Code)', () => {
   it('acompanha a vez: pedido → trabalhando → end_turn → terminou', async () => {
-    const croot = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-claude-'))
-    process.env.OVRGIT_CLAUDE_DIR = croot
+    const croot = mkdtempSync(path.join(os.tmpdir(), 'ovseer-claude-'))
+    process.env.OVSEER_CLAUDE_DIR = croot
     const proj = path.join(croot, '-Users-x-loja')
     mkdirSync(proj)
     const file = path.join(proj, 'abc.jsonl')

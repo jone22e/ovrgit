@@ -9,7 +9,7 @@ import { findRoot } from './git'
 /** Clonar repositório: lista os repositórios do GitHub (via gh) e copia para a pasta escolhida. */
 
 export async function listGithubRepos(): Promise<RemoteRepo[] | null> {
-  const gh = process.env.OVRGIT_GH_BIN || (await findBinary('gh'))
+  const gh = process.env.OVSEER_GH_BIN || (await findBinary('gh'))
   if (!gh) return null
   const r = await runCli(
     gh,

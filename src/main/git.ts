@@ -150,9 +150,9 @@ const OP_LABEL: Record<Exclude<RepoOperation, null>, string> = {
   revert: 'revert'
 }
 
-const PULL_STASH_MSG = 'ovrgit: stash antes do pull'
+const PULL_STASH_MSG = 'ovseer: stash antes do pull'
 
-/** Restaura o stash que o OvrGit criou antes do pull, se ele ainda existir. */
+/** Restaura o stash que o Ovseer criou antes do pull, se ele ainda existir. */
 async function popPullStash(root: string, steps: StepResult[]) {
   const list = await git(root, ['stash', 'list', '--format=%gd%x1f%s'])
   const ref = list
@@ -639,7 +639,7 @@ export async function createFeature(root: string, rawName: string, rawPrefix = '
   return { ok, steps, prUrl: pushed, error: ok ? undefined : steps.find((s) => !s.ok)?.detail }
 }
 
-const PENDING_PUSH_KEY = 'ovrgit.pendingFeaturePush'
+const PENDING_PUSH_KEY = 'ovseer.pendingFeaturePush'
 
 async function pushFeature(
   root: string,

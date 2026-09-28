@@ -3,7 +3,7 @@ import {
   type MenuItemConstructorOptions
 } from 'electron'
 import { findTheme } from '../shared/themes'
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
@@ -54,7 +54,7 @@ async function load(dir: string) {
   const r = await g.findRoot(dir)
   root = r
   rememberProject(r)
-  win?.setTitle(`OvrGit — ${path.basename(r)}`)
+  win?.setTitle(`Ovseer — ${path.basename(r)}`)
   return g.status(r)
 }
 
@@ -107,7 +107,7 @@ function createWindow() {
     height: 820,
     minWidth: 450,
     minHeight: 560,
-    title: 'OvrGit',
+    title: 'Ovseer',
     icon,
     show: false,
     backgroundColor: initialBackground(),
@@ -378,6 +378,16 @@ function registerIpc() {
     if (process.platform !== 'darwin' && /^#[0-9a-f]{6}$/i.test(symbols))
       w.setTitleBarOverlay({ color: '#00000000', symbolColor: symbols, height: 48 })
   })
+  // arrasto manual da janela: regiões que precisam receber cliques (o título, renomeado com clique duplo)
+  // não podem ser `-webkit-app-region: drag`, então a página manda os deslocamentos do mouse
+  const dragOrigin = new WeakMap<BrowserWindow, [number, number]>()
+  ipcMain.on('window:drag', (e, dx: number, dy: number, begin: boolean) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w || w.isFullScreen() || w.isMaximized()) return
+    if (begin) return void dragOrigin.set(w, w.getPosition() as [number, number])
+    const o = dragOrigin.get(w)
+    if (o && Number.isFinite(dx) && Number.isFinite(dy)) w.setPosition(Math.round(o[0] + dx), Math.round(o[1] + dy))
+  })
   ipcMain.handle('ovseer:status', () => ovseer.status())
   ipcMain.handle('ovseer:login', () => ovseer.login())
   ipcMain.handle('ovseer:cancelLogin', () => ovseer.cancelLogin())
@@ -527,6 +537,9 @@ function registerIpc() {
     agentChat.saveBlob(String(uid), String(file?.name ?? 'arquivo').slice(0, 120), String(file?.type ?? ''), new Uint8Array(file.data))
   )
   ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
+  ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[]) =>
+    agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [])
+  )
   ipcMain.handle('agent:history', (_e, cwd?: string) => agentHistory.listHistory(typeof cwd === 'string' && cwd ? cwd : undefined))
   ipcMain.handle('agent:saveTranscript', (_e, uid: string, turns: AgentTurn[]) => {
     const info = agentChat.agentInfo(String(uid))
@@ -549,10 +562,34 @@ function registerIpc() {
   })
 }
 
-app.setName('OvrGit')
+app.setName('Ovseer')
 // Permite isolar as configurações (testes automatizados, múltiplos perfis)
-if (process.env.OVRGIT_USER_DATA) app.setPath('userData', process.env.OVRGIT_USER_DATA)
-if (process.platform === 'win32') app.setAppUserModelId('com.c2s.ovrgit')
+if (process.env.OVSEER_USER_DATA) app.setPath('userData', process.env.OVSEER_USER_DATA)
+else migrateUserData()
+
+/**
+ * O app se chamava OvrGit. Na primeira abertura com o nome novo, os dados da pasta antiga (configurações, login,
+ * histórico de conversas, análises) são copiados para a nova, item a item: o Electron já cria a pasta nova
+ * antes deste código rodar, então não dá para simplesmente renomear a antiga.
+ */
+function migrateUserData() {
+  const data = app.getPath('userData')
+  if (existsSync(path.join(data, 'settings.json'))) return
+  const old = ['OvrGit', 'ovrgit'].map((n) => path.join(path.dirname(data), n)).find((d) => existsSync(path.join(d, 'settings.json')))
+  if (!old) return
+  mkdirSync(data, { recursive: true })
+  for (const item of ['settings.json', 'ovseer-token.bin', 'agent-history', 'analysis', 'agent-attachments']) {
+    const from = path.join(old, item)
+    const to = path.join(data, item)
+    if (!existsSync(from) || existsSync(to)) continue
+    try {
+      cpSync(from, to, { recursive: true })
+    } catch (e) {
+      console.warn(`Não foi possível migrar ${item} da pasta de dados antiga:`, e)
+    }
+  }
+}
+if (process.platform === 'win32') app.setAppUserModelId('com.c2s.ovseer')
 
 app.whenReady().then(() => {
   // só o próprio app pode pedir microfone (gravação de áudio das tarefas); o resto é negado

@@ -14,7 +14,7 @@ const write = (rel: string, c: string) => {
 }
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-safe-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-safe-'))
   remote = path.join(tmp, 'r.git')
   repo = path.join(tmp, 'repo')
   sh(tmp, 'init', '-q', '--bare', '-b', 'main', remote)

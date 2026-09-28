@@ -263,7 +263,7 @@ async function viaClaude(task: Task, settings: Settings, context: string, signal
 async function viaCodex(task: Task, settings: Settings, context: string, signal: AbortSignal): Promise<unknown> {
   const bin = await findBinary('codex')
   if (!bin) throw new Error('Codex CLI não encontrado. Instale com "npm i -g @openai/codex" e rode "codex login".')
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ovrgit-'))
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ovseer-'))
   try {
     const schemaFile = path.join(dir, 'schema.json')
     const outFile = path.join(dir, 'out.txt')
@@ -297,7 +297,7 @@ async function viaCodex(task: Task, settings: Settings, context: string, signal:
 async function viaAgy(task: Task, settings: Settings, context: string, signal: AbortSignal): Promise<unknown> {
   const bin = await findBinary('agy')
   if (!bin) throw new Error('Antigravity CLI não encontrado. Instale o Antigravity (Google) e rode "agy" uma vez para entrar.')
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ovrgit-agy-'))
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ovseer-agy-'))
   try {
     const schemaFile = path.join(dir, 'schema.json')
     await writeFile(schemaFile, JSON.stringify(task.schema))

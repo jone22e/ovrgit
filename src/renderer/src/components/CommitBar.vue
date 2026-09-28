@@ -27,7 +27,7 @@ function fit() {
 watch(() => state.message, () => nextTick(fit))
 onMounted(fit)
 const canCommit = computed(() => nSelected.value > 0 && state.message.trim() !== '' && !state.busy)
-const mod = window.ovrgit.platform === 'darwin' ? '⌘' : 'Ctrl'
+const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl'
 
 // com arquivos marcados, o envio vira "Salvar e enviar"; o menu da setinha permite apenas salvar
 const saveAndSend = computed(() => nSelected.value > 0 && !state.repo?.operation && sendMode.value !== 'publishRepo')

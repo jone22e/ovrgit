@@ -1,5 +1,5 @@
 /**
- * Temas do app. "ovrgit" é o padrão e segue o claro/escuro do sistema (definido em styles.css);
+ * Temas do app. "ovseer" é o padrão e segue o claro/escuro do sistema (definido em styles.css);
  * os demais sobrescrevem as variáveis CSS e trazem a paleta ANSI do terminal.
  */
 
@@ -48,10 +48,10 @@ export interface Theme {
   ansi?: AnsiPalette
 }
 
-export const DEFAULT_THEME = 'ovrgit'
+export const DEFAULT_THEME = 'ovseer'
 
 export const THEMES: Theme[] = [
-  { id: 'ovrgit', name: 'OvrGit (padrão)', dark: true },
+  { id: 'ovseer', name: 'Ovseer (padrão)', dark: true },
   {
     id: 'dracula',
     name: 'Dracula',

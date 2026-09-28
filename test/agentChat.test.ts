@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
 import { claudeArgs, codexArgs, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
 const j = (o: object) => JSON.stringify(o)
@@ -8,9 +9,10 @@ const j = (o: object) => JSON.stringify(o)
 describe('argumentos dos CLIs', () => {
   it('claude: modelo, esforço, permissões e retomada', () => {
     expect(claudeArgs({ model: 'opus', effort: 'xhigh', mode: 'safe', resume: null })).toEqual([
-      '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-      '--model', 'opus', '--effort', 'xhigh', '--permission-mode', 'acceptEdits'
+      '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json',
+      '--append-system-prompt', QUESTION_FORMAT, '--model', 'opus', '--effort', 'xhigh', '--permission-mode', 'acceptEdits'
     ])
+    expect(claudeArgs({ model: '', effort: 'high', mode: 'safe', resume: null, instructions: 'Responda em PT' })).toContain(`Responda em PT\n\n${QUESTION_FORMAT}`)
     const full = claudeArgs({ model: '', effort: 'high', mode: 'full', resume: 'abc-123' })
     expect(full).toContain('--dangerously-skip-permissions')
     expect(full).not.toContain('--model')
@@ -208,5 +210,26 @@ describe('Antigravity (agy)', () => {
     const { modelLabel } = await import('../src/shared/models')
     expect(modelLabel('agy', 'gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash (High)')
     expect(modelLabel('agy', 'gemini-3.1-pro-low')).toBe('Gemini 3.1 Pro (Low)')
+  })
+})
+
+describe('perguntas ao usuário', () => {
+  it('tira os blocos ```question do texto e lê pergunta e opções', () => {
+    const text = 'Feito.\n\n```question\nVocê autoriza o deploy?\n- Sim, autorizo\n- Não, deixe no código\n```\n\n```question\nPublicar no relato?\n1. Sim\n2) Não\n```\n'
+    const r = splitQuestions(text)
+    expect(r.text).toBe('Feito.')
+    expect(r.questions).toEqual([
+      { text: 'Você autoriza o deploy?', options: ['Sim, autorizo', 'Não, deixe no código'] },
+      { text: 'Publicar no relato?', options: ['Sim', 'Não'] }
+    ])
+  })
+  it('esconde um bloco ainda aberto enquanto a resposta chega', () => {
+    expect(splitQuestions('Olá\n\n```question\nVocê aut').text).toBe('Olá')
+    expect(splitQuestions('```js\nconst a = 1\n```').text).toContain('const a = 1')
+  })
+  it('formata as respostas', () => {
+    const qs = [{ text: 'A?', options: ['x'] }, { text: 'B?', options: ['y'] }]
+    expect(formatAnswers(qs.slice(0, 1), ['x'])).toBe('x')
+    expect(formatAnswers(qs, ['x', 'outra coisa'])).toBe('Respostas:\n1. A?\n   → x\n2. B?\n   → outra coisa')
   })
 })

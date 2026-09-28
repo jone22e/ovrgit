@@ -13,7 +13,7 @@ const MAIN_NAMES = ['main', 'master', 'develop']
 
 /** gh do sistema; testes automatizados podem apontar para um gh simulado. */
 async function ghPath(): Promise<string | null> {
-  if (process.env.OVRGIT_GH_BIN) return process.env.OVRGIT_GH_BIN
+  if (process.env.OVSEER_GH_BIN) return process.env.OVSEER_GH_BIN
   return findBinary('gh')
 }
 

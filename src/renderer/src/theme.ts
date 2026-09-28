@@ -16,10 +16,10 @@ export function applyTheme(id: string | undefined) {
   applied = Object.keys(vars)
   root.dataset.theme = theme.id
   root.style.colorScheme = theme.colors ? (theme.dark ? 'dark' : 'light') : ''
-  window.dispatchEvent(new CustomEvent('ovrgit-theme'))
+  window.dispatchEvent(new CustomEvent('ovseer-theme'))
   // barra de título do Windows e cor de fundo da janela acompanham o tema
   const css = getComputedStyle(root)
-  window.ovrgit.setWindowTheme(css.getPropertyValue('--bg').trim(), css.getPropertyValue('--muted').trim())
+  window.ovseer.setWindowTheme(css.getPropertyValue('--bg').trim(), css.getPropertyValue('--muted').trim())
 }
 
 // o tema padrão segue o sistema: avisa quem depende das cores (terminal, janela) quando o sistema troca

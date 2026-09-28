@@ -6,7 +6,7 @@ import type {
   AgentSession, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec
 } from '@shared/types'
 
-const api = window.ovrgit
+const api = window.ovseer
 
 export type Busy = null | 'load' | 'analyze' | 'message' | 'commit' | 'pull' | 'push' | 'feature' | 'merge'
 
@@ -22,7 +22,7 @@ export const state = reactive({
   planOpen: false,
   /** Os arquivos mudaram desde a análise salva */
   planStale: false,
-  viewMode: (readPref('ovrgit.view') === 'list' ? 'list' : 'tree') as ViewMode,
+  viewMode: (readPref('ovseer.view') === 'list' ? 'list' : 'tree') as ViewMode,
   analysis: null as Analysis | null,
   selected: new Set<string>(),
   /** Pastas recolhidas na árvore */
@@ -39,10 +39,10 @@ export const state = reactive({
   result: null as (OperationResult & { title: string }) | null,
   toast: null as string | null,
   showSettings: false,
-  showDiff: readPref('ovrgit.diff') === '1',
-  showTerminal: readPref('ovrgit.terminal') === '1',
+  showDiff: readPref('ovseer.diff') === '1',
+  showTerminal: readPref('ovseer.terminal') === '1',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */
-  terminalMax: readPref('ovrgit.terminalMax') === '1',
+  terminalMax: readPref('ovseer.terminalMax') === '1',
   analyzeStartedAt: 0,
   /** Integração com o Ovseer */
   ovseer: null as OvseerStatus | null,
@@ -54,7 +54,7 @@ export const state = reactive({
   /** Tarefa de cada commit do plano da IA */
   planTasks: {} as Record<string, string | null>,
   /** Painel de tarefas à esquerda, formulário de nova tarefa e canal em tempo real */
-  showTasks: readPref('ovrgit.tasks') === '1',
+  showTasks: readPref('ovseer.tasks') === '1',
   showNewTask: false,
   deliveryTask: null as OvseerTask | null,
   /** Tarefa aberta nos detalhes */
@@ -77,7 +77,7 @@ export const state = reactive({
   showSshImport: false,
   /** Tarefas de agentes externos (ChatGPT/Codex e Claude) */
   agents: [] as AgentSession[],
-  /** Sessões de agentes com janela aberta pelo OvrGit */
+  /** Sessões de agentes com janela aberta pelo Ovseer */
   agentWindows: [] as string[],
   showNewAgent: false,
   /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
@@ -98,7 +98,7 @@ export const state = reactive({
   /** Trechos (hunks) deixados de fora, por arquivo; e quantos trechos cada arquivo tem */
   excludedHunks: {} as Record<string, number[]>,
   hunkCounts: {} as Record<string, number>,
-  diffMode: (readPref('ovrgit.diffMode') === 'split' ? 'split' : 'unified') as 'unified' | 'split',
+  diffMode: (readPref('ovseer.diffMode') === 'split' ? 'split' : 'unified') as 'unified' | 'split',
   ovseerLive: false
 })
 
@@ -120,28 +120,28 @@ function writePref(key: string, value: string) {
 
 export function setShowDiff(v: boolean) {
   state.showDiff = v
-  writePref('ovrgit.diff', v ? '1' : '0')
+  writePref('ovseer.diff', v ? '1' : '0')
 }
 
 export function setShowTerminal(v: boolean) {
   state.showTerminal = v
-  writePref('ovrgit.terminal', v ? '1' : '0')
+  writePref('ovseer.terminal', v ? '1' : '0')
 }
 
 export function setShowTasks(v: boolean) {
   state.showTasks = v
-  writePref('ovrgit.tasks', v ? '1' : '0')
+  writePref('ovseer.tasks', v ? '1' : '0')
   if (v) loadTasks()
 }
 
 export function setTerminalMax(v: boolean) {
   state.terminalMax = v
-  writePref('ovrgit.terminalMax', v ? '1' : '0')
+  writePref('ovseer.terminalMax', v ? '1' : '0')
 }
 
 export function setDiffMode(v: 'unified' | 'split') {
   state.diffMode = v
-  writePref('ovrgit.diffMode', v)
+  writePref('ovseer.diffMode', v)
 }
 
 /** Inclui/exclui um trecho do arquivo na próxima versão. Excluir todos = desmarcar o arquivo. */
@@ -167,7 +167,7 @@ export function isPartial(path: string) {
 
 export function setViewMode(v: ViewMode) {
   state.viewMode = v
-  writePref('ovrgit.view', v)
+  writePref('ovseer.view', v)
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -950,14 +950,14 @@ export function resolveWithAgent() {
     files.map((f) => `- ${f}`).join('\n') +
     `\n\nResolva os conflitos editando esses arquivos: remova as marcações <<<<<<<, ======= e >>>>>>> e mantenha a intenção das duas versões (use git log e git diff para entender o que cada lado mudou). ` +
     `Depois rode os testes ou o typecheck dos arquivos afetados para garantir que ficou coerente.\n\n` +
-    `Não faça commit, não rode "git ${op} --continue" nem "git add": eu concluo o ${op} pelo OvrGit. Ao terminar, resuma como resolveu cada arquivo.`
+    `Não faça commit, não rode "git ${op} --continue" nem "git add": eu concluo o ${op} pelo app. Ao terminar, resuma como resolveu cada arquivo.`
   openNewAgent(null, { label: `Resolver ${files.length} conflito${files.length === 1 ? '' : 's'} do ${op}`, message })
 }
 
 /** Texto que o agente recebe para executar uma tarefa do Ovseer: chave, título e plano aprovado. */
 export function taskBrief(task: { key: string; title: string }, plan: string): string {
   const body = plan.trim() ? `Plano aprovado:\n\n${plan.trim()}` : 'Não há plano escrito; siga o título e pergunte se algo não estiver claro.'
-  return `Tarefa ${task.key}: ${task.title}\n\n${body}\n\nExecute esta tarefa seguindo o plano. Ao terminar, resuma o que foi feito, os arquivos alterados e como validar. Não faça commit: eu salvo a versão pelo OvrGit.`
+  return `Tarefa ${task.key}: ${task.title}\n\n${body}\n\nExecute esta tarefa seguindo o plano. Ao terminar, resuma o que foi feito, os arquivos alterados e como validar. Não faça commit: eu salvo a versão pelo app.`
 }
 
 export function openNewTask() {

@@ -150,7 +150,7 @@ async function openTab(spec: TerminalSpec, opts: { connect?: boolean } = {}) {
   term.focus()
 }
 
-const isMac = window.ovrgit.platform === 'darwin'
+const isMac = window.ovseer.platform === 'darwin'
 
 // ---------- busca ----------
 const searching = ref(false)
@@ -356,8 +356,8 @@ onMounted(async () => {
   if (body.value) ro.observe(body.value)
   offs.push(() => ro.disconnect())
   const onTheme = () => sessions.forEach((s) => (s.term.options.theme = themeFromCss()))
-  window.addEventListener('ovrgit-theme', onTheme)
-  offs.push(() => window.removeEventListener('ovrgit-theme', onTheme))
+  window.addEventListener('ovseer-theme', onTheme)
+  offs.push(() => window.removeEventListener('ovseer-theme', onTheme))
   document.addEventListener('mousedown', onDoc)
   offs.push(() => document.removeEventListener('mousedown', onDoc))
 
@@ -374,7 +374,7 @@ onMounted(async () => {
   } else if (!saved.length) await openTab({ kind: 'local' })
 })
 
-const TABS_KEY = 'ovrgit.terminalTabs'
+const TABS_KEY = 'ovseer.terminalTabs'
 function readSavedTabs(): TerminalSpec[] {
   try {
     const list = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as TerminalSpec[]

@@ -40,7 +40,7 @@ onMounted(async () => {
     const d = await api.ovseerDelivery(task.id)
     commits.value = d.commits
     plan.value = d.plan
-    // commit vinculado pelo OvrGit: já vem relacionado
+    // commit vinculado pelo Ovseer: já vem relacionado
     if (d.commits.length) {
       hasCommit.value = true
       commitId.value = d.commits[0].id

@@ -9,14 +9,14 @@ const query = ref('')
 const index = ref(0)
 const input = ref<HTMLInputElement>()
 const root = ref<HTMLElement>()
-const mod = window.ovrgit.platform === 'darwin' ? '⌘' : 'Ctrl+'
+const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
 // situação de cada projeto (só leitura local, rápido): linha, alterações, o que falta enviar/baixar
 const overview = ref(new Map<string, ProjectOverview>())
 async function loadOverview() {
-  const list = await window.ovrgit.projectsOverview([...(state.settings?.recentProjects ?? [])]).catch(() => [])
+  const list = await window.ovseer.projectsOverview([...(state.settings?.recentProjects ?? [])]).catch(() => [])
   overview.value = new Map(list.map((o) => [o.root, o]))
 }
 function badges(p: string) {

@@ -10,7 +10,7 @@ import ModelPicker from './ModelPicker.vue'
 /** "Novo agente": escolhe Claude ou ChatGPT, modelo, esforço e a primeira tarefa; abre uma janela só do agente. */
 const emit = defineEmits<{ close: [] }>()
 
-const PREFS = 'ovrgit.agent.prefs'
+const PREFS = 'ovseer.agent.prefs'
 interface Prefs { provider: CliProvider; model: Record<CliProvider, string>; effort: Record<CliProvider, AgentEffort>; mode: AgentMode }
 function readPrefs(): Prefs {
   const base: Prefs = { provider: 'codex', model: { ...DEFAULT_MODEL }, effort: { ...DEFAULT_EFFORT }, mode: 'safe' }
@@ -118,7 +118,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <Icon name="merge" :size="14" class="faint" />
       <span class="task-text">
         <span>{{ brief.label }}</span>
-        <small class="faint">O agente recebe a lista de conflitos e a orientação de resolver sem commitar; você conclui pelo OvrGit.</small>
+        <small class="faint">O agente recebe a lista de conflitos e a orientação de resolver sem commitar; você conclui pelo app.</small>
       </span>
       <button type="button" class="ghost icon small" title="Abrir sem esse pedido" @click="brief = null"><Icon name="x" :size="12" /></button>
     </div>

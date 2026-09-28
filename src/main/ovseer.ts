@@ -13,7 +13,7 @@ import { getSettings } from './settings'
 /**
  * Integração com o Ovseer: login (token de integração obtido pelo navegador) e vínculo de commits a tarefas.
  *
- * Login no padrão "loopback" (como gh e VS Code): o OvrGit abre um servidor local temporário em 127.0.0.1,
+ * Login no padrão "loopback" (como gh e VS Code): o app abre um servidor local temporário em 127.0.0.1,
  * abre o navegador na página de autorização do Ovseer e recebe o token de volta nesse endereço.
  */
 
@@ -46,7 +46,7 @@ class OvseerError extends Error {
 
 async function api<T>(method: string, route: string, body?: unknown): Promise<T> {
   const token = readToken()
-  if (!token) throw new OvseerError('Conecte o OvrGit ao Ovseer nas Configurações.', 401)
+  if (!token) throw new OvseerError('Entre na sua conta do Ovseer nas Configurações.', 401)
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 20_000)
   try {
@@ -99,7 +99,7 @@ const PAGE = (title: string, text: string) => `<!doctype html><html lang="pt-BR"
 <title>${title}</title><body style="font-family:system-ui;background:#1e1e1e;color:#e5e5e5;display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center"><h1 style="font-size:22px">${title}</h1><p style="color:#a9a3b8">${text}</p></div></body></html>`
 
-/** Abre o navegador para autorizar o OvrGit no Ovseer e aguarda o token (até 5 minutos). */
+/** Abre o navegador para autorizar o app no Ovseer e aguarda o token (até 5 minutos). */
 export function login(): Promise<OvseerStatus> {
   cancelLogin()
   const state = randomBytes(16).toString('hex')
@@ -123,8 +123,8 @@ export function login(): Promise<OvseerStatus> {
       res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8' })
       res.end(
         ok
-          ? PAGE('OvrGit conectado', 'Pode fechar esta aba e voltar ao OvrGit.')
-          : PAGE('Não foi possível conectar', 'Tente de novo pelo OvrGit.')
+          ? PAGE('Ovseer conectado', 'Pode fechar esta aba e voltar ao app.')
+          : PAGE('Não foi possível conectar', 'Tente de novo pelo app.')
       )
       if (!ok) return
       writeToken(token!)
@@ -274,7 +274,7 @@ export async function uploadAttachment(
   purpose?: 'plan_audio'
 ): Promise<void> {
   const token = readToken()
-  if (!token) throw new OvseerError('Conecte o OvrGit ao Ovseer nas Configurações.', 401)
+  if (!token) throw new OvseerError('Entre na sua conta do Ovseer nas Configurações.', 401)
   if (file.data.byteLength > ATTACHMENT_MAX_BYTES) throw new OvseerError(`${file.name} passa de 25 MB.`, 400)
   const form = new FormData()
   form.append('file', new Blob([file.data], { type: file.type || 'application/octet-stream' }), file.name)

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentChatEvent, AgentSession, AuthEvent, OvrGitApi } from '../shared/types'
+import type { AgentChatEvent, AgentSession, AuthEvent, OvseerApi } from '../shared/types'
 
-const api: OvrGitApi = {
+const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
   loadProject: (p) => ipcRenderer.invoke('project:load', p),
   githubRepos: () => ipcRenderer.invoke('clone:repos'),
@@ -141,10 +141,12 @@ const api: OvrGitApi = {
     return () => ipcRenderer.off('agents:finished', h)
   },
   setWindowTheme: (background, symbols) => ipcRenderer.send('window:theme', background, symbols),
+  windowDrag: (dx, dy, begin) => ipcRenderer.send('window:drag', dx, dy, !!begin),
   agentOpen: (opts) => ipcRenderer.invoke('agent:open', opts),
   agentInfo: (uid) => ipcRenderer.invoke('agent:info', uid),
   agentSend: (uid, text, opts, attachments) => ipcRenderer.invoke('agent:send', uid, text, opts, attachments ?? []),
   agentCancel: (uid) => ipcRenderer.invoke('agent:cancel', uid),
+  agentSteer: (uid, text, attachments) => ipcRenderer.invoke('agent:steer', uid, text, attachments ?? []),
   agentPickFiles: (uid) => ipcRenderer.invoke('agent:pick', uid),
   agentHistory: (cwd) => ipcRenderer.invoke('agent:history', cwd),
   agentSaveTranscript: (uid, turns) => ipcRenderer.invoke('agent:saveTranscript', uid, turns),
@@ -176,4 +178,4 @@ const api: OvrGitApi = {
   platform: process.platform
 }
 
-contextBridge.exposeInMainWorld('ovrgit', api)
+contextBridge.exposeInMainWorld('ovseer', api)

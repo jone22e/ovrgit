@@ -6,7 +6,7 @@ import { api, state, toast } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
-/** Conversas de agentes abertas pelo OvrGit neste projeto: reabrir (mesma sessão do CLI) ou esquecer. */
+/** Conversas de agentes abertas pelo Ovseer neste projeto: reabrir (mesma sessão do CLI) ou esquecer. */
 const open = ref(false)
 const root = ref<HTMLElement>()
 const items = ref<AgentHistoryItem[]>([])

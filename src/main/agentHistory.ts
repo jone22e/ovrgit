@@ -4,7 +4,7 @@ import { app } from 'electron'
 import type { AgentHistoryItem, AgentTurn, AgentWindowInfo } from '../shared/types'
 
 /**
- * Histórico das conversas abertas pelo OvrGit. A sessão em si fica com o CLI (é retomada por id);
+ * Histórico das conversas abertas pelo Ovseer. A sessão em si fica com o CLI (é retomada por id);
  * aqui guardamos o índice (para listar) e a transcrição como apareceu na janela (para mostrar ao reabrir).
  */
 

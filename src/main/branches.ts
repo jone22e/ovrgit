@@ -8,7 +8,7 @@ import { firstLine, friendlyGitError } from '../shared/gitErrors'
  * - limpar cópias de segurança automáticas e linhas já incorporadas à principal.
  */
 
-const SWITCH_PREFIX = 'ovrgit-troca:'
+const SWITCH_PREFIX = 'ovseer-troca:'
 const MAIN_NAMES = ['main', 'master', 'develop', 'dev']
 const SEP = '\x1f'
 

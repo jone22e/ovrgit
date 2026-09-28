@@ -61,7 +61,7 @@ export async function commitWithHunks(
 
   const st = await status(root)
   const known = new Map(st.files.map((f) => [f.path, f]))
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-index-'))
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ovseer-index-'))
   const env = { GIT_INDEX_FILE: path.join(dir, 'index') }
   try {
     await git(root, ['read-tree', 'HEAD'], undefined, env)

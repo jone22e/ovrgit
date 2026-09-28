@@ -2,8 +2,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider } from '../shared/types'
+import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileStat } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
+import { run as runGit } from './git'
+import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
 import { findHistory, loadTranscript, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
@@ -21,6 +23,10 @@ interface AgentWin {
   info: AgentWindowInfo
   win: BrowserWindow
   child: ChildProcessWithoutNullStreams | null
+  /** A resposta atual já terminou (o processo pode ainda estar encerrando) */
+  turnDone: boolean
+  /** Resolve quando o processo atual sai */
+  exited: Promise<void> | null
 }
 
 const wins = new Map<string, AgentWin>()
@@ -102,7 +108,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     // cópias de imagens coladas/arrastadas desta conversa
     rmSync(blobDir(uid), { recursive: true, force: true })
   })
-  wins.set(uid, { info, win, child: null })
+  wins.set(uid, { info, win, child: null, turnDone: true, exited: null })
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
   else win.loadFile(path.join(__dirname, '../renderer/agent.html'), { query: { uid } })
   broadcastWindows()
@@ -216,11 +222,11 @@ export function claudeInputMessage(text: string, images: AgentAttachment[]): str
 // ---------- argumentos dos CLIs ----------
 
 export function claudeArgs(o: AgentSendOptions & { resume: string | null; images?: number; instructions?: string }): string[] {
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages']
-  // com imagens, o pedido vai como mensagem JSON (blocos de texto + imagem) em vez de texto puro
-  if (o.images) args.push('--input-format', 'stream-json')
-  // instruções personalizadas do usuário: complementam o prompt de sistema do Claude Code
-  if (o.instructions?.trim()) args.push('--append-system-prompt', o.instructions.trim())
+  // entrada em stream-json: o pedido vai como mensagem JSON (texto + imagens) e o stdin fica aberto durante
+  // a resposta, para entregar outra mensagem no meio dela sem interromper (o modelo a recebe no próximo passo)
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
+  // instruções personalizadas do usuário e o formato de perguntas ao usuário: complementam o prompt de sistema
+  args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT].filter(Boolean).join('\n\n'))
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort)
   if (o.mode === 'full') args.push('--dangerously-skip-permissions')
@@ -347,7 +353,7 @@ export function friendlyClaudeError(msg: string): string {
   const m = /Claude Code ([\d.]+) does not support this model; version ([\d.]+) or newer is required/i.exec(msg)
   if (m) return `Seu Claude Code (${m[1]}) é antigo demais para este modelo: precisa do ${m[2]} ou mais novo. Rode "claude update" no terminal e tente de novo, ou escolha outro modelo.`
   if (/not_found_error|model.*not (found|exist)/i.test(msg)) return `Modelo não encontrado na sua conta. Escolha outro no seletor. (${msg.slice(0, 160)})`
-  if (/auth|login|oauth|credential|unauthorized|401/i.test(msg)) return 'Sem login. Abra ⚙ Configurações no OvrGit e clique em "Entrar".'
+  if (/auth|login|oauth|credential|unauthorized|401/i.test(msg)) return 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
   return msg.replace(/^API Error:\s*\d*\s*/i, '')
 }
 
@@ -608,7 +614,10 @@ function terminate(child: ChildProcessWithoutNullStreams, provider: CliProvider)
 export async function sendToAgent(uid: string, text: string, opts: AgentSendOptions, attachments: AgentAttachment[] = []): Promise<void> {
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
-  if (w.child) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
+  if (w.child) {
+    if (!w.turnDone) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
+    await w.exited // a resposta acabou, mas o processo ainda está saindo
+  }
   if (opts.provider && opts.provider !== w.info.provider) {
     if (w.info.sessionId) throw new Error('A conversa já começou com outro provedor. Abra um agente novo para trocar.')
     w.info.provider = opts.provider
@@ -634,24 +643,21 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.mode = clean.mode
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
-  // anexos: imagens em linha (Claude: blocos base64; Codex: -i), o resto pelo caminho no texto
-  const files = attachments.filter((a) => a.path && existsSync(a.path))
-  const { inline, byPath } = splitAttachments(files)
   const instructions = getSettings().agentInstructions?.trim() ?? ''
-  // Codex e Antigravity: as instruções do usuário entram no primeiro pedido da sessão (a sessão guarda o histórico)
+  // Codex e Antigravity: as instruções do usuário e o formato de perguntas entram no primeiro pedido da sessão
+  // (a sessão guarda o histórico)
   const intro =
-    provider !== 'claude' && instructions && !w.info.sessionId ? `<custom_instructions>\n${instructions}\n</custom_instructions>\n\n` : ''
-  // Antigravity não tem imagem em linha: tudo vai pelo caminho
-  const inlineImages = provider === 'agy' ? [] : inline
-  const pathFiles = provider === 'agy' ? files : byPath
-  const prompt = intro + (provider === 'codex' && clean.mode === 'plan' ? CODEX_PLAN_INSTRUCTIONS : '') + text + attachmentNote(pathFiles)
+    provider !== 'claude' && !w.info.sessionId
+      ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
+      : ''
+  const { prompt, inlineImages } = composeMessage(provider, intro + (provider === 'codex' && clean.mode === 'plan' ? CODEX_PLAN_INSTRUCTIONS : '') + text, attachments)
   const args =
     provider === 'claude'
       ? claudeArgs({ ...clean, images: inlineImages.length, instructions })
       : provider === 'codex'
         ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path) })
         : agyArgs({ ...clean, prompt })
-  const input = provider === 'claude' && inlineImages.length ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
+  const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)
   const child = spawn(shellMode ? `"${bin}"` : bin, args, {
     cwd: w.info.cwd,
@@ -660,6 +666,8 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     env: { ...process.env, NO_COLOR: '1' }
   })
   w.child = child
+  w.turnDone = false
+  w.exited = new Promise((resolve) => child.on('close', () => resolve()))
   w.info.running = true
 
   const claudeSt: ClaudeParseState = { cwd: w.info.cwd, streamed: 0, done: false }
@@ -683,6 +691,12 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         }
       }
       if (ev.type === 'text' && answer.length < 3000) answer += ev.delta
+      if (ev.type === 'done') {
+        w.turnDone = true
+        // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair
+        if (provider === 'claude') child.stdin.end()
+      }
+      if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then((stats) => emit(w, { type: 'files', paths: ev.paths, stats }))
       if (ev.type === 'done' && ev.ok && firstTurn && !w.info.title && !w.info.renamed) {
         // título dado pela IA depois da primeira resposta; enquanto isso vale o pedido resumido
         w.info.title = shortTitle(text)
@@ -715,19 +729,74 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     w.info.running = false
     emit(w, { type: 'done', ok: false, error: e.message })
   })
-  child.on('close', (code) => {
+  child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
     w.child = null
     w.info.running = false
     if (!isDone()) {
       const tail = stderr.trim().split('\n').filter(Boolean).slice(-3).join(' ')
       let error = tail || `${PROVIDER_NAME[provider]} saiu com código ${code}`
-      if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações no OvrGit e clique em "Entrar".'
-      if (code === 130 || code === 143) error = 'Interrompido.'
+      if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
+      // interrompido por nós (terminate) ou por sinal: morto por sinal, o código de saída é nulo
+      if (child.killed || signal || code === 130 || code === 143) error = 'Interrompido.'
       emit(w, { type: 'done', ok: false, error })
     }
   })
-  child.stdin.end(input)
+  if (provider === 'claude') child.stdin.write(input)
+  else child.stdin.end(input)
+}
+
+/** Texto final do pedido e imagens em linha: imagens (Claude: blocos base64; Codex: -i), o resto pelo caminho no texto. */
+function composeMessage(provider: CliProvider, text: string, attachments: AgentAttachment[]): { prompt: string; inlineImages: AgentAttachment[] } {
+  const files = attachments.filter((a) => a.path && existsSync(a.path))
+  const { inline, byPath } = splitAttachments(files)
+  // Antigravity não tem imagem em linha: tudo vai pelo caminho
+  const inlineImages = provider === 'agy' ? [] : inline
+  const pathFiles = provider === 'agy' ? files : byPath
+  return { prompt: text + attachmentNote(pathFiles), inlineImages }
+}
+
+/**
+ * Entrega uma mensagem no meio da resposta, sem interromper: o Claude Code lê o stdin durante a vez e passa
+ * a mensagem ao modelo no próximo passo (depois da ferramenta em andamento). Codex e Antigravity não têm isso.
+ * false: não há resposta em andamento (ou o CLI não suporta) — o chamador manda do jeito normal.
+ */
+export function steerAgent(uid: string, text: string, attachments: AgentAttachment[] = []): boolean {
+  const w = wins.get(uid)
+  if (!w?.child || w.turnDone || w.info.provider !== 'claude' || !w.child.stdin.writable) return false
+  const { prompt, inlineImages } = composeMessage('claude', text, attachments)
+  w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
+  return true
+}
+
+/** Linhas acrescentadas/removidas nos arquivos que o agente alterou, em relação ao último commit (git diff --numstat). */
+async function fileStats(cwd: string, paths: string[]): Promise<Record<string, FileStat | null>> {
+  const stats: Record<string, FileStat | null> = {}
+  for (const p of paths) stats[p] = null
+  try {
+    const top = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
+    if (!top) return stats
+    const abs = (p: string) => path.resolve(cwd, p)
+    const byAbs = new Map(paths.map((p) => [abs(p), p]))
+    const { stdout } = await runGit(cwd, ['diff', '--numstat', 'HEAD', '--', ...paths.map(abs)])
+    for (const line of stdout.split('\n')) {
+      const [a, d, ...rest] = line.split('\t')
+      const key = byAbs.get(path.resolve(top, rest.join('\t')))
+      if (key && a !== '-' && d !== '-') stats[key] = { add: Number(a) || 0, del: Number(d) || 0 }
+    }
+    // arquivo novo ainda não rastreado: tudo é acréscimo
+    for (const [full, key] of byAbs) {
+      if (stats[key] || !existsSync(full)) continue
+      const tracked = (await runGit(cwd, ['ls-files', '--error-unmatch', '--', full])).code === 0
+      if (!tracked) {
+        const text = readFileSync(full, 'utf8')
+        stats[key] = { add: text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0, del: 0 }
+      }
+    }
+  } catch {
+    // fora do git ou git ausente: fica sem contagem
+  }
+  return stats
 }
 
 /** Renomeia a conversa. Vazio: volta a aceitar o título da IA (gerado na próxima resposta). */
@@ -766,7 +835,7 @@ export async function generateTitle(provider: CliProvider, request: string, answ
         text = r.stdout
       }
     } else {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'ovrgit-title-'))
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'ovseer-title-'))
       try {
         const out = path.join(dir, 'title.txt')
         // --ephemeral: não grava sessão (senão aparece no monitor de agentes como uma conversa)

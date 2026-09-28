@@ -11,7 +11,7 @@ const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, 
 const write = (rel: string, c: string) => writeFileSync(path.join(repo, rel), c)
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-br-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-br-'))
   remote = path.join(tmp, 'r.git')
   repo = path.join(tmp, 'repo')
   sh(tmp, 'init', '-q', '--bare', '-b', 'main', remote)

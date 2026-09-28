@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
-const home = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-home-'))
+const home = mkdtempSync(path.join(os.tmpdir(), 'ovseer-home-'))
 vi.mock('node:os', async (orig) => {
   const real = await orig<typeof import('node:os')>()
   const mocked = { ...real, homedir: () => home }

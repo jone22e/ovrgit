@@ -28,7 +28,7 @@ function defaultShell(): { file: string; args: string[] } {
 /** ssh do sistema (OpenSSH): /usr/bin/ssh no Mac/Linux, System32\OpenSSH no Windows 10+. */
 function sshBinary(): string {
   // testes automatizados podem apontar para um ssh isolado (sem tocar no ~/.ssh do usuário)
-  if (process.env.OVRGIT_SSH_BIN && existsSync(process.env.OVRGIT_SSH_BIN)) return process.env.OVRGIT_SSH_BIN
+  if (process.env.OVSEER_SSH_BIN && existsSync(process.env.OVSEER_SSH_BIN)) return process.env.OVSEER_SSH_BIN
   if (process.platform === 'win32') {
     const p = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe')
     return existsSync(p) ? p : 'ssh.exe'
@@ -76,7 +76,7 @@ export async function createTerminal(
     cols: Math.max(cols, 20),
     rows: Math.max(rows, 5),
     cwd: existsSync(cwd) ? cwd : os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'OvrGit' } as Record<string, string>
+    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer' } as Record<string, string>
   })
   const id = nextId++
   sessions.set(id, { pty, owner })

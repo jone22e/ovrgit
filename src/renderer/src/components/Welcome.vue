@@ -10,7 +10,7 @@ onMounted(() => state.settings?.recentProjects.forEach(loadProjectIcon))
 <template>
   <div class="welcome">
     <img :src="logo" alt="" class="hero" />
-    <h1>OvrGit</h1>
+    <h1>Ovseer</h1>
     <p class="muted">Git que entende o que você fez. Commit, Criar Feature, Baixar e Enviar.</p>
     <button class="primary big" :disabled="state.busy === 'load'" @click="openProject">
       <span v-if="state.busy === 'load'" class="spinner" />

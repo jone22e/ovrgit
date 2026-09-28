@@ -9,7 +9,7 @@ const emit = defineEmits<{ close: []; confirm: [] }>()
   <Modal title="Baixar" @close="emit('close')">
     <p>Existem <strong>{{ state.repo?.files.length }} alterações não commitadas</strong>.</p>
     <p class="muted">
-      O OvrGit pode guardar essas alterações (stash), baixar do remoto e depois restaurá-las. Se houver conflito,
+      O Ovseer pode guardar essas alterações (stash), baixar do remoto e depois restaurá-las. Se houver conflito,
       elas continuam salvas em <span class="mono">git stash list</span>.
     </p>
     <template #footer>

@@ -22,7 +22,23 @@ const hasDue = ref(false)
 const dueDate = ref('')
 const audio = ref<File | null>(null)
 const files = ref<File[]>([])
+/** Arrasto de arquivos sobre a janela. `dragleave` dispara ao passar para um elemento filho, então o estado
+ * é um contador de entradas e saídas; se ele ficar preso (o arrasto foi cancelado fora da janela),
+ * o próximo movimento do mouse sem botão pressionado limpa. */
 const dragging = ref(false)
+let dragDepth = 0
+function onDragEnter() {
+  dragDepth++
+  dragging.value = true
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dragging.value = false
+}
+function dragReset() {
+  dragDepth = 0
+  dragging.value = false
+}
 const useInCommit = ref(true)
 const saving = ref(false)
 const progress = ref<string | null>(null)
@@ -61,7 +77,7 @@ function addFiles(list: FileList | File[] | null | undefined) {
 }
 
 function onDrop(e: DragEvent) {
-  dragging.value = false
+  dragReset()
   addFiles(e.dataTransfer?.files)
 }
 
@@ -149,9 +165,11 @@ async function submit() {
     <div
       class="form"
       :class="{ locked: !!created }"
-      @dragover.prevent="dragging = true"
-      @dragleave.self="dragging = false"
+      @dragenter.prevent="onDragEnter"
+      @dragover.prevent
+      @dragleave="onDragLeave"
       @drop.prevent="onDrop"
+      @mousemove="dragging && dragReset()"
     >
       <label class="field">
         <span class="lbl">Título <b>*</b></span>

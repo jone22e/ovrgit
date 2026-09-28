@@ -348,15 +348,21 @@ export type AgentChatEvent =
   | { type: 'thinking'; delta?: string }
   | { type: 'tool'; id: string; name: string; title: string; detail?: string }
   | { type: 'toolResult'; id: string; ok: boolean; output?: string }
-  | { type: 'files'; paths: string[] }
+  | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
+
+/** Linhas acrescentadas e removidas num arquivo alterado pelo agente (null: binário ou fora do git) */
+export interface FileStat {
+  add: number
+  del: number
+}
 
 /** Bloco de uma resposta do agente, como fica na janela e na transcrição guardada */
 export type AgentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'tool'; id: string; name: string; title: string; detail?: string; ok: boolean | null; output?: string; open: boolean }
-  | { kind: 'files'; paths: string[] }
+  | { kind: 'files'; paths: string[]; stats?: Record<string, FileStat | null> }
 
 /** Uma vez da conversa: pedido do usuário e a resposta do agente */
 export interface AgentTurn {
@@ -374,7 +380,7 @@ export interface AgentTurn {
   costUsd?: number
 }
 
-/** Conversa aberta pelo OvrGit, guardada para reabrir depois (a sessão continua no CLI) */
+/** Conversa aberta pelo Ovseer, guardada para reabrir depois (a sessão continua no CLI) */
 export interface AgentHistoryItem {
   sessionId: string
   provider: CliProvider
@@ -502,7 +508,7 @@ export interface OvseerDeliveryInput {
   adherence: 'as_planned' | 'changed'
   summary?: string
   commitUrl?: string
-  /** id da sugestão (commit vinculado pelo OvrGit), quando o commit veio da lista */
+  /** id da sugestão (commit vinculado pelo Ovseer), quando o commit veio da lista */
   commitEventId?: string
   pullRequestUrl?: string
 }
@@ -552,7 +558,7 @@ export interface ProviderStatus {
   ollama: boolean
 }
 
-export interface OvrGitApi {
+export interface OvseerApi {
   openProject(): Promise<RepoStatus | null>
   loadProject(path: string): Promise<RepoStatus>
   githubRepos(): Promise<RemoteRepo[] | null>
@@ -651,18 +657,22 @@ export interface OvrGitApi {
   onAgents(cb: (list: AgentSession[]) => void): () => void
   onAgentFinished(cb: (s: AgentSession) => void): () => void
   setWindowTheme(background: string, symbols: string): void
+  /** Arrasto manual da janela: `begin` marca a posição inicial; depois, deslocamentos em pixels desde o clique */
+  windowDrag(dx: number, dy: number, begin?: boolean): void
   /** Janela exclusiva de um agente de IA (Claude Code ou Codex) */
   agentOpen(opts: AgentChatOpen): Promise<AgentWindowInfo>
   agentInfo(uid: string): Promise<AgentWindowInfo | null>
   agentSend(uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]): Promise<void>
   agentCancel(uid: string): Promise<void>
+  /** Entrega a mensagem ao agente no meio da resposta, sem interromper (só Claude). false: não havia resposta em andamento */
+  agentSteer(uid: string, text: string, attachments?: AgentAttachment[]): Promise<boolean>
   /** Escolher arquivos para anexar (diálogo do sistema) */
   agentPickFiles(uid: string): Promise<AgentAttachment[]>
   /** Guarda um arquivo sem caminho (imagem colada, gravação) e devolve o anexo */
   agentSaveBlob(uid: string, file: { name: string; type: string; data: ArrayBuffer }): Promise<AgentAttachment>
   /** Caminho real de um arquivo arrastado para a janela (vazio se não houver) */
   filePath(file: File): string
-  /** Histórico de conversas abertas pelo OvrGit (todas, ou só de um projeto) */
+  /** Histórico de conversas abertas pelo Ovseer (todas, ou só de um projeto) */
   agentHistory(cwd?: string): Promise<AgentHistoryItem[]>
   /** Guarda a transcrição da janela (só depois que a sessão do CLI existe) */
   agentSaveTranscript(uid: string, turns: AgentTurn[]): Promise<void>
@@ -670,9 +680,9 @@ export interface OvrGitApi {
   agentForget(sessionId: string): Promise<void>
   /** Renomeia a conversa (vazio volta ao título automático) */
   agentSetTitle(uid: string, title: string): Promise<string>
-  /** Traz para frente a janela da conversa; false se ela não foi aberta pelo OvrGit */
+  /** Traz para frente a janela da conversa; false se ela não foi aberta pelo Ovseer */
   agentFocus(sessionId: string): Promise<boolean>
-  /** Ids das sessões com janela aberta no OvrGit */
+  /** Ids das sessões com janela aberta no Ovseer */
   agentWindows(): Promise<string[]>
   knownModels(): Promise<KnownModels>
   /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */

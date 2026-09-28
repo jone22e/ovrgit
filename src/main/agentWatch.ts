@@ -22,8 +22,8 @@ interface Tracked extends AgentSession {
   customTitle?: string
 }
 
-const sessionsDir = () => process.env.OVRGIT_CODEX_DIR || path.join(os.homedir(), '.codex', 'sessions')
-const claudeDir = () => process.env.OVRGIT_CLAUDE_DIR || path.join(os.homedir(), '.claude', 'projects')
+const sessionsDir = () => process.env.OVSEER_CODEX_DIR || path.join(os.homedir(), '.codex', 'sessions')
+const claudeDir = () => process.env.OVSEER_CLAUDE_DIR || path.join(os.homedir(), '.claude', 'projects')
 /** Arquivos muito grandes: na primeira leitura, só o final (o estado atual está lá) */
 const TAIL_BYTES = 4 * 1024 * 1024
 const STALE_MS = 30 * 60_000

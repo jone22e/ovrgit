@@ -14,7 +14,7 @@ const user = (cwd: string) => {
 }
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-push-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-push-'))
   const remote = path.join(tmp, 'remote.git')
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
   a = path.join(tmp, 'a')

@@ -44,7 +44,7 @@ async function doPull(stash = false) {
   if ((await pull(stash)) === 'dirty') showPull.value = true
 }
 
-const leftWidth = ref(Number(localStorage.getItem('ovrgit.left') ?? 440))
+const leftWidth = ref(Number(localStorage.getItem('ovseer.left') ?? 440))
 function startResize(e: MouseEvent) {
   const startX = e.clientX
   const start = leftWidth.value
@@ -54,7 +54,7 @@ function startResize(e: MouseEvent) {
   const up = () => {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
-    localStorage.setItem('ovrgit.left', String(leftWidth.value))
+    localStorage.setItem('ovseer.left', String(leftWidth.value))
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
@@ -66,7 +66,7 @@ watch(
   () => state.showTerminal,
   (on) => on && (termMounted.value = true)
 )
-const termHeight = ref(Number(localStorage.getItem('ovrgit.termHeight') ?? 240))
+const termHeight = ref(Number(localStorage.getItem('ovseer.termHeight') ?? 240))
 function startTermResize(e: MouseEvent) {
   const startY = e.clientY
   const start = termHeight.value
@@ -76,7 +76,7 @@ function startTermResize(e: MouseEvent) {
   const up = () => {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
-    localStorage.setItem('ovrgit.termHeight', String(termHeight.value))
+    localStorage.setItem('ovseer.termHeight', String(termHeight.value))
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
@@ -88,7 +88,7 @@ let offMenu: (() => void) | undefined
 onMounted(() => {
   init()
   window.addEventListener('focus', onFocus)
-  offMenu = window.ovrgit.onMenu((action) => {
+  offMenu = window.ovseer.onMenu((action) => {
     if (action === 'open') openProject()
     else if (action === 'settings') state.showSettings = true
     else if (action === 'switch') state.repo ? (showSwitcher.value = true) : openProject()

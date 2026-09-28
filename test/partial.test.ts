@@ -11,7 +11,7 @@ const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encodin
 const lines = (n: number, f: (i: number) => string) => Array.from({ length: n }, (_, i) => f(i + 1)).join('\n') + '\n'
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-part-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-part-'))
   repo = path.join(tmp, 'repo')
   execFileSync('git', ['init', '-q', '-b', 'main', repo])
   sh('config', 'user.name', 'T')

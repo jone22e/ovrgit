@@ -136,11 +136,11 @@ const initials = (name: string) =>
                 <span class="spacer" />
                 <button
                   v-if="sectionOf(t) === 'waiting_execution' || sectionOf(t) === 'paused'"
-                  class="ghost deliver"
-                  title="Cria a linha de trabalho da tarefa e abre um agente de IA com o plano aprovado"
+                  class="ghost deliver start"
+                  title="Iniciar com agente: cria a linha de trabalho da tarefa e abre um agente de IA com o plano aprovado"
                   @click.stop="openNewAgent(t)"
                 >
-                  <Icon name="squarePen" :size="12" /> Iniciar com agente
+                  <Icon name="squarePen" :size="13" />
                 </button>
                 <button v-if="t.canDeliver" class="ghost deliver" title="Preparar entrega" @click.stop="state.deliveryTask = t">
                   Entregar
@@ -204,6 +204,7 @@ h4 { margin: 0; font-size: 13.5px; font-weight: 800; line-height: 1.35; }
 .chev { width: 26px; height: 26px; padding: 0; flex: none; color: var(--text); }
 .deliver { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 700; color: var(--accent); border-radius: 6px; }
 .deliver:hover { background: var(--accent-soft) !important; }
+.deliver.start { width: 24px; padding: 0; flex: none; }
 
 /* selos no estilo do Ovseer: borda e fundo translúcidos na cor do status/prioridade */
 .pill {

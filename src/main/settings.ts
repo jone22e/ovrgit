@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { Settings } from '../shared/types'
 
 const DEFAULTS: Settings = {
-  theme: 'ovrgit',
+  theme: 'ovseer',
   ovseerUrl: 'https://ovseer.openflexi.com',
   ovseerWorkspaceId: null,
   branchPrefix: 'feature',

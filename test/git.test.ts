@@ -19,7 +19,7 @@ function write(rel: string, content: string) {
 }
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-test-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-test-'))
   remote = path.join(tmp, 'remote.git')
   repo = path.join(tmp, 'repo')
   sh(tmp, 'init', '--bare', '-b', 'main', remote)

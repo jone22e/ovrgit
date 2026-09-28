@@ -9,7 +9,7 @@ let tmp: string, repo: string
 const sh = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' }).trim()
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovrgit-assist-'))
+  tmp = mkdtempSync(path.join(os.tmpdir(), 'ovseer-assist-'))
   repo = path.join(tmp, 'repo')
   execFileSync('git', ['init', '-q', '-b', 'main', repo])
   sh('config', 'user.name', 'T')

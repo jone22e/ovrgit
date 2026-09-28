@@ -1,6 +1,6 @@
 {
-  "name": "ovrgit",
-  "productName": "OvrGit",
+  "name": "ovseer",
+  "productName": "Ovseer",
   "version": "0.1.0",
   "description": "Git client simplificado com IA: Commit, Criar Feature, Pull e Push.",
   "main": "out/main/index.js",
@@ -35,8 +35,8 @@
     "vue-tsc": "^3.3.11"
   },
   "build": {
-    "appId": "com.c2s.ovrgit",
-    "productName": "OvrGit",
+    "appId": "com.c2s.ovseer",
+    "productName": "Ovseer",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -58,7 +58,7 @@
       "category": "public.app-category.developer-tools",
       "identity": null,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "O OvrGit usa o microfone para gravar a explicação em áudio das tarefas do Ovseer."
+        "NSMicrophoneUsageDescription": "O Ovseer usa o microfone para gravar a explicação em áudio das tarefas."
       }
     },
     "win": {
