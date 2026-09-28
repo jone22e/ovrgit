@@ -1045,6 +1045,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .composer textarea { border: 0; background: transparent; padding: 6px 6px 2px; font-size: 13.5px; line-height: 1.45; max-height: 200px; overflow-y: auto; }
 .composer textarea:focus { box-shadow: none; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.row .spacer { flex: 1 1 auto; }
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
 .chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
 .chip.plan { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
