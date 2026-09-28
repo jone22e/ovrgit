@@ -89,6 +89,8 @@ const statusKind = computed<'idle' | 'live' | 'done' | 'error'>(() => {
   return turns[turns.length - 1].error ? 'error' : 'done'
 })
 const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', done: 'concluído', error: 'falhou' })[statusKind.value])
+/** Quanto tempo a última tarefa levou, mostrado discretamente ao lado do "concluído" */
+const statusTook = computed(() => (statusKind.value === 'done' ? took(turns[turns.length - 1]?.durationMs) : ''))
 const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
@@ -636,9 +638,19 @@ const activityLabel = (t: Turn) => ACTIVITY[t.activity ?? 'thinking']
 
 const toolIcon = (name: string) =>
   name === 'Bash' ? 'terminal' : /Edit|Write/.test(name) ? 'pencil' : /Read|Grep|Glob|Search|Fetch/.test(name) ? 'search' : /Agent|Task/.test(name) ? 'bot' : 'zap'
-const took = (ms?: number) => (!ms ? '' : ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`)
+function took(ms?: number): string {
+  return !ms ? '' : ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`
+}
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p
-const fileDir = (p: string) => p.split(/[\\/]/).slice(0, -1).join('/')
+/** Caminho a partir da pasta do projeto; fora dela, fica como veio */
+const relPath = (p: string) => {
+  const root = info.value?.cwd?.replace(/[\\/]+$/, '')
+  if (!root) return p
+  const norm = p.replace(/\\/g, '/')
+  const r = root.replace(/\\/g, '/')
+  return norm === r ? fileName(p) : norm.startsWith(r + '/') ? norm.slice(r.length + 1) : p
+}
+const fileDir = (p: string) => relPath(p).split('/').slice(0, -1).join('/')
 
 onMounted(async () => {
   try {
@@ -715,7 +727,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
           <Icon v-else-if="statusKind === 'error'" name="x" :size="10" />
         </span>
-        {{ statusLabel }}
+        {{ statusLabel }}<span v-if="statusTook" class="status-took">· {{ statusTook }}</span>
       </span>
     </header>
 
@@ -935,6 +947,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .status.done .ball { background: var(--add); }
 .status.error { color: var(--del); }
 .status.error .ball { background: var(--del); }
+.status-took { color: var(--faint); font-weight: 400; margin-left: -1px; font-variant-numeric: tabular-nums; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 .thread { flex: 1; overflow-y: auto; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
