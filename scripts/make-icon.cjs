@@ -1,5 +1,9 @@
-// Gera build/icon.png (1024×1024) a partir de build/logo-src.png.
+// Gera build/icon.png (1024×1024) a partir de build/logo-src.png e, no Mac, o build/icon.icns com todos os tamanhos.
 // Uso: npx electron scripts/make-icon.cjs
+// O .icns é gerado aqui porque a conversão automática do electron-builder corrompia o tamanho 16×16
+// (o ícone das listas do Finder).
+const { execFileSync } = require('node:child_process')
+const os = require('node:os')
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -32,5 +36,16 @@ app.whenReady().then(async () => {
   `)
   fs.writeFileSync(path.join(__dirname, '../build/icon.png'), Buffer.from(dataUrl.split(',')[1], 'base64'))
   console.log('build/icon.png gerado')
+  if (process.platform === 'darwin') {
+    const png = path.join(__dirname, '../build/icon.png')
+    const set = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ovseer-icon-')), 'icon.iconset')
+    fs.mkdirSync(set)
+    for (const size of [16, 32, 128, 256, 512]) {
+      execFileSync('sips', ['-z', size, size, png, '--out', path.join(set, `icon_${size}x${size}.png`)])
+      execFileSync('sips', ['-z', size * 2, size * 2, png, '--out', path.join(set, `icon_${size}x${size}@2x.png`)])
+    }
+    execFileSync('iconutil', ['-c', 'icns', set, '-o', path.join(__dirname, '../build/icon.icns')])
+    console.log('build/icon.icns gerado')
+  }
   app.quit()
 })
