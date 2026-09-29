@@ -550,8 +550,8 @@ const sizeOf = (n: number) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.r
 interface Payload {
   id: string
   body: string
-  /** Texto mostrado na conversa, quando é diferente do enviado ao agente (ex.: o aviso de pressa) */
-  shown?: string
+  /** Pedido do app (ex.: o aviso de pressa): vai para o agente sem aparecer como mensagem na conversa */
+  silent?: boolean
   attachments: Shown[]
 }
 const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
@@ -581,7 +581,7 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number) {
   if (!info.value) return
-  const turn: Turn = { id: p.id, user: p.shown ?? p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
+  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
@@ -701,8 +701,8 @@ const hurried = ref<string | null>(null)
 async function hurry(t: Turn) {
   if (hurried.value === t.id) return
   if (!steers.value) {
-    // o aviso vira a próxima vez da conversa: o botão dela já nasce marcado, para não interromper de novo
-    const p: Payload = { id: crypto.randomUUID(), body: HURRY_RESUME, shown: 'Acelerar: conclua pelo caminho mais direto.', attachments: [] }
+    // o aviso vira a próxima vez da conversa, sem mensagem visível; o botão dela já nasce marcado, para não interromper de novo
+    const p: Payload = { id: crypto.randomUUID(), body: HURRY_RESUME, silent: true, attachments: [] }
     hurried.value = p.id
     return sendAfter(p)
   }
@@ -1144,7 +1144,7 @@ onUnmounted(() => offs.forEach((f) => f()))
       </div>
 
       <article v-for="t in turns" :key="t.id" class="turn">
-        <div class="user">
+        <div v-if="!t.silent" class="user">
           <div class="bubble">
             <div v-if="t.attachments.length" class="atts">
               <span v-for="a in t.attachments" :key="a.path" class="att" :title="a.path">

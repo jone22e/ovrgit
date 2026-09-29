@@ -401,6 +401,8 @@ export type AgentBlock =
 export interface AgentTurn {
   id: string
   user: string
+  /** Pedido feito pelo app, não digitado pelo usuário (ex.: o aviso de pressa): não aparece como mensagem na conversa */
+  silent?: boolean
   attachments: AgentAttachment[]
   blocks: AgentBlock[]
   running: boolean
