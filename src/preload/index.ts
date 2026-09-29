@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentChatEvent, AgentSession, AuthEvent, OvseerApi } from '../shared/types'
+import type { AgentChatEvent, AgentSession, AuthEvent, OvseerApi, Settings } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -62,6 +62,11 @@ const api: OvseerApi = {
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
+  onSettingsChanged: (cb) => {
+    const h = (_e: unknown, s: Settings) => cb(s)
+    ipcRenderer.on('settings:changed', h)
+    return () => ipcRenderer.off('settings:changed', h)
+  },
   listModels: () => ipcRenderer.invoke('ai:models'),
   detectProviders: () => ipcRenderer.invoke('ai:detect'),
   authStatus: (p) => ipcRenderer.invoke('auth:status', p),

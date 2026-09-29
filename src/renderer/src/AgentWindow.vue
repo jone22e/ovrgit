@@ -3,13 +3,14 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
-  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels
+  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
 import { GRID_DEFAULT, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import AgentLogo from './components/AgentLogo.vue'
 import Icon from './components/Icon.vue'
+import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
 import WindowGrid from './components/WindowGrid.vue'
 import { applyTheme } from './theme'
@@ -83,19 +84,27 @@ const fatal = ref<string | null>(null)
 const offs: (() => void)[] = []
 
 const providerName = computed(() => PROVIDER_LABEL[provider.value])
-/** Situação do agente no cabeçalho: cinza sem conversa, pulsando trabalhando, check verde ao terminar, × vermelho se falhou. */
-const statusKind = computed<'idle' | 'live' | 'done' | 'error'>(() => {
+/** Situação do agente no cabeçalho: cinza sem conversa, pulsando trabalhando, check verde ao terminar, × vermelho se falhou,
+ *  âmbar enquanto um cartão (perguntas do agente ou aprovação do plano) espera a resposta do usuário. */
+const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() => {
   if (running.value) return 'live'
   if (!turns.length) return 'idle'
-  return turns[turns.length - 1].error ? 'error' : 'done'
+  if (turns[turns.length - 1].error) return 'error'
+  return showAsk.value || showPlanAsk.value ? 'waiting' : 'done'
 })
-const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', done: 'concluído', error: 'falhou' })[statusKind.value])
+const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', waiting: 'aguardando resposta', done: 'concluído', error: 'falhou' })[statusKind.value])
 /** Quanto tempo a última tarefa levou, mostrado discretamente ao lado do "concluído" */
 const statusTook = computed(() => (statusKind.value === 'done' ? took(turns[turns.length - 1]?.durationMs) : ''))
-const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
+const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', waiting: 'O agente está aguardando a sua resposta', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
 const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[1])
+/** Modo em uso quando o usuário ativou o Plano (menu ou /plan): é para ele que a aprovação do plano volta */
+const modeBeforePlan = ref<AgentMode | null>(null)
+function setMode(m: AgentMode) {
+  if (m === 'plan' && mode.value !== 'plan') modeBeforePlan.value = mode.value
+  mode.value = m
+}
 const onDocClick = (e: MouseEvent) => {
   if (modeOpen.value && modeRoot.value && !modeRoot.value.contains(e.target as Node)) modeOpen.value = false
   if (sendOpen.value && sendRoot.value && !sendRoot.value.contains(e.target as Node)) sendOpen.value = false
@@ -118,6 +127,16 @@ async function placeWindow(p: GridPlacement) {
   await api.agentPlace(uid, p).catch(() => undefined)
 }
 const current = () => [...turns].reverse().find((t) => t.running) ?? null
+
+// ---------- fonte da conversa: vem das configurações do app ----------
+const fontStyle = ref<Record<string, string>>({})
+function applyFont(s: Settings) {
+  const name = (s.agentFont ?? '').trim().replace(/["';{}]/g, '')
+  const size = Math.min(Math.max(Number(s.agentFontSize) || 14, 11), 22)
+  fontStyle.value = { '--agent-size': `${size}px`, ...(name ? { fontFamily: `"${name}", var(--font)` } : {}) }
+}
+/** Ao voltar para a janela, relê as configurações: a fonte pode ter mudado na janela principal */
+const onFocus = () => api.getSettings().then(applyFont).catch(() => undefined)
 
 // ---------- ferramentas agrupadas ----------
 /** Grupos abertos pelo usuário (chave = id da primeira ferramenta do grupo) */
@@ -226,10 +245,33 @@ const planDone = computed(() => {
   return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
 })
 const showPlanAsk = computed(() => askOpen.value && planDone.value)
-/** Modos que executam, na ordem do menu: cada um vira uma opção do cartão */
-const PLAN_STARTS = MODES.filter((m) => m.id !== 'plan')
+/** Texto do plano pronto: o maior bloco de texto da última resposta (os outros são comentários entre as leituras) */
+const planText = computed(() => {
+  if (!planDone.value) return ''
+  const texts = turns[turns.length - 1].blocks.flatMap((b) => (b.kind === 'text' ? [splitQuestions(b.text).text.trim()] : []))
+  const plan = texts.reduce((a, b) => (b.length > a.length ? b : a), '')
+  // o agente é orientado a abrir o plano com um título; se não abriu, vale o título da conversa
+  return /^#{1,2} \S/.test(plan) || !info.value?.title ? plan : `# ${info.value.title}\n\n${plan}`
+})
+/** Modal de leitura do plano, com cópia do texto inteiro (em Markdown) */
+const planOpen = ref(false)
+const planCopied = ref(false)
+async function copyPlan() {
+  try {
+    await navigator.clipboard.writeText(planText.value)
+    planCopied.value = true
+    setTimeout(() => (planCopied.value = false), 1500)
+  } catch {
+    /* sem acesso à área de transferência */
+  }
+}
+/** Modo da aprovação: o que estava em uso antes do Plano; sem anterior conhecido, "Tudo liberado" */
+const approveMode = computed<AgentMode>(() => modeBeforePlan.value ?? 'full')
+/** Modos que executam: cada um vira uma opção do cartão, com o da aprovação em primeiro */
+const PLAN_STARTS = computed(() => MODES.filter((m) => m.id !== 'plan').sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
 /** Implementa o plano: troca o modo e pede na mesma sessão (o agente lembra o plano que acabou de escrever) */
 async function startPlan(m: AgentMode) {
+  planOpen.value = false
   mode.value = m
   askOpen.value = false
   await dispatch({ id: crypto.randomUUID(), body: 'Implemente o plano acima.', attachments: [] })
@@ -375,7 +417,21 @@ function sumStats(b: FilesBlock): { add: number; del: number } | null {
   return list.reduce((acc, s) => ({ add: acc.add + s.add, del: acc.del + s.del }), { add: 0, del: 0 })
 }
 
+/** O agente terminou e o usuário ainda não tocou na janela: o indicador de estado pisca até o primeiro clique */
+const unseen = ref(false)
+const markSeen = () => (unseen.value = false)
+onMounted(() => {
+  window.addEventListener('mousedown', markSeen, true)
+  window.addEventListener('keydown', markSeen, true)
+})
+onUnmounted(() => {
+  window.removeEventListener('mousedown', markSeen, true)
+  window.removeEventListener('keydown', markSeen, true)
+})
+watch(running, (r) => r && markSeen())
+
 function notifyDone(t: Turn) {
+  unseen.value = true
   if (document.hasFocus() || !('Notification' in window)) return
   const text = t.blocks.filter((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text').map((b) => b.text).join(' ')
   try {
@@ -463,6 +519,18 @@ const pastePreview = (t: string) => t.trim().split('\n')[0].slice(0, 60)
 /** Mensagens longas aparecem recolhidas no balão; clique mostra tudo */
 const LONG_USER = 700
 const expandedUsers = reactive(new Set<string>())
+/** Mensagem do usuário copiada há pouco (o botão vira um check por um instante) */
+const copiedUser = ref<string | null>(null)
+async function copyUser(t: Turn) {
+  try {
+    await navigator.clipboard.writeText(t.user)
+    copiedUser.value = t.id
+    setTimeout(() => copiedUser.value === t.id && (copiedUser.value = null), 1500)
+  } catch {
+    /* sem acesso à área de transferência */
+  }
+}
+const sentAt = (t: Turn) => (t.startedAt ? new Date(t.startedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '')
 const isLongUser = (t: Turn) => t.user.length > LONG_USER || t.user.split('\n').length > PASTE_LINES
 function removePending(i: number) {
   const [a] = pending.splice(i, 1)
@@ -480,10 +548,19 @@ const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pend
 
 /** Tira do campo o que foi digitado, colado e anexado; null se não há nada. */
 function takePayload(text = draft.value): Payload | null {
-  const typed = text.trim()
+  // /plan troca para o modo Plano; o que vier depois do comando segue como mensagem, já nesse modo
+  const cmd = /^\/plan(?:\s+([\s\S]*))?$/i.exec(text.trim())
+  if (cmd) setMode('plan')
+  const typed = (cmd ? (cmd[1] ?? '') : text).trim()
   const pasted = pastes.splice(0, pastes.length).map((p) => p.text.trim()).filter(Boolean)
   const msg = [typed, ...pasted].filter(Boolean).join('\n\n')
-  if (!msg && !pending.length) return null
+  if (!msg && !pending.length) {
+    if (cmd) {
+      draft.value = ''
+      nextTick(autosize)
+    }
+    return null
+  }
   const attachments = pending.splice(0, pending.length)
   const body = msg || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.')
   draft.value = ''
@@ -491,9 +568,10 @@ function takePayload(text = draft.value): Payload | null {
   return { id: crypto.randomUUID(), body, attachments }
 }
 
-async function dispatch(p: Payload) {
+/** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
+async function dispatch(p: Payload, since?: number) {
   if (!info.value) return
-  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value }
+  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
@@ -511,6 +589,11 @@ async function dispatch(p: Payload) {
     running.value = false
     flushQueue()
   }
+}
+
+/** Desde quando o agente trabalha nesta vez: o início dela ou, se veio de um "agora", o da vez que ela continuou */
+function workStart(t: Turn) {
+  return t.workSince ?? t.startedAt
 }
 
 /** Agente livre: envia; ocupado: entra na fila (sai sozinha quando a resposta atual terminar). */
@@ -564,7 +647,7 @@ async function sendAfter(p: Payload) {
         cur.running = false
         cur.thinking = false
       }
-      turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value })
+      turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: cur ? workStart(cur) : undefined, mode: mode.value })
       scrollToEnd(true)
       return
     }
@@ -578,8 +661,10 @@ async function sendAfter(p: Payload) {
 function flushQueue() {
   if (running.value) return
   const next = sendAfterStop ?? queue.shift()
+  // "agora" interrompeu a resposta anterior: o contador continua de onde ela começou
+  const prev = sendAfterStop ? turns[turns.length - 1] : undefined
   sendAfterStop = null
-  if (next) dispatch(next)
+  if (next) dispatch(next, prev && workStart(prev))
 }
 /** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela). */
 function sendNow() {
@@ -589,6 +674,20 @@ function sendNow() {
 
 function stop() {
   api.agentCancel(uid)
+}
+
+// ---------- acelerar: avisa o agente, no meio da resposta, que há pressa ----------
+/** Recado curto, para não pesar no consumo: entra no próximo passo do agente, sem interromper nem virar mensagem na conversa */
+const HURRY = 'Aviso do usuário: temos pressa. Não recomece nem explique este aviso: conclua o que está fazendo pelo caminho mais direto, sem explorações, verificações ou leituras que não sejam essenciais, e responda de forma objetiva.'
+/** Só o Claude recebe mensagem no meio da resposta; nos outros seria preciso interromper e pedir de novo (gasta mais) */
+const canHurry = computed(() => provider.value === 'claude')
+/** Vez em que o aviso já foi dado (um por vez) */
+const hurried = ref<string | null>(null)
+async function hurry(t: Turn) {
+  if (hurried.value === t.id) return
+  hurried.value = t.id
+  const ok = await api.agentSteer(uid, HURRY, []).catch(() => false)
+  if (!ok) hurried.value = null
 }
 
 /** Conversa nova nesta janela, com o mesmo agente: o processo reinicia a página sem sessão e sem transcrição local */
@@ -644,7 +743,71 @@ watch(running, (r) => {
   sendOpen.value = false
 })
 
+// ---------- menu de comandos: aparece ao digitar "/" e aplica o comando sem enviar mensagem ----------
+interface SlashCommand {
+  id: AgentMode
+  name: string
+  label: string
+  hint: string
+  icon: (typeof MODES)[number]['icon']
+  /** Nomes pelos quais o comando é achado (sem acento) */
+  keys: string[]
+}
+const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], safe: ['edicoes', 'edits', 'safe'], full: ['liberado', 'full', 'tudo'] }
+const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const slashClosed = ref(false)
+const slashIndex = ref(0)
+/** O que vem depois da barra, enquanto o campo tem só o comando (sem espaço); null fora disso */
+const slashQuery = computed(() => /^\/(\S*)$/.exec(draft.value)?.[1] ?? null)
+const slashItems = computed<SlashCommand[]>(() => {
+  if (slashQuery.value === null || slashClosed.value) return []
+  const q = plain(slashQuery.value)
+  return MODES.map((m) => {
+    const off = m.id === 'plan' && mode.value === 'plan'
+    return {
+      id: m.id,
+      name: SLASH_KEYS[m.id][0],
+      label: m.id === 'plan' ? 'Modo Plano' : m.label,
+      hint: off ? 'Desativar o modo Plano' : mode.value === m.id ? 'Modo em uso' : m.id === 'plan' ? 'Ativar o modo Plano: só lê e propõe, nada é alterado' : m.hint,
+      icon: m.icon,
+      keys: [...SLASH_KEYS[m.id], plain(m.label)]
+    }
+  }).filter((c) => c.keys.some((k) => k.startsWith(q)) || plain(c.label).includes(q))
+})
+watch(draft, () => {
+  slashClosed.value = false
+  slashIndex.value = 0
+})
+function runSlash(c: SlashCommand) {
+  // /plan com o Plano já ligado desliga: volta ao modo que estava antes
+  if (c.id === 'plan' && mode.value === 'plan') setMode(modeBeforePlan.value ?? 'safe')
+  else setMode(c.id)
+  draft.value = ''
+  nextTick(() => {
+    autosize()
+    box.value?.focus()
+  })
+}
+
 function onKey(e: KeyboardEvent) {
+  const cmds = slashItems.value
+  if (cmds.length && !e.isComposing) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      slashIndex.value = (slashIndex.value + (e.key === 'ArrowDown' ? 1 : cmds.length - 1)) % cmds.length
+      return
+    }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      e.preventDefault()
+      runSlash(cmds[Math.min(slashIndex.value, cmds.length - 1)])
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      slashClosed.value = true
+      return
+    }
+  }
   if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
   e.preventDefault()
   if (e.metaKey || e.ctrlKey) sendNow()
@@ -695,6 +858,32 @@ watch(
   },
   { deep: true }
 )
+// ---------- fixar a conversa (o mesmo alfinete do menu Conversas) ----------
+const pinned = ref(false)
+watch(
+  sessionId,
+  async (id) => {
+    pinned.value = false
+    if (!id) return
+    const item = (await api.agentHistory().catch(() => [])).find((h) => h.sessionId === id)
+    if (sessionId.value === id) pinned.value = !!item?.pinned
+  },
+  { immediate: true }
+)
+async function togglePin() {
+  const id = sessionId.value
+  if (!id) return
+  const next = !pinned.value
+  pinned.value = next
+  try {
+    // a conversa entra no histórico com a transcrição: garante que já está lá antes de fixar
+    await api.agentSaveTranscript(uid, JSON.parse(JSON.stringify(plainTurns())))
+    await api.agentPin(id, next)
+  } catch {
+    pinned.value = !next
+  }
+}
+
 function adopt(saved: AgentTurn[], stillRunning: boolean) {
   for (const t of saved) {
     if (t.running && !stillRunning) {
@@ -754,7 +943,7 @@ watch(
 )
 onUnmounted(() => clearInterval(clock))
 const elapsed = (t: Turn) => {
-  const s = Math.max(0, Math.round((now.value - (t.startedAt ?? now.value)) / 1000))
+  const s = Math.max(0, Math.round((now.value - (workStart(t) ?? now.value)) / 1000))
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 const ACTIVITY = { thinking: 'Pensando…', tools: 'Executando ferramentas…', writing: 'Escrevendo…' }
@@ -815,6 +1004,7 @@ onMounted(async () => {
     const s = await api.getSettings()
     applyTheme(s.theme)
     gridSize.value = normalizeGrid(s.agentGrid)
+    applyFont(s)
   } catch {
     /* tema padrão */
   }
@@ -824,14 +1014,19 @@ onMounted(async () => {
   window.addEventListener('keydown', onModKey)
   window.addEventListener('keyup', onModKey)
   window.addEventListener('blur', onModReset)
+  window.addEventListener('focus', onFocus)
   offs.push(() => {
+    window.removeEventListener('focus', onFocus)
     window.removeEventListener('keydown', onModKey)
     window.removeEventListener('keyup', onModKey)
     window.removeEventListener('blur', onModReset)
   })
-  const onTheme = () => undefined
-  window.addEventListener('ovseer-theme', onTheme)
-  offs.push(() => window.removeEventListener('ovseer-theme', onTheme))
+  offs.push(
+    api.onSettingsChanged((s) => {
+      applyTheme(s.theme)
+      applyFont(s)
+    })
+  )
 
   const i = await api.agentInfo(uid).catch(() => null)
   if (!i) {
@@ -858,6 +1053,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 <template>
   <div
     class="agent"
+    :style="fontStyle"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent
     @dragleave="onDragLeave"
@@ -897,18 +1093,21 @@ onUnmounted(() => offs.forEach((f) => f()))
           <WindowGrid :model-value="gridSize" @update:model-value="setGridSize" @place="placeWindow" />
         </div>
       </div>
+      <button v-if="sessionId && turns.length" type="button" class="ghost icon head-btn pin" :class="{ pinned }" :title="pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click="togglePin">
+        <Icon name="pin" :size="14" />
+      </button>
       <button v-if="canGoBack" type="button" class="ghost icon head-btn back" title="Voltar à conversa anterior" @click="backToPrevious">
         <Icon name="undo" :size="14" />
       </button>
       <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa com este agente (a atual fica no histórico)" @click="newChat">
         <Icon name="compose" :size="14" />
       </button>
-      <span class="status" :class="statusKind" :title="statusTitle">
+      <span class="status" :class="[statusKind, { blink: unseen && statusKind !== 'live' }]" :title="statusTitle">
         <span class="ball">
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
           <Icon v-else-if="statusKind === 'error'" name="x" :size="10" />
         </span>
-        {{ statusLabel }}<span v-if="statusTook" class="status-took">· {{ statusTook }}</span>
+        <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small></span>
       </span>
     </header>
 
@@ -936,6 +1135,12 @@ onUnmounted(() => offs.forEach((f) => f()))
             <p :class="{ clamp: isLongUser(t) && !expandedUsers.has(t.id) }">{{ t.user }}</p>
             <button v-if="isLongUser(t)" type="button" class="ghost more" @click="expandedUsers.has(t.id) ? expandedUsers.delete(t.id) : expandedUsers.add(t.id)">
               {{ expandedUsers.has(t.id) ? 'Mostrar menos' : 'Mostrar tudo' }}
+            </button>
+          </div>
+          <div class="user-acts" :class="{ on: copiedUser === t.id }">
+            <small class="faint">{{ sentAt(t) }}</small>
+            <button type="button" class="ghost ua" :title="copiedUser === t.id ? 'Copiado' : 'Copiar mensagem'" @click="copyUser(t)">
+              <Icon :name="copiedUser === t.id ? 'check' : 'clipboard'" :size="12" />
             </button>
           </div>
         </div>
@@ -990,6 +1195,9 @@ onUnmounted(() => offs.forEach((f) => f()))
           <div v-if="t.running" class="progress">
             <AgentLogo :source="provider" :size="13" class="spin-logo" />
             <span class="mono">{{ elapsed(t) }}</span> · {{ activityLabel(t) }}
+            <button v-if="canHurry" type="button" class="ghost hurry" :class="{ on: hurried === t.id }" :disabled="hurried === t.id" :title="hurried === t.id ? 'O agente foi avisado de que há pressa' : 'Acelerar: avisa o agente de que há pressa, sem interromper'" @click="hurry(t)">
+              <Icon name="forward" :size="12" />
+            </button>
           </div>
           <p v-if="t.error" class="err"><Icon name="alert" :size="13" /> {{ t.error }}</p>
           <p v-if="!t.running && (t.durationMs || t.costUsd)" class="meta faint">
@@ -1025,13 +1233,14 @@ onUnmounted(() => offs.forEach((f) => f()))
           <div v-else-if="t.id === questionTurn && showPlanAsk" class="ask">
             <div class="ask-head">
               <p class="ask-q">Deseja iniciar a implementação do plano?</p>
+              <button type="button" class="ghost small see-plan" title="Abrir o plano para leitura" @click="planOpen = true"><Icon name="clipboard" :size="12" /> Ver plano</button>
               <button type="button" class="ghost nav" title="Fechar: continue pelo campo de mensagem" @click="askOpen = false"><Icon name="x" :size="13" /></button>
             </div>
             <div class="ask-opts">
               <button v-for="(m, i) in PLAN_STARTS" :key="m.id" type="button" class="ghost ask-opt" @click="startPlan(m.id)">
                 <span class="num">{{ i + 1 }}</span>
                 <span class="opt-body">
-                  <span class="opt-label">Sim, implementar em "{{ m.label }}"<span v-if="m.id === 'safe'" class="pill">Recomendado</span></span>
+                  <span class="opt-label">Sim, implementar em "{{ m.label }}"<span v-if="m.id === approveMode" class="pill">{{ modeBeforePlan ? 'Modo anterior' : 'Padrão' }}</span></span>
                   <span class="opt-detail">{{ m.hint }}</span>
                 </span>
               </button>
@@ -1054,6 +1263,14 @@ onUnmounted(() => offs.forEach((f) => f()))
     </main>
 
     <footer class="composer" :class="{ drop: dragging }">
+      <div v-if="slashItems.length" class="slash">
+        <button v-for="(c, i) in slashItems" :key="c.id" type="button" class="ghost slash-opt" :class="{ cur: i === slashIndex }" @mousedown.prevent @mouseenter="slashIndex = i" @click="runSlash(c)">
+          <Icon :name="c.icon" :size="13" />
+          <strong>{{ c.label }}</strong>
+          <small class="ellipsis">{{ c.hint }}</small>
+          <kbd>/{{ c.name }}</kbd>
+        </button>
+      </div>
       <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="16" /> Solte para anexar</div>
       <div v-if="pending.length" class="pending">
         <span v-for="(a, i) in pending" :key="a.path" class="att" :title="`${a.path}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
@@ -1090,7 +1307,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         ref="box"
         v-model="draft"
         rows="1"
-        :placeholder="!running ? 'Faça qualquer coisa' : sendAction === 'now' ? `Agente trabalhando… Enter ${nowVerb}` : `Agente trabalhando… Enter põe na fila, ⌘Enter ${nowVerb}`"
+        :placeholder="!running ? 'Faça qualquer coisa (/ abre os comandos)' : sendAction === 'now' ? `Agente trabalhando… Enter ${nowVerb}` : `Agente trabalhando… Enter põe na fila, ⌘Enter ${nowVerb}`"
         :disabled="!info"
         @input="autosize"
         @keydown="onKey"
@@ -1108,7 +1325,7 @@ onUnmounted(() => offs.forEach((f) => f()))
             <Icon name="chevron" :size="11" class="chev" />
           </button>
           <div v-if="modeOpen" class="pop">
-            <button v-for="m in MODES" :key="m.id" type="button" class="ghost opt" :class="{ cur: mode === m.id }" @click="(mode = m.id), (modeOpen = false)">
+            <button v-for="m in MODES" :key="m.id" type="button" class="ghost opt" :class="{ cur: mode === m.id }" @click="setMode(m.id), (modeOpen = false)">
               <Icon :name="m.icon" :size="13" />
               <span class="opt-text"><strong>{{ m.label }}</strong><small>{{ m.hint }}</small></span>
               <Icon v-if="mode === m.id" name="check" :size="13" class="ok" />
@@ -1140,6 +1357,14 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
       </div>
     </footer>
+    <Modal v-if="planOpen && planText" title="Plano" :width="760" @close="planOpen = false">
+      <div class="md plan-read" @click="onMdClick" v-html="md(planText, false)" />
+      <template #footer>
+        <button type="button" class="ghost" @click="copyPlan"><Icon :name="planCopied ? 'check' : 'clipboard'" :size="13" /> {{ planCopied ? 'Copiado' : 'Copiar plano' }}</button>
+        <button type="button" class="ghost" @click="planOpen = false">Fechar</button>
+        <button type="button" class="primary" @click="startPlan(approveMode)">Implementar em "{{ MODES.find((m) => m.id === approveMode)?.label }}"</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -1164,19 +1389,31 @@ onUnmounted(() => offs.forEach((f) => f()))
 .head-btn:hover, .head-btn.on { color: var(--text); }
 .head-btn.on { background: var(--hover); }
 .head-btn.back { color: var(--accent); }
+.head-btn.pin.pinned { color: var(--accent); }
 .grid-menu { position: relative; flex: none; -webkit-app-region: no-drag; }
 /* o menu do grid abre para baixo, encostado à direita do botão (mais específico que .pop, que vem depois e abre para cima) */
 .grid-menu .pop { left: auto; right: 0; bottom: auto; top: calc(100% + 6px); width: 320px; -webkit-app-region: no-drag; }
-.status { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); -webkit-app-region: no-drag; }
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); flex: none; white-space: nowrap; -webkit-app-region: no-drag; }
+/* duração na linha de baixo, menor: o cabeçalho não quebra em janelas estreitas */
+.status-text { display: flex; flex-direction: column; line-height: 1.2; }
 .ball { width: 14px; height: 14px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--faint); color: #fff; }
 .status.idle .ball { background: var(--faint); opacity: 0.6; }
 .status.live { color: var(--accent); }
 .status.live .ball { width: 9px; height: 9px; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; box-shadow: 0 0 0 3px var(--accent-soft); }
+.status.waiting { color: var(--mod); }
+.status.waiting .ball { width: 9px; height: 9px; background: var(--mod); }
 .status.done { color: var(--add); }
 .status.done .ball { background: var(--add); }
 .status.error { color: var(--del); }
 .status.error .ball { background: var(--del); }
-.status-took { color: var(--faint); font-weight: 400; margin-left: -1px; font-variant-numeric: tabular-nums; }
+/* terminou e ainda não foi visto: a bolinha pisca de leve, com um halo, até o primeiro clique na janela */
+.status.blink .ball { animation: unseen 1.6s ease-in-out infinite; }
+@keyframes unseen {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 transparent; }
+  50% { opacity: 0.35; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .status.blink .ball { animation-duration: 3.2s; } }
+.status-took { color: var(--faint); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 /* só rola na vertical: textos longos quebram e código/tabelas rolam por dentro do próprio bloco */
@@ -1188,12 +1425,19 @@ onUnmounted(() => offs.forEach((f) => f()))
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
-.user { display: flex; justify-content: flex-end; }
+.user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+/* hora e copiar: aparecem ao passar o mouse na mensagem */
+.user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }
+.user:hover .user-acts, .user-acts.on, .user-acts:focus-within { opacity: 1; }
+.user-acts small { font-size: 11px; font-variant-numeric: tabular-nums; }
+.ua { width: 22px; height: 22px; padding: 0; color: var(--faint); border-radius: 6px; }
+.ua:hover { color: var(--text); }
+.user-acts.on .ua { color: var(--add, var(--accent)); }
 .bubble {
   max-width: 78%; padding: 10px 14px; border-radius: 16px 16px 4px 16px;
   background: var(--panel-2); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;
 }
-.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; line-height: 1.5; }
+.bubble p { margin: 0; font-size: var(--agent-size, 14px); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; line-height: 1.5; }
 .atts, .pending { display: flex; flex-wrap: wrap; gap: 6px; }
 .pending { padding: 2px 4px 0; }
 .att {
@@ -1213,14 +1457,14 @@ onUnmounted(() => offs.forEach((f) => f()))
 .composer.drop { border-color: var(--accent); background: var(--accent-soft); }
 .drop-hint { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px; color: var(--accent); font-weight: 600; font-size: 12.5px; }
 .answer { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.md { user-select: text; line-height: 1.6; font-size: 13.5px; min-width: 0; overflow-wrap: anywhere; }
+.md { user-select: text; line-height: 1.6; font-size: var(--agent-size, 14px); min-width: 0; overflow-wrap: anywhere; }
 .md :deep(p) { margin: 0 0 10px; }
 .md :deep(p:last-child) { margin-bottom: 0; }
 .md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
 .md :deep(li) { margin: 3px 0; }
-.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 12px 0 6px; font-size: 14.5px; }
-.md :deep(code) { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
-.md :deep(pre) { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); overflow-x: auto; }
+.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 12px 0 6px; font-size: calc(var(--agent-size, 14px) + 1px); }
+.md :deep(code) { font-family: var(--mono); font-size: calc(var(--agent-size, 14px) - 1.5px); background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+.md :deep(pre) { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
 .md :deep(pre code) { background: transparent; padding: 0; }
 .md :deep(.code-wrap) { position: relative; }
 .md :deep(.code-wrap .copy) {
@@ -1234,7 +1478,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .md :deep(.code-wrap .copy.done svg:first-child) { display: none; }
 .md :deep(.code-wrap .copy.done svg:last-child) { display: block; }
 .md :deep(a) { color: var(--accent); }
-.md :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
+.md :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 10px; font-size: calc(var(--agent-size, 14px) - 1px); }
 .md :deep(td), .md :deep(th) { border: 1px solid var(--border); padding: 4px 8px; }
 .md :deep(blockquote) { margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
 
@@ -1275,6 +1519,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 .stat .del { color: var(--del); font-weight: inherit; }
 .progress { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; padding: 2px 0; }
 .progress .mono { font-size: 12px; font-variant-numeric: tabular-nums; }
+.hurry { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--faint); flex: none; }
+.hurry:hover { color: var(--text); }
+.hurry.on, .hurry.on:disabled { color: var(--accent); opacity: 1; }
 .spin-logo { animation: breathe 1.6s ease-in-out infinite; margin-right: 2px; }
 @keyframes breathe { 50% { opacity: 0.35; transform: scale(0.9); } }
 .err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
@@ -1282,7 +1529,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 /* cartão de pergunta do agente */
 .ask { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); max-width: 640px; }
 .ask-head { display: flex; align-items: flex-start; gap: 8px; }
-.ask-q { margin: 0; flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.45; user-select: text; }
+.see-plan { flex: none; gap: 5px; color: var(--accent); }
+.plan-read { max-height: min(64vh, 720px); overflow: auto; padding-right: 6px; }
+.ask-q { margin: 0; flex: 1; min-width: 0; font-size: calc(var(--agent-size, 14px) + 0.5px); font-weight: 600; line-height: 1.45; user-select: text; }
 .ask-nav { display: inline-flex; align-items: center; gap: 2px; flex: none; color: var(--muted); }
 .ask-count { font-size: 11.5px; padding: 0 4px; font-variant-numeric: tabular-nums; }
 .nav { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--muted); flex: none; }
@@ -1295,24 +1544,35 @@ onUnmounted(() => offs.forEach((f) => f()))
 .ask-opt .num { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); margin-top: 1px; }
 .ask-opt:hover .num, .ask-opt.cur .num { color: var(--text); border-color: var(--accent); }
 .opt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.opt-label { font-size: 13.5px; font-weight: 600; line-height: 1.45; }
-.opt-detail { font-size: 12.5px; line-height: 1.45; color: var(--muted); font-weight: 400; }
+.opt-label { font-size: var(--agent-size, 14px); font-weight: 600; line-height: 1.45; }
+.opt-detail { font-size: calc(var(--agent-size, 14px) - 1px); line-height: 1.45; color: var(--muted); font-weight: 400; }
 .pill { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); vertical-align: 1px; }
 .ask-other { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
 .ask-other:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .ask-other .pen { color: var(--faint); flex: none; }
-.ask-other input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; padding: 0; font-size: 13px; }
+.ask-other input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; padding: 0; font-size: calc(var(--agent-size, 14px) - 0.5px); }
 .ask-other input:focus { box-shadow: none; }
 .ask-other .small { height: 26px; border-radius: 999px; flex: none; }
 .ask-other .skip { background: var(--panel); }
 
 .composer {
-  flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
+  position: relative; flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
   background: var(--panel); border: 1px solid var(--border); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   display: flex; flex-direction: column; gap: 6px;
 }
+/* menu de comandos ("/"): flutua acima do campo, na largura dele */
+.slash {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 30; padding: 6px; max-height: 260px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.slash-opt { justify-content: flex-start; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--text); min-width: 0; }
+.slash-opt.cur { background: var(--hover); }
+.slash-opt strong { font-size: 12.5px; flex: none; }
+.slash-opt small { font-size: 12px; color: var(--muted); flex: 1; min-width: 0; text-align: left; }
+.slash-opt kbd { font-family: var(--mono); font-size: 10.5px; color: var(--faint); flex: none; }
 .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
-.composer textarea { border: 0; background: transparent; padding: 6px 6px 2px; font-size: 13.5px; line-height: 1.45; max-height: 200px; overflow-y: auto; }
+.composer textarea { border: 0; background: transparent; padding: 6px 6px 2px; font-size: var(--agent-size, 14px); line-height: 1.45; max-height: 200px; overflow-y: auto; }
 .composer textarea:focus { box-shadow: none; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .row .spacer { flex: 1 1 auto; }

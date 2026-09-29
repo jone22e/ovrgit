@@ -563,7 +563,13 @@ function registerIpc() {
   })
   ipcMain.handle('usage:get', (_e, force?: boolean) => getUsage(!!force))
   ipcMain.handle('settings:get', () => getSettings())
-  ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => saveSettings(patch))
+  ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
+    const next = saveSettings(patch)
+    // as outras janelas (chats de agente) acompanham tema e fonte sem precisar reabrir
+    for (const w of BrowserWindow.getAllWindows())
+      if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('settings:changed', next)
+    return next
+  })
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
   })

@@ -105,7 +105,6 @@ onUnmounted(() => {
         </div>
         <p v-if="r.u.error" class="bad">{{ r.u.error }}</p>
         <template v-else>
-          <p v-if="r.id === 'agy'" class="faint nodata">O Antigravity não expõe os limites de uso fora do próprio app.</p>
           <div v-for="w in (r.id === 'agy' ? [] : ([['Semana', r.u.week], ['5 horas', r.u.fiveHour]] as [string, UsageWindow | null][]))" :key="w[0]" class="line">
             <span class="lbl">{{ w[0] }}</span>
             <template v-if="w[1]">
@@ -117,9 +116,6 @@ onUnmounted(() => {
           </div>
         </template>
       </section>
-      <p class="faint note">
-        Claude: consulta a conta com o login do Claude Code. ChatGPT: percentuais que o Codex grava nas sessões; atualizam a cada tarefa dele. Antigravity: só a conta.
-      </p>
     </div>
   </div>
 </template>
@@ -152,7 +148,6 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 section { padding: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .who { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .who .badge { height: 18px; font-size: 10px; text-transform: capitalize; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nodata { margin: 0; font-size: 11.5px; }
 .spacer { flex: 1; }
 .line { display: grid; grid-template-columns: 56px 1fr 40px auto; align-items: center; gap: 8px; font-size: 12px; }
 .lbl { color: var(--muted); }
@@ -160,5 +155,4 @@ section { padding: 8px; border-top: 1px solid var(--border); display: flex; flex
 .num { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
 .reset { font-size: 11px; white-space: nowrap; }
 .bad { margin: 0; font-size: 12px; color: var(--del); }
-.note { margin: 6px 8px 0; font-size: 11px; line-height: 1.4; }
 </style>

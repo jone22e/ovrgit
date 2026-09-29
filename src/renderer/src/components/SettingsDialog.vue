@@ -46,6 +46,11 @@ const WEIGHTS = [
   { value: 500, label: 'Médio' },
   { value: 600, label: 'Semi-negrito' }
 ]
+// fonte da janela do agente: salva na hora, como a do terminal
+const agentSize = computed(() => state.settings?.agentFontSize ?? 14)
+function setAgentSize(n: number) {
+  saveSettings({ agentFontSize: Math.min(Math.max(n, 11), 22) })
+}
 function setTerminalFont(name: string) {
   saveSettings({ terminalFont: name.trim() || 'Source Code Pro' })
 }
@@ -298,6 +303,36 @@ async function save() {
                 placeholder="Ex.: Responda sempre em português. Antes de alterar código, rode os testes da pasta afetada. Nunca faça commit."
                 spellcheck="true"
               />
+            </div>
+            <div class="block">
+              <div class="field">
+                <label>Fonte da conversa</label>
+                <input
+                  :value="state.settings?.agentFont"
+                  type="text"
+                  placeholder="Padrão do sistema"
+                  spellcheck="false"
+                  list="agent-fonts"
+                  @change="saveSettings({ agentFont: ($event.target as HTMLInputElement).value.trim() })"
+                />
+                <datalist id="agent-fonts">
+                  <option value="Inter" />
+                  <option value="Helvetica Neue" />
+                  <option value="Segoe UI" />
+                  <option value="Roboto" />
+                  <option value="Georgia" />
+                  <option value="Source Code Pro" />
+                </datalist>
+              </div>
+              <div class="size-row">
+                <span>Tamanho do texto</span>
+                <span class="stepper">
+                  <button type="button" class="icon" :disabled="agentSize <= 11" @click="setAgentSize(agentSize - 1)">−</button>
+                  <span class="val">{{ agentSize }}</span>
+                  <button type="button" class="icon" :disabled="agentSize >= 22" @click="setAgentSize(agentSize + 1)">+</button>
+                </span>
+              </div>
+              <p class="faint">Vazio usa a fonte do sistema. Janelas de agente abertas aplicam ao receber o foco.</p>
             </div>
             <div class="block">
               <label class="switch-row">

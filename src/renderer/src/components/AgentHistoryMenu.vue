@@ -13,19 +13,42 @@ const items = ref<AgentHistoryItem[]>([])
 const known = ref<KnownModels | null>(null)
 const loading = ref(false)
 const query = ref('')
+/** Escopo da lista: só o repositório aberto ou as conversas de todos (a escolha fica guardada) */
+const SCOPE_KEY = 'ovseer.agentHistory.scope'
+const readScope = () => {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === 'all'
+  } catch {
+    return false
+  }
+}
+const allRepos = ref(readScope())
+function setScope(all: boolean) {
+  if (allRepos.value === all) return
+  allRepos.value = all
+  try {
+    localStorage.setItem(SCOPE_KEY, all ? 'all' : 'repo')
+  } catch {
+    /* sem armazenamento: vale só para esta sessão */
+  }
+  load()
+}
 
 const list = computed(() => {
   const q = query.value.trim().toLowerCase()
-  const all = q ? items.value.filter((i) => `${i.title} ${i.model}`.toLowerCase().includes(q)) : items.value
+  const all = q ? items.value.filter((i) => `${i.title} ${i.model} ${allRepos.value ? i.project : ''}`.toLowerCase().includes(q)) : items.value
   // fixadas no topo; entre iguais, as mais recentes
   return [...all].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt)
 })
+/** Rótulo do grupo de cada conversa (fixadas, de hoje, anteriores): aparece como separador na primeira de cada grupo */
+const groupOf = (h: AgentHistoryItem) => (h.pinned ? 'Fixadas' : new Date(h.updatedAt).toDateString() === new Date().toDateString() ? 'Hoje' : 'Anteriormente')
+const rows = computed(() => list.value.map((h, i, all) => ({ h, label: i && groupOf(all[i - 1]) === groupOf(h) ? '' : groupOf(h) })))
 
 async function load() {
   if (!state.repo) return
   loading.value = true
   try {
-    items.value = await api.agentHistory(state.repo.root)
+    items.value = await api.agentHistory(allRepos.value ? undefined : state.repo.root)
   } finally {
     loading.value = false
   }
@@ -85,27 +108,34 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
     </button>
     <div v-if="open" class="pop">
       <header>
-        <strong>Conversas em {{ state.repo?.name }}</strong>
+        <strong class="ellipsis">{{ allRepos ? 'Todas as conversas' : `Conversas em ${state.repo?.name}` }}</strong>
         <span v-if="loading" class="spinner" />
+        <span class="scope">
+          <button class="ghost" :class="{ on: !allRepos }" title="Só as conversas deste repositório" @click="setScope(false)">Repositório</button>
+          <button class="ghost" :class="{ on: allRepos }" title="Conversas de todos os repositórios" @click="setScope(true)">Todas</button>
+        </span>
       </header>
       <div v-if="items.length > 6" class="search">
         <Icon name="search" :size="13" class="faint" />
         <input v-model="query" type="text" placeholder="Buscar conversa" spellcheck="false" />
       </div>
       <p v-if="!items.length && !loading" class="faint empty">
-        Nenhuma conversa guardada ainda. Elas entram aqui depois da primeira resposta do agente.
+        Nenhuma conversa guardada {{ allRepos ? '' : 'neste repositório ' }}ainda. Elas entram aqui depois da primeira resposta do agente.
       </p>
       <div class="list">
-        <div v-for="h in list" :key="h.sessionId" class="item" :class="{ pinned: h.pinned }" @click="reopen(h)">
+        <template v-for="{ h, label } in rows" :key="h.sessionId">
+        <div v-if="label" class="sep"><span>{{ label }}</span></div>
+        <div class="item" @click="reopen(h)">
           <AgentLogo :source="h.provider" :size="14" />
           <span class="text">
             <span class="ellipsis title">{{ h.title }}</span>
-            <small class="faint">{{ modelLabel(h.provider, h.model, catalogOf(known, h.provider)) }} · {{ h.turns }} {{ h.turns === 1 ? 'mensagem' : 'mensagens' }} · {{ when(h.updatedAt) }}</small>
+            <small class="faint ellipsis"><template v-if="allRepos">{{ h.project }} · </template>{{ modelLabel(h.provider, h.model, catalogOf(known, h.provider)) }} · {{ h.turns }} {{ h.turns === 1 ? 'mensagem' : 'mensagens' }} · {{ when(h.updatedAt) }}</small>
           </span>
           <span v-if="state.agentWindows.includes(h.sessionId)" class="badge accent">aberta</span>
           <button class="ghost rm pin" :class="{ on: h.pinned }" :title="h.pinned ? 'Soltar do topo' : 'Fixar no topo'" @click.stop="pin(h)"><Icon name="pin" :size="12" /></button>
           <button class="ghost rm" title="Esquecer esta conversa" @click.stop="forget(h)"><Icon name="x" :size="12" /></button>
         </div>
+        </template>
       </div>
     </div>
   </div>
@@ -123,6 +153,11 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 }
 @keyframes drop { from { opacity: 0; transform: translateY(-4px); } }
 header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 4px; font-size: 13px; }
+header strong { min-width: 0; flex: 1; }
+/* escopo da lista: dois rótulos pequenos, o ativo só ganha cor */
+.scope { display: flex; gap: 2px; flex: none; }
+.scope button { height: 20px; padding: 0 6px; border-radius: 6px; font-size: 11px; color: var(--faint); }
+.scope button.on { color: var(--accent); background: var(--accent-soft); }
 .search { display: flex; align-items: center; gap: 8px; margin: 2px 4px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel-2); }
 .search input { border: 0; background: transparent; padding: 6px 0; outline: none; font-size: 12.5px; }
 .search input:focus { box-shadow: none; }
@@ -136,7 +171,7 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .rm { width: 24px; height: 24px; padding: 0; color: var(--faint); opacity: 0; flex: none; }
 .item:hover .rm { opacity: 1; }
 .pin.on { opacity: 1; color: var(--accent); }
-/* separa o bloco de fixadas do resto */
-.item.pinned + .item:not(.pinned) { margin-top: 5px; position: relative; }
-.item.pinned + .item:not(.pinned)::before { content: ''; position: absolute; left: 8px; right: 8px; top: -3px; border-top: 1px solid var(--border); }
+/* separador discreto entre os grupos: rótulo pequeno seguido de uma linha */
+.sep { display: flex; align-items: center; gap: 8px; padding: 6px 8px 2px; font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.sep::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
 </style>

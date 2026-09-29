@@ -237,6 +237,9 @@ export interface Settings {
   agyModel: string
   /** Instruções personalizadas para os agentes (janela do agente): estilo, regras do time, o que evitar */
   agentInstructions: string
+  /** Fonte da janela do agente (vazio = fonte do sistema) e tamanho do texto da conversa */
+  agentFont: string
+  agentFontSize: number
   /** Grid de posicionamento das janelas de agente (colunas × linhas da área útil da tela) */
   agentGrid: GridSize
   recentProjects: string[]
@@ -387,6 +390,8 @@ export interface AgentTurn {
   /** Última atividade vista enquanto roda (linha de andamento) */
   activity?: 'thinking' | 'tools' | 'writing'
   startedAt?: number
+  /** Enviada no "agora" com o agente trabalhando: início do trabalho que ela continua (o contador segue dele) */
+  workSince?: number
   error?: string
   durationMs?: number
   costUsd?: number
@@ -654,6 +659,8 @@ export interface OvseerApi {
   openExternal(url: string): Promise<void>
   getSettings(): Promise<Settings>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
+  /** Configurações salvas por outra janela */
+  onSettingsChanged(cb: (s: Settings) => void): () => void
   listModels(): Promise<string[]>
   detectProviders(): Promise<ProviderStatus>
   /** Situação do login de um CLI (o Antigravity só informa; o login é pelo próprio comando) */

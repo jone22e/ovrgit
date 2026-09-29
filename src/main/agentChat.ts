@@ -116,8 +116,10 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   }
   const isMac = process.platform === 'darwin'
   // conversa reaberta volta ao lugar de antes; janela nova vai para a próxima área livre do grid, na tela do ponteiro
-  const saved = visibleBounds(historyBounds(opts.resumeId))
-  const slot = saved.x === undefined ? freeGridSlot(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, getSettings().agentGrid, openAgentBounds()) : null
+  // (a última posição usada por qualquer janela só serve de reserva, quando o grid está cheio)
+  const own = visibleBounds(prev?.bounds ?? null)
+  const saved = own.x === undefined ? visibleBounds(historyBounds()) : own
+  const slot = own.x === undefined ? freeGridSlot(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, getSettings().agentGrid, openAgentBounds()) : null
   const win = new BrowserWindow({
     width: 760,
     height: 800,
@@ -329,7 +331,7 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   // a resposta, para entregar outra mensagem no meio dela sem interromper (o modelo a recebe no próximo passo)
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
   // instruções personalizadas do usuário e o formato de perguntas ao usuário: complementam o prompt de sistema
-  args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT].filter(Boolean).join('\n\n'))
+  args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT, o.mode === 'plan' ? PLAN_TITLE : ''].filter(Boolean).join('\n\n'))
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort)
   if (o.mode === 'full') args.push('--dangerously-skip-permissions')
@@ -337,6 +339,10 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   if (o.resume) args.push('--resume', o.resume)
   return args
 }
+
+/** Todo plano começa com um título: vale para os três agentes (é o que identifica o plano no cartão e na leitura) */
+export const PLAN_TITLE =
+  'Todo plano que você entregar deve começar com um título: a primeira linha do plano é um cabeçalho Markdown de nível 1 ("# Título"), curto e específico, que diga o que será feito. Nada antes dele, e nada de títulos genéricos como "Plano".'
 
 /**
  * Modo plano no Codex: o `exec` não expõe o modo de colaboração do app, então usamos sandbox
@@ -351,6 +357,7 @@ trate como pedido para planejar a execução.
 
 Entregue um plano detalhado e completo em decisões, pronto para outro engenheiro ou agente implementar:
 objetivo, arquivos a alterar (com caminhos), passos na ordem, riscos e como validar. Responda em português do Brasil.
+${PLAN_TITLE}
 Não pergunte se deve implementar nem explique como sair do Modo Plano: quando o plano terminar, o próprio app
 pergunta ao usuário se deseja iniciar a implementação.
 </collaboration_mode>
@@ -755,7 +762,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
       : ''
-  const { prompt, inlineImages } = composeMessage(provider, intro + (provider === 'codex' && clean.mode === 'plan' ? CODEX_PLAN_INSTRUCTIONS : '') + text, attachments)
+  const { prompt, inlineImages } = composeMessage(provider, intro + (clean.mode !== 'plan' ? '' : provider === 'codex' ? CODEX_PLAN_INSTRUCTIONS : provider === 'agy' ? `<plan_format>\n${PLAN_TITLE}\n</plan_format>\n\n` : '') + text, attachments)
   const args =
     provider === 'claude'
       ? claudeArgs({ ...clean, images: inlineImages.length, instructions })

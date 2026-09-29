@@ -23,6 +23,8 @@ const DEFAULTS: Settings = {
   codexModel: '',
   agyModel: '',
   agentInstructions: '',
+  agentFont: '',
+  agentFontSize: 14,
   agentGrid: GRID_DEFAULT,
   recentProjects: [],
   lastProject: null

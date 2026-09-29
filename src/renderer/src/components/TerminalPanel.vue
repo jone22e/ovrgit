@@ -650,7 +650,8 @@ h6 { margin: 8px 8px 2px; font-size: 10.5px; text-transform: uppercase; letter-s
 .search:focus-within { border-color: var(--accent); }
 .tiny { width: 22px; height: 22px; padding: 0; }
 .body { flex: 1; min-height: 0; position: relative; }
-.host { position: absolute; inset: 0; padding: 6px 0 0 10px; user-select: text; }
+/* margem via inset (e não padding): o FitAddon mede a altura do host, então as linhas já cabem na área útil */
+.host { position: absolute; inset: 6px 0 10px 10px; user-select: text; }
 .host :deep(.xterm) { height: 100%; -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 .host :deep(.xterm-viewport) { background: transparent !important; }
 </style>
