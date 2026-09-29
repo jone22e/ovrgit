@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridPlacement, GridSize, WindowBounds } from '../shared/types'
+import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -66,6 +66,31 @@ function visibleBounds(b: WindowBounds | null): Partial<WindowBounds> {
 
 const MIN_WIN = { width: 420, height: 480 }
 
+/** A janela cobre pelo menos um quarto da célula: é o que conta como célula ocupada */
+function covers(w: WindowBounds, cell: WindowBounds): boolean {
+  const ox = Math.max(0, Math.min(cell.x + cell.width, w.x + w.width) - Math.max(cell.x, w.x))
+  const oy = Math.max(0, Math.min(cell.y + cell.height, w.y + w.height) - Math.max(cell.y, w.y))
+  return ox * oy >= cell.width * cell.height * 0.25
+}
+
+/**
+ * Células do grid cobertas pelas janelas dadas, em ordem de leitura. Quando duas cobrem a mesma célula,
+ * vale a de outro agente: é ela que impede a escolha.
+ */
+export function coveredCells(area: WindowBounds, grid: GridSize, windows: { bounds: WindowBounds; own: boolean; title: string }[]): GridCell[] {
+  const { cols, rows } = normalizeGrid(grid)
+  const out: GridCell[] = []
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const cell = gridBounds(area, { cols, rows, col, row, colSpan: 1, rowSpan: 1 })
+      const over = windows.filter((w) => covers(w.bounds, cell))
+      const w = over.find((x) => !x.own) ?? over[0]
+      if (w) out.push({ col, row, own: w.own, title: w.title })
+    }
+  }
+  return out
+}
+
 /**
  * Próxima área livre do grid para uma janela nova: percorre as células em ordem de leitura e devolve a primeira
  * onde cabe uma janela do tamanho mínimo (células pequenas juntam vizinhas) sem esbarrar nas janelas já abertas.
@@ -77,12 +102,7 @@ export function freeGridSlot(area: WindowBounds, grid: GridSize, occupied: Windo
   const ch = area.height / rows
   const colSpan = Math.min(cols, Math.max(1, Math.ceil(min.width / cw)))
   const rowSpan = Math.min(rows, Math.max(1, Math.ceil(min.height / ch)))
-  const covered = (cell: WindowBounds) =>
-    occupied.some((w) => {
-      const ox = Math.max(0, Math.min(cell.x + cell.width, w.x + w.width) - Math.max(cell.x, w.x))
-      const oy = Math.max(0, Math.min(cell.y + cell.height, w.y + w.height) - Math.max(cell.y, w.y))
-      return ox * oy >= cell.width * cell.height * 0.25
-    })
+  const covered = (cell: WindowBounds) => occupied.some((w) => covers(w, cell))
   for (let row = 0; row + rowSpan <= rows; row++) {
     for (let col = 0; col + colSpan <= cols; col++) {
       let free = true
@@ -224,6 +244,17 @@ export function placeAgentWindow(uid: string, p: GridPlacement): WindowBounds {
   const b = gridBounds(screen.getDisplayMatching(w.win.getBounds()).workArea, p)
   w.win.setBounds(b, true)
   return w.win.getBounds()
+}
+
+/** Células do grid cobertas por janelas de agente, na tela onde a janela `uid` está. */
+export function agentGridCells(uid: string, grid: GridSize): GridCell[] {
+  const me = wins.get(uid)
+  if (!me || me.win.isDestroyed()) return []
+  const display = screen.getDisplayMatching(me.win.getBounds())
+  const open = [...wins.values()]
+    .filter((w) => !w.win.isDestroyed() && !w.win.isMinimized() && screen.getDisplayMatching(w.win.getBounds()).id === display.id)
+    .map((w) => ({ bounds: w.win.getBounds(), own: w === me, title: w.info.title || w.info.project }))
+  return coveredCells(display.workArea, grid, open)
 }
 
 export function agentWindows(): string[] {

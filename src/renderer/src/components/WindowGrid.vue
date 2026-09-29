@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { GRID_LIMITS, normalizeGrid } from '@shared/grid'
-import type { GridPlacement, GridSize } from '@shared/types'
+import type { GridCell, GridPlacement, GridSize } from '@shared/types'
 import Icon from './Icon.vue'
 
 /**
@@ -12,6 +12,12 @@ import Icon from './Icon.vue'
 /** Tamanho do grid (colunas × linhas): quem abre o menu carrega e guarda; aqui só exibe e altera */
 const size = defineModel<GridSize>({ required: true })
 const emit = defineEmits<{ place: [p: GridPlacement] }>()
+/** Células já cobertas por janelas de agente: as de outro agente ficam trancadas, as desta janela só marcadas */
+const props = withDefaults(defineProps<{ cells?: GridCell[] }>(), { cells: () => [] })
+const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
+const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
+/** A área em escolha passa por cima de uma célula de outro agente */
+const blocked = computed(() => Array.from({ length: size.value.cols * size.value.rows }, (_, i) => i).some((i) => selected(i) && locked(i)))
 
 type Size = GridSize
 function set(k: keyof Size, v: number) {
@@ -52,7 +58,9 @@ function up(e: PointerEvent) {
   const a = anchor.value
   if (!a) return
   const b = cellAt(e)
+  const taken = blocked.value
   anchor.value = cursor.value = null
+  if (taken) return
   emit('place', {
     cols: size.value.cols,
     rows: size.value.rows,
@@ -79,6 +87,7 @@ const hint = computed(() => {
   if (!a || !b) return 'Arraste pelas células para escolher a área. Solte para aplicar.'
   const w = Math.abs(a.col - b.col) + 1
   const h = Math.abs(a.row - b.row) + 1
+  if (blocked.value) return 'Área ocupada por outro agente: escolha células livres.'
   return `${w} × ${h} ${w * h === 1 ? 'célula' : 'células'}: solte para mover a janela.`
 })
 </script>
@@ -99,7 +108,7 @@ const hint = computed(() => {
         </span>
       </span>
     </div>
-    <p class="wgrid-hint" :class="{ live: anchor }">{{ hint }}</p>
+    <p class="wgrid-hint" :class="{ live: anchor, bad: blocked }">{{ hint }}</p>
     <div
       ref="grid"
       class="cells"
@@ -109,7 +118,14 @@ const hint = computed(() => {
       @pointerup="up"
       @pointercancel="cancel"
     >
-      <span v-for="i in size.cols * size.rows" :key="i" class="cell" :class="{ sel: selected(i - 1) }" />
+      <span
+        v-for="i in size.cols * size.rows"
+        :key="i"
+        class="cell"
+        :class="{ sel: selected(i - 1), locked: locked(i - 1), own: cellAtIndex(i - 1)?.own, bad: blocked && selected(i - 1) }"
+      >
+        <Icon v-if="locked(i - 1)" name="lock" :size="11" />
+      </span>
     </div>
   </div>
 </template>
@@ -133,5 +149,11 @@ const hint = computed(() => {
 .wgrid-hint.live { color: var(--accent); }
 .cells { display: grid; gap: 4px; width: 100%; cursor: crosshair; touch-action: none; }
 .cell { border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); pointer-events: none; transition: background 0.06s; }
-.cell.sel { background: var(--accent); border-color: var(--accent); }
+.cell { display: grid; place-items: center; color: var(--faint); }
+/* esta janela: contorno; outro agente: cadeado */
+.cell.own { border-color: var(--accent); background: var(--accent-soft); }
+.cell.locked { background: color-mix(in srgb, var(--faint) 18%, var(--panel-2)); }
+.cell.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cell.sel.bad { background: var(--del); border-color: var(--del); }
+.wgrid-hint.bad { color: var(--del); }
 </style>

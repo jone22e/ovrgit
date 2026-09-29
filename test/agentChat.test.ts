@@ -281,6 +281,17 @@ describe('janela nova na próxima área livre do grid', () => {
     expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left, { x: 600, y: 25, width: 600, height: 775 }])).toBeNull()
   })
 
+  it('células cobertas: a de outro agente tranca, a da própria janela só marca', async () => {
+    const { coveredCells } = await import('../src/main/agentChat')
+    // 6 × 2 em 1200 × 775: outro agente na metade esquerda, esta janela na coluna 3 de cima e sobre a coluna 2
+    const other = { bounds: { x: 0, y: 25, width: 600, height: 775 }, own: false, title: 'Outro' }
+    const mine = { bounds: { x: 400, y: 25, width: 400, height: 387 }, own: true, title: 'Esta' }
+    const cells = coveredCells(area, { cols: 6, rows: 2 }, [mine, other])
+    expect(cells.filter((c) => !c.own).map((c) => [c.col, c.row])).toEqual([[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1]])
+    expect(cells.filter((c) => c.own).map((c) => [c.col, c.row])).toEqual([[3, 0]])
+    expect(coveredCells(area, { cols: 6, rows: 2 }, [])).toEqual([])
+  })
+
   it('só uma janela cobrindo boa parte da célula a ocupa; grid inválido volta ao padrão', async () => {
     const { freeGridSlot } = await import('../src/main/agentChat')
     const { normalizeGrid } = await import('../src/shared/grid')

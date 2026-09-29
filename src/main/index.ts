@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
-  ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement,
+  ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
   AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
@@ -562,6 +562,7 @@ function registerIpc() {
   ipcMain.on('agent:status', (_e, uid: string, status: AgentStatus) => agentChat.reportStatus(String(uid), status))
   ipcMain.handle('agent:statuses', () => agentChat.agentStatuses())
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
+  ipcMain.handle('agent:gridCells', (_e, uid: string, grid: GridSize) => agentChat.agentGridCells(String(uid), grid))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)
     return agentWatch.knownModels()

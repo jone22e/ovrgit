@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
+  GridCell,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
@@ -122,6 +123,11 @@ function setGridSize(s: GridSize) {
   api.saveSettings({ agentGrid: gridSize.value }).catch(() => undefined)
 }
 /** Escolha feita no grid: a janela vai para a área correspondente da tela e o menu fecha */
+/** Células já cobertas por janelas de agente: recarrega ao abrir o menu e ao mudar o tamanho do grid */
+const gridCells = ref<GridCell[]>([])
+watch([gridOpen, gridSize], async ([open]) => {
+  if (open) gridCells.value = await api.agentGridCells(uid, { ...gridSize.value }).catch(() => [])
+})
 async function placeWindow(p: GridPlacement) {
   gridOpen.value = false
   await api.agentPlace(uid, p).catch(() => undefined)
@@ -1105,7 +1111,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon name="grid" :size="14" />
         </button>
         <div v-if="gridOpen" class="pop">
-          <WindowGrid :model-value="gridSize" @update:model-value="setGridSize" @place="placeWindow" />
+          <WindowGrid :model-value="gridSize" :cells="gridCells" @update:model-value="setGridSize" @place="placeWindow" />
         </div>
       </div>
       <button v-if="sessionId && turns.length" type="button" class="ghost icon head-btn pin" :class="{ pinned }" :title="pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click="togglePin">

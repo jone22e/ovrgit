@@ -430,6 +430,14 @@ export interface GridPlacement extends GridSize {
   rowSpan: number
 }
 
+/** Célula do grid coberta por uma janela de agente: a desta janela (`own`) ou a de outro agente (com o título dele) */
+export interface GridCell {
+  col: number
+  row: number
+  own: boolean
+  title: string
+}
+
 export interface WindowBounds {
   x: number
   y: number
@@ -762,6 +770,8 @@ export interface OvseerApi {
   agentWindows(): Promise<string[]>
   /** Move e redimensiona a janela do agente para a área do grid, na tela onde ela está */
   agentPlace(uid: string, p: GridPlacement): Promise<WindowBounds>
+  /** Células do grid já cobertas por janelas de agente, na tela onde esta janela está */
+  agentGridCells(uid: string, grid: GridSize): Promise<GridCell[]>
   knownModels(): Promise<KnownModels>
   /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */
   usage(force?: boolean): Promise<UsageInfo>
