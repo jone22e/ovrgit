@@ -542,6 +542,8 @@ const sizeOf = (n: number) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.r
 interface Payload {
   id: string
   body: string
+  /** Texto mostrado na conversa, quando é diferente do enviado ao agente (ex.: o aviso de pressa) */
+  shown?: string
   attachments: Shown[]
 }
 const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
@@ -571,7 +573,7 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number) {
   if (!info.value) return
-  const turn: Turn = { id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
+  const turn: Turn = { id: p.id, user: p.shown ?? p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
@@ -679,12 +681,23 @@ function stop() {
 // ---------- acelerar: avisa o agente, no meio da resposta, que há pressa ----------
 /** Recado curto, para não pesar no consumo: entra no próximo passo do agente, sem interromper nem virar mensagem na conversa */
 const HURRY = 'Aviso do usuário: temos pressa. Não recomece nem explique este aviso: conclua o que está fazendo pelo caminho mais direto, sem explorações, verificações ou leituras que não sejam essenciais, e responda de forma objetiva.'
-/** Só o Claude recebe mensagem no meio da resposta; nos outros seria preciso interromper e pedir de novo (gasta mais) */
-const canHurry = computed(() => provider.value === 'claude')
+/**
+ * Codex e Antigravity não recebem mensagem no meio da resposta: o aviso interrompe a resposta atual e pede para
+ * continuar de onde parou (gasta um pouco mais, porque o agente relê a conversa ao retomar).
+ */
+const HURRY_RESUME = 'Interrompi sua resposta porque temos pressa. Continue a tarefa de onde parou, sem recomeçar nem refazer o que já foi feito: conclua pelo caminho mais direto, sem explorações, verificações ou leituras que não sejam essenciais, e responda de forma objetiva.'
+const steers = computed(() => provider.value === 'claude')
+const hurryTitle = computed(() => (steers.value ? 'Acelerar: avisa o agente de que há pressa, sem interromper' : 'Acelerar: interrompe a resposta e pede ao agente que conclua pelo caminho mais direto'))
 /** Vez em que o aviso já foi dado (um por vez) */
 const hurried = ref<string | null>(null)
 async function hurry(t: Turn) {
   if (hurried.value === t.id) return
+  if (!steers.value) {
+    // o aviso vira a próxima vez da conversa: o botão dela já nasce marcado, para não interromper de novo
+    const p: Payload = { id: crypto.randomUUID(), body: HURRY_RESUME, shown: 'Acelerar: conclua pelo caminho mais direto.', attachments: [] }
+    hurried.value = p.id
+    return sendAfter(p)
+  }
   hurried.value = t.id
   const ok = await api.agentSteer(uid, HURRY, []).catch(() => false)
   if (!ok) hurried.value = null
@@ -1195,7 +1208,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <div v-if="t.running" class="progress">
             <AgentLogo :source="provider" :size="13" class="spin-logo" />
             <span class="mono">{{ elapsed(t) }}</span> · {{ activityLabel(t) }}
-            <button v-if="canHurry" type="button" class="ghost hurry" :class="{ on: hurried === t.id }" :disabled="hurried === t.id" :title="hurried === t.id ? 'O agente foi avisado de que há pressa' : 'Acelerar: avisa o agente de que há pressa, sem interromper'" @click="hurry(t)">
+            <button type="button" class="ghost hurry" :class="{ on: hurried === t.id }" :disabled="hurried === t.id" :title="hurried === t.id ? 'O agente foi avisado de que há pressa' : hurryTitle" @click="hurry(t)">
               <Icon name="forward" :size="12" />
             </button>
           </div>
