@@ -429,6 +429,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', markSeen, true)
 })
 watch(running, (r) => r && markSeen())
+// a lista de conversas da janela principal mostra esta situação
+watch(statusKind, (k) => api.agentReportStatus(uid, k), { immediate: true })
 
 function notifyDone(t: Turn) {
   unseen.value = true

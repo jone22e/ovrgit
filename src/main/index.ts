@@ -9,7 +9,7 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement,
-  Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
+  AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -226,7 +226,9 @@ function registerIpc() {
       if (!conn) throw new Error('Conexão SSH não encontrada.')
       return createTerminal(e.sender, os.homedir(), cols, rows, conn)
     }
-    return createTerminal(e.sender, root ?? os.homedir(), cols, rows)
+    // terminal fixado abre na pasta dele; se ela não existe mais, cai na do projeto
+    const own = spec?.kind === 'local' && typeof spec.cwd === 'string' && existsSync(spec.cwd) ? spec.cwd : null
+    return createTerminal(e.sender, own ?? root ?? os.homedir(), cols, rows)
   })
   ipcMain.handle('ssh:listKeys', () => listSshKeys())
   ipcMain.handle('ssh:importConfig', () => sshImport.readSshConfig())
@@ -546,7 +548,7 @@ function registerIpc() {
   ipcMain.handle('agent:history', (_e, cwd?: string) => agentHistory.listHistory(typeof cwd === 'string' && cwd ? cwd : undefined))
   ipcMain.handle('agent:saveTranscript', (_e, uid: string, turns: AgentTurn[]) => {
     const info = agentChat.agentInfo(String(uid))
-    if (info && Array.isArray(turns)) agentHistory.saveTranscript(info, turns)
+    if (info && Array.isArray(turns)) agentHistory.saveTranscript(info, turns, agentChat.agentStatus(String(uid)))
   })
   ipcMain.handle('agent:loadTranscript', (_e, sessionId: string) => agentHistory.loadTranscript(String(sessionId)))
   ipcMain.handle('agent:fileRepos', (_e, uid: string, paths: string[]) =>
@@ -557,6 +559,8 @@ function registerIpc() {
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
   ipcMain.handle('agent:focus', (_e, sessionId: string) => agentChat.focusAgentWindow(String(sessionId)))
   ipcMain.handle('agent:windows', () => agentChat.agentWindows())
+  ipcMain.on('agent:status', (_e, uid: string, status: AgentStatus) => agentChat.reportStatus(String(uid), status))
+  ipcMain.handle('agent:statuses', () => agentChat.agentStatuses())
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)

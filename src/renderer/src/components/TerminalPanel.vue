@@ -21,6 +21,16 @@ interface Tab {
   spec: TerminalSpec
   termId: number | null
   exited: boolean
+  /** Pasta onde o terminal local abriu */
+  cwd?: string
+  /** Fixada: volta com o mesmo nome e na mesma pasta ao reabrir o painel ou o app */
+  pinned?: boolean
+}
+/** Aba como fica guardada entre uma abertura e outra */
+interface SavedTab {
+  spec: TerminalSpec
+  pinned?: boolean
+  title?: string
 }
 interface Session {
   term: Terminal
@@ -93,8 +103,9 @@ function titleFor(spec: TerminalSpec) {
   return state.repo?.name ?? 'Terminal'
 }
 
-async function openTab(spec: TerminalSpec, opts: { connect?: boolean } = {}) {
-  const tab: Tab = { uid: crypto.randomUUID(), title: titleFor(spec), spec, termId: null, exited: false }
+async function openTab(spec: TerminalSpec, opts: { connect?: boolean; pinned?: boolean; title?: string } = {}) {
+  const cwd = spec.kind === 'local' ? (spec.cwd ?? state.repo?.root) : undefined
+  const tab: Tab = { uid: crypto.randomUUID(), title: opts.title || titleFor(spec), spec, termId: null, exited: false, cwd, pinned: opts.pinned }
   tabs.push(tab)
   active.value = tab.uid
   await nextTick()
@@ -247,6 +258,8 @@ async function closeTab(uid: string) {
   const i = tabs.findIndex((t) => t.uid === uid)
   if (i < 0) return
   const tab = tabs[i]
+  // fixada: fechar encerra o terminal, mas a aba volta quando o painel ou o app reabrir
+  if (tab.pinned) closedPinned.push(toSaved(tab))
   if (tab.termId !== null) api.termKill(tab.termId)
   sessions.get(uid)?.term.dispose()
   sessions.delete(uid)
@@ -255,6 +268,25 @@ async function closeTab(uid: string) {
   if (active.value === uid) active.value = tabs[Math.min(i, tabs.length - 1)]?.uid ?? null
   if (!tabs.length) setShowTerminal(false)
   else focusActive()
+}
+
+// ---------- fixar ----------
+/** Fixadas que foram fechadas: voltam quando o painel reabre sem abas e quando o app abre */
+const closedPinned = reactive<SavedTab[]>([])
+function toSaved(t: Tab): SavedTab {
+  if (t.spec.kind === 'ssh') return { spec: { ...t.spec } }
+  return t.pinned ? { spec: { kind: 'local', cwd: t.cwd }, pinned: true, title: t.title } : { spec: { kind: 'local' } }
+}
+/** Só o terminal local é fixado: a aba SSH já volta na própria conexão */
+function togglePin(tab: Tab) {
+  if (tab.spec.kind !== 'local') return
+  tab.pinned = !tab.pinned
+  // a pasta passa a fazer parte da aba: reiniciar (ou reabrir) cai nela, não na do projeto aberto
+  tab.spec = tab.pinned ? { ...tab.spec, cwd: tab.cwd } : { kind: 'local', command: tab.spec.command }
+}
+async function reopenPinned() {
+  const list = closedPinned.splice(0, closedPinned.length)
+  for (const s of list) await openTab(s.spec, { pinned: true, title: s.title })
 }
 
 function selectTab(uid: string) {
@@ -366,7 +398,7 @@ onMounted(async () => {
 
   // reabre as abas da última vez (as SSH ficam esperando um Enter para conectar)
   const saved = readSavedTabs()
-  for (const [i, spec] of saved.entries()) await openTab(spec, { connect: spec.kind === 'local' && i === saved.length - 1 })
+  for (const [i, s] of saved.entries()) await openTab(s.spec, { pinned: s.pinned, title: s.title, connect: s.spec.kind === 'local' && (!!s.pinned || i === saved.length - 1) })
   if (state.terminalRequest) {
     const spec = state.terminalRequest
     state.terminalRequest = null
@@ -375,19 +407,23 @@ onMounted(async () => {
 })
 
 const TABS_KEY = 'ovseer.terminalTabs'
-function readSavedTabs(): TerminalSpec[] {
+function readSavedTabs(): SavedTab[] {
   try {
-    const list = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as TerminalSpec[]
-    return list.filter((s) => s.kind === 'local' || (s.kind === 'ssh' && connections.value.some((c) => c.id === s.connectionId))).slice(0, 12)
+    // formato antigo: a lista guardava só o tipo de cada aba
+    const raw = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as (SavedTab | TerminalSpec)[]
+    const list = raw.map((x): SavedTab => ('spec' in x ? x : { spec: x }))
+    return list
+      .filter((s) => s.spec?.kind === 'local' || (s.spec?.kind === 'ssh' && connections.value.some((c) => c.id === (s.spec as { connectionId: string }).connectionId)))
+      .slice(0, 12)
   } catch {
     return []
   }
 }
 watch(
-  () => tabs.map((t) => (t.spec.kind === 'ssh' ? `ssh:${t.spec.connectionId}` : 'local')).join(','),
-  () => {
+  () => JSON.stringify([...tabs.map(toSaved), ...closedPinned]),
+  (json) => {
     try {
-      localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map((t) => (t.spec.kind === 'local' ? { kind: 'local' } : { ...t.spec }))))
+      localStorage.setItem(TABS_KEY, json)
     } catch {
       /* só nesta sessão */
     }
@@ -416,7 +452,7 @@ watch(
   () => state.showTerminal,
   (on) => {
     if (!on) return
-    if (!tabs.length && !state.terminalRequest) openTab({ kind: 'local' })
+    if (!tabs.length && !state.terminalRequest) closedPinned.length ? reopenPinned() : openTab({ kind: 'local' })
     else focusActive()
   }
 )
@@ -473,14 +509,14 @@ onUnmounted(() => {
           @drop.prevent="onDrop"
           @dragend="onDragEnd"
           role="tab"
-          :title="t.spec.kind === 'ssh' ? `SSH · ${t.title}` : `Terminal local · ${t.title}`"
+          :title="t.spec.kind === 'ssh' ? `SSH · ${t.title}` : t.pinned ? `Terminal fixado · ${t.cwd ?? t.title}` : `Terminal local · ${t.title}`"
           @click="selectTab(t.uid)"
           @mousedown.middle.prevent="closeTab(t.uid)"
         >
           <!-- ativa: × à esquerda e ícone do tipo numa caixinha à direita; inativa: ícone à esquerda (vira × no hover) -->
           <!-- ícone e × no mesmo espaço fixo: trocar um pelo outro não muda a largura da aba -->
           <span class="slot">
-            <Icon :name="t.spec.kind === 'ssh' ? 'server' : 'terminal'" :size="13" class="lead" />
+            <Icon :name="t.pinned ? 'pin' : t.spec.kind === 'ssh' ? 'server' : 'terminal'" :size="13" class="lead" :class="{ pinned: t.pinned }" />
             <button class="ghost close" title="Fechar aba" @click.stop="closeTab(t.uid)"><Icon name="x" :size="11" /></button>
           </span>
           <span class="name ellipsis">{{ t.title }}</span>
@@ -559,6 +595,15 @@ onUnmounted(() => {
         <Icon name="search" :size="13" />
       </button>
       <span class="spacer" />
+      <button
+        v-if="activeTab?.spec.kind === 'local'"
+        class="ghost icon small"
+        :class="{ pinned: activeTab.pinned }"
+        :title="activeTab.pinned ? 'Soltar esta aba' : 'Fixar esta aba: ela volta nesta pasta ao reabrir o terminal ou o app'"
+        @click="togglePin(activeTab)"
+      >
+        <Icon name="pin" :size="13" />
+      </button>
       <button v-if="activeTab" class="ghost icon small" title="Reiniciar esta aba" @click="restart(activeTab)"><Icon name="refresh" :size="13" /></button>
       <button
         class="ghost icon small"
@@ -618,6 +663,7 @@ header {
 }
 .icon.small { width: 26px; height: 24px; flex: none; }
 .icon.small.on { background: var(--hover); }
+.icon.small.pinned, .slot .lead.pinned { color: var(--accent); }
 .spacer { flex: 1; }
 .ssh-menu { position: relative; flex: none; }
 .pop {

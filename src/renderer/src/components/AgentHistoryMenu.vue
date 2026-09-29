@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { catalogOf, modelLabel } from '@shared/models'
-import type { AgentHistoryItem, KnownModels } from '@shared/types'
+import type { AgentHistoryItem, AgentStatus, KnownModels } from '@shared/types'
 import { api, state, toast } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
@@ -43,6 +43,25 @@ const list = computed(() => {
 /** Rótulo do grupo de cada conversa (fixadas, de hoje, anteriores): aparece como separador na primeira de cada grupo */
 const groupOf = (h: AgentHistoryItem) => (h.pinned ? 'Fixadas' : new Date(h.updatedAt).toDateString() === new Date().toDateString() ? 'Hoje' : 'Anteriormente')
 const rows = computed(() => list.value.map((h, i, all) => ({ h, label: i && groupOf(all[i - 1]) === groupOf(h) ? '' : groupOf(h) })))
+
+/**
+ * Situação da conversa: com a janela aberta, a que ela informa agora; fechada, a última gravada.
+ * Fechada não pode estar trabalhando (o agente para junto com a janela), então vira "interrompida".
+ */
+function statusOf(h: AgentHistoryItem): AgentStatus | 'stopped' | 'unknown' {
+  if (state.agentWindows.includes(h.sessionId)) return state.agentStatuses[h.sessionId] ?? h.status ?? 'unknown'
+  if (!h.status || h.status === 'idle') return 'unknown'
+  return h.status === 'live' ? 'stopped' : h.status
+}
+const STATUS_LABEL: Record<ReturnType<typeof statusOf>, string> = {
+  idle: 'Sem conversa',
+  live: 'Trabalhando',
+  waiting: 'Aguardando a sua resposta',
+  done: 'Concluído',
+  error: 'Falhou',
+  stopped: 'Interrompida ao fechar a janela',
+  unknown: 'Sem registro da situação'
+}
 
 async function load() {
   if (!state.repo) return
@@ -126,6 +145,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         <template v-for="{ h, label } in rows" :key="h.sessionId">
         <div v-if="label" class="sep"><span>{{ label }}</span></div>
         <div class="item" @click="reopen(h)">
+          <span class="dot" :class="statusOf(h)" :title="STATUS_LABEL[statusOf(h)]" />
           <AgentLogo :source="h.provider" :size="14" />
           <span class="text">
             <span class="ellipsis title">{{ h.title }}</span>
@@ -165,6 +185,15 @@ header strong { min-width: 0; flex: 1; }
 .list { display: flex; flex-direction: column; gap: 1px; }
 .item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
 .item:hover { background: var(--hover); }
+/* situação da conversa: mesmas cores do indicador da janela do agente */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); opacity: 0.5; }
+.dot.live { background: var(--accent); opacity: 1; box-shadow: 0 0 0 3px var(--accent-soft); animation: dot-pulse 1.4s ease-in-out infinite; }
+.dot.waiting { background: var(--mod); opacity: 1; }
+.dot.done { background: var(--add); opacity: 1; }
+.dot.error { background: var(--del); opacity: 1; }
+.dot.stopped { background: transparent; opacity: 1; box-shadow: inset 0 0 0 1.5px var(--faint); }
+@keyframes dot-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
 .text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .title { font-size: 12.5px; font-weight: 600; }
 .text small { font-size: 11px; }

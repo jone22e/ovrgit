@@ -203,8 +203,11 @@ export interface Snippet {
   connectionId?: string | null
 }
 
-/** local: shell na pasta do projeto, com um comando inicial opcional (ex.: "agy" para fazer login) */
-export type TerminalSpec = { kind: 'local'; command?: string } | { kind: 'ssh'; connectionId: string }
+/**
+ * local: shell na pasta do projeto, com um comando inicial opcional (ex.: "agy" para fazer login).
+ * `cwd`: pasta própria da aba (terminal fixado), usada no lugar da pasta do projeto aberto.
+ */
+export type TerminalSpec = { kind: 'local'; command?: string; cwd?: string } | { kind: 'ssh'; connectionId: string }
 
 export interface Settings {
   /** Id do tema (ver shared/themes.ts) */
@@ -435,6 +438,9 @@ export interface WindowBounds {
 }
 
 /** Conversa aberta pelo Ovseer, guardada para reabrir depois (a sessão continua no CLI) */
+/** Situação de uma conversa de agente: sem conversa, trabalhando, aguardando resposta do usuário, concluída ou com falha */
+export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
+
 export interface AgentHistoryItem {
   sessionId: string
   provider: CliProvider
@@ -448,6 +454,8 @@ export interface AgentHistoryItem {
   renamed?: boolean
   /** Fixada pelo usuário: fica no topo da lista e não é descartada pelo limite do histórico */
   pinned?: boolean
+  /** Situação quando a conversa foi gravada pela última vez (conversas antigas não têm) */
+  status?: AgentStatus
   /** Posição e tamanho da janela quando foi fechada, para reabrir no mesmo lugar */
   bounds?: WindowBounds
   createdAt: number
@@ -759,6 +767,11 @@ export interface OvseerApi {
   usage(force?: boolean): Promise<UsageInfo>
   onAgentEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   onAgentWindows(cb: (sessionIds: string[]) => void): () => void
+  /** A janela do agente informa a situação da conversa dela */
+  agentReportStatus(uid: string, status: AgentStatus): void
+  /** Situação das conversas com janela aberta, por id de sessão */
+  agentStatuses(): Promise<Record<string, AgentStatus>>
+  onAgentStatuses(cb: (statuses: Record<string, AgentStatus>) => void): () => void
   termCreate(cols: number, rows: number, spec: TerminalSpec): Promise<number>
   pickSshKey(): Promise<string | null>
   /** Chaves privadas encontradas em ~/.ssh (só os caminhos) */

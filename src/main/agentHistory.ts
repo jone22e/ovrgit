@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentHistoryItem, AgentTurn, AgentWindowInfo, WindowBounds } from '../shared/types'
+import type { AgentHistoryItem, AgentStatus, AgentTurn, AgentWindowInfo, WindowBounds } from '../shared/types'
 
 /**
  * Histórico das conversas abertas pelo Ovseer. A sessão em si fica com o CLI (é retomada por id);
@@ -63,7 +63,7 @@ export function sortHistory(items: AgentHistoryItem[]): AgentHistoryItem[] {
 }
 
 /** Grava a transcrição e atualiza o índice (título, modelo, quando). */
-export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[]) {
+export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status?: AgentStatus) {
   if (!info.sessionId || !turns.length) return
   const clean = turns.map((t) => ({ ...t, blocks: t.blocks.map((b) => (b.kind === 'tool' ? { ...b, open: false } : b)) }))
   writeJson(transcriptFile(info.sessionId), { sessionId: info.sessionId, turns: clean })
@@ -81,6 +81,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[]) {
     title: info.title || titleOf(turns) || items[i]?.title || 'Conversa',
     renamed: info.renamed,
     pinned: items[i]?.pinned,
+    status: status ?? items[i]?.status,
     bounds: items[i]?.bounds,
     createdAt: items[i]?.createdAt ?? now,
     updatedAt: now,
@@ -103,6 +104,15 @@ export function setHistoryTitle(sessionId: string, title: string, renamed: boole
   it.title = title
   it.renamed = renamed
   it.updatedAt = Date.now()
+  save(items)
+}
+
+/** Guarda a situação da conversa (não mexe em updatedAt: mudar de estado não é atividade nova). */
+export function setHistoryStatus(sessionId: string, status: AgentStatus) {
+  const items = load()
+  const it = items.find((i) => i.sessionId === sessionId)
+  if (!it || it.status === status) return
+  it.status = status
   save(items)
 }
 

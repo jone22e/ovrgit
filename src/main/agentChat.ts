@@ -2,13 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridPlacement, GridSize, WindowBounds } from '../shared/types'
+import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
 import { normalizeGrid } from '../shared/grid'
-import { findHistory, historyBounds, loadTranscript, setHistoryBounds, setHistoryTitle, titleOf } from './agentHistory'
+import { findHistory, historyBounds, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -28,6 +28,8 @@ interface AgentWin {
   turnDone: boolean
   /** Resolve quando o processo atual sai */
   exited: Promise<void> | null
+  /** Situação da conversa, informada pela janela (só ela sabe de cartões esperando resposta) */
+  status?: AgentStatus
 }
 
 const wins = new Map<string, AgentWin>()
@@ -240,6 +242,33 @@ export function focusAgentWindow(sessionId: string): boolean {
 function broadcastWindows() {
   const ids = agentWindows()
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('agents:windows', ids)
+  broadcastStatuses()
+}
+
+/** Situação das conversas com janela aberta, por id de sessão */
+export function agentStatuses(): Record<string, AgentStatus> {
+  const out: Record<string, AgentStatus> = {}
+  for (const w of wins.values()) if (w.info.sessionId && w.status) out[w.info.sessionId] = w.status
+  return out
+}
+
+export function agentStatus(uid: string): AgentStatus | undefined {
+  return wins.get(uid)?.status
+}
+
+function broadcastStatuses() {
+  const all = agentStatuses()
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('agents:statuses', all)
+}
+
+const STATUSES: AgentStatus[] = ['idle', 'live', 'waiting', 'done', 'error']
+export function reportStatus(uid: string, status: AgentStatus) {
+  const w = wins.get(uid)
+  if (!w || !STATUSES.includes(status) || w.status === status) return
+  w.status = status
+  // "sem conversa" é o estado da janela antes de carregar a transcrição: não apaga o que estava gravado
+  if (w.info.sessionId && status !== 'idle') setHistoryStatus(w.info.sessionId, status)
+  broadcastStatuses()
 }
 
 function emit(w: AgentWin, ev: AgentChatEvent) {

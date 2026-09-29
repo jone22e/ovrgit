@@ -3,7 +3,7 @@ import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
   Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, OvseerNewTask, OvseerStatus, OvseerTask, RepoStatus,
-  AgentSession, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
+  AgentSession, AgentStatus, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
 } from '@shared/types'
 
 const api = window.ovseer
@@ -81,6 +81,8 @@ export const state = reactive({
   agents: [] as AgentSession[],
   /** Sessões de agentes com janela aberta pelo Ovseer */
   agentWindows: [] as string[],
+  /** Situação das conversas com janela aberta, por id de sessão */
+  agentStatuses: {} as Record<string, AgentStatus>,
   showNewAgent: false,
   /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
   newAgentTask: null as OvseerTask | null,
@@ -805,6 +807,8 @@ function listenAgents() {
   api.onAgents((l) => (state.agents = l))
   api.agentWindows().then((l) => (state.agentWindows = l)).catch(() => undefined)
   api.onAgentWindows((l) => (state.agentWindows = l))
+  api.agentStatuses().then((s) => (state.agentStatuses = s)).catch(() => undefined)
+  api.onAgentStatuses((s) => (state.agentStatuses = s))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`
