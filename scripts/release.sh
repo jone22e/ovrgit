@@ -41,6 +41,10 @@ step "Testes"
 npm run typecheck
 npm test
 
+# o rascunho já existe antes do envio: arm64 e x64 publicam ao mesmo tempo e cada um criaria o seu
+gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
+  || gh release create "$TAG" -R "$REPO" --draft --title "$VERSION" --notes "" >/dev/null
+
 step "Compilando, assinando e notarizando (a notarização leva alguns minutos)"
 APPLE_KEYCHAIN_PROFILE="$PROFILE" GH_TOKEN="$(gh auth token)" npm run release:mac
 
