@@ -548,7 +548,11 @@ function registerIpc() {
     if (info && Array.isArray(turns)) agentHistory.saveTranscript(info, turns)
   })
   ipcMain.handle('agent:loadTranscript', (_e, sessionId: string) => agentHistory.loadTranscript(String(sessionId)))
+  ipcMain.handle('agent:fileRepos', (_e, uid: string, paths: string[]) =>
+    agentChat.agentFileRepos(String(uid), Array.isArray(paths) ? paths.map(String) : [])
+  )
   ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
+  ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
   ipcMain.handle('agent:focus', (_e, sessionId: string) => agentChat.focusAgentWindow(String(sessionId)))
   ipcMain.handle('agent:windows', () => agentChat.agentWindows())

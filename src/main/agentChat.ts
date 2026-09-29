@@ -886,29 +886,28 @@ async function gitTop(dir: string): Promise<string | null> {
   }
 }
 
-/**
- * Linhas acrescentadas/removidas nos arquivos que o agente alterou, em relação ao último commit (git diff --numstat).
- * Arquivos de outro repositório (fora do projeto da janela) são contados lá e vêm identificados em `repos`.
- */
-export async function fileStats(cwd: string, paths: string[]): Promise<{ stats: Record<string, FileStat | null>; repos: Record<string, FileRepo> }> {
-  const stats: Record<string, FileStat | null> = {}
-  const repos: Record<string, FileRepo> = {}
-  for (const p of paths) stats[p] = null
-  // caminho real (sem links simbólicos, como /var → /private/var no macOS), igual ao que o git devolve
-  const abs = (p: string) => {
-    const full = path.resolve(cwd, p)
-    try {
-      return realpathSync.native(full)
-    } catch {
-      return full
-    }
+/** Caminho real (sem links simbólicos, como /var → /private/var no macOS), igual ao que o git devolve */
+function realAbs(cwd: string, p: string): string {
+  const full = path.resolve(cwd, p)
+  try {
+    return realpathSync.native(full)
+  } catch {
+    return full
   }
-  const home = await gitTop(cwd)
-  // agrupa os arquivos pelo repositório a que pertencem (um rev-parse por pasta distinta)
-  const tops = new Map<string, Promise<string | null>>()
+}
+
+/**
+ * Repositório de cada arquivo: os de fora do repositório do projeto (`cwd`) vêm em `repos`;
+ * `groups` agrupa todos pelo repositório (raiz → caminhos como vieram), para contar as linhas em cada um.
+ */
+export async function fileRepos(cwd: string, paths: string[]): Promise<{ repos: Record<string, FileRepo>; groups: Map<string, string[]> }> {
+  const repos: Record<string, FileRepo> = {}
   const groups = new Map<string, string[]>()
+  const home = await gitTop(cwd)
+  // um rev-parse por pasta distinta
+  const tops = new Map<string, Promise<string | null>>()
   for (const p of paths) {
-    const dir = path.dirname(abs(p))
+    const dir = path.dirname(realAbs(cwd, p))
     if (!tops.has(dir)) tops.set(dir, gitTop(dir))
     const top = await tops.get(dir)!
     if (!top) continue
@@ -917,7 +916,25 @@ export async function fileStats(cwd: string, paths: string[]): Promise<{ stats: 
     if (g) g.push(p)
     else groups.set(top, [p])
   }
-  for (const [top, group] of groups) await countIn(top, abs, group, stats)
+  return { repos, groups }
+}
+
+/** Repositórios dos arquivos de um card antigo (transcrição restaurada sem essa informação) */
+export function agentFileRepos(uid: string, paths: string[]): Promise<Record<string, FileRepo>> {
+  const w = wins.get(uid)
+  if (!w) return Promise.resolve({})
+  return fileRepos(w.info.cwd, paths).then((r) => r.repos)
+}
+
+/**
+ * Linhas acrescentadas/removidas nos arquivos que o agente alterou, em relação ao último commit (git diff --numstat).
+ * Arquivos de outro repositório (fora do projeto da janela) são contados lá e vêm identificados em `repos`.
+ */
+export async function fileStats(cwd: string, paths: string[]): Promise<{ stats: Record<string, FileStat | null>; repos: Record<string, FileRepo> }> {
+  const stats: Record<string, FileStat | null> = {}
+  for (const p of paths) stats[p] = null
+  const { repos, groups } = await fileRepos(cwd, paths)
+  for (const [top, group] of groups) await countIn(top, (p) => realAbs(cwd, p), group, stats)
   return { stats, repos }
 }
 

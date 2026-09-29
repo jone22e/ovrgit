@@ -426,6 +426,8 @@ export interface AgentHistoryItem {
   /** Título (da IA, do usuário, ou o primeiro pedido resumido) */
   title: string
   renamed?: boolean
+  /** Fixada pelo usuário: fica no topo da lista e não é descartada pelo limite do histórico */
+  pinned?: boolean
   /** Posição e tamanho da janela quando foi fechada, para reabrir no mesmo lugar */
   bounds?: WindowBounds
   createdAt: number
@@ -716,8 +718,12 @@ export interface OvseerApi {
   agentHistory(cwd?: string): Promise<AgentHistoryItem[]>
   /** Guarda a transcrição da janela (só depois que a sessão do CLI existe) */
   agentSaveTranscript(uid: string, turns: AgentTurn[]): Promise<void>
+  /** Repositório de cada arquivo fora do projeto da janela (para cards de transcrições antigas, sem essa informação) */
+  agentFileRepos(uid: string, paths: string[]): Promise<Record<string, FileRepo>>
   agentLoadTranscript(sessionId: string): Promise<AgentTurn[] | null>
   agentForget(sessionId: string): Promise<void>
+  /** Fixa (ou solta) a conversa no topo da lista */
+  agentPin(sessionId: string, pinned: boolean): Promise<void>
   /** Renomeia a conversa (vazio volta ao título automático) */
   agentSetTitle(uid: string, title: string): Promise<string>
   /** Traz para frente a janela da conversa; false se ela não foi aberta pelo Ovseer */

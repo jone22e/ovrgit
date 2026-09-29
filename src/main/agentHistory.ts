@@ -37,7 +37,10 @@ function writeJson(file: string, data: unknown) {
 }
 
 function save(items: AgentHistoryItem[]) {
-  cache = items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ITEMS)
+  // fixadas nunca saem pelo limite; as demais, só as mais recentes
+  const sorted = items.sort((a, b) => b.updatedAt - a.updatedAt)
+  let kept = 0
+  cache = sorted.filter((i) => i.pinned || kept++ < MAX_ITEMS)
   writeJson(indexFile(), { items: cache, lastBounds: last ?? undefined })
 }
 
@@ -49,9 +52,14 @@ export function titleOf(turns: AgentTurn[]): string {
 
 export function listHistory(cwd?: string): AgentHistoryItem[] {
   const all = load()
-  if (!cwd) return [...all]
+  if (!cwd) return sortHistory(all)
   const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return all.filter((i) => norm(i.cwd) === norm(cwd))
+  return sortHistory(all.filter((i) => norm(i.cwd) === norm(cwd)))
+}
+
+/** Fixadas primeiro, depois as mais recentes. */
+export function sortHistory(items: AgentHistoryItem[]): AgentHistoryItem[] {
+  return [...items].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt)
 }
 
 /** Grava a transcrição e atualiza o índice (título, modelo, quando). */
@@ -72,6 +80,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[]) {
     project: info.project,
     title: info.title || titleOf(turns) || items[i]?.title || 'Conversa',
     renamed: info.renamed,
+    pinned: items[i]?.pinned,
     bounds: items[i]?.bounds,
     createdAt: items[i]?.createdAt ?? now,
     updatedAt: now,
@@ -94,6 +103,16 @@ export function setHistoryTitle(sessionId: string, title: string, renamed: boole
   it.title = title
   it.renamed = renamed
   it.updatedAt = Date.now()
+  save(items)
+}
+
+/** Fixa ou solta a conversa (não mexe em updatedAt: a ordem entre fixadas continua por atividade). */
+export function setHistoryPinned(sessionId: string, pinned: boolean) {
+  const items = load()
+  const it = items.find((i) => i.sessionId === sessionId)
+  if (!it) return
+  if (pinned) it.pinned = true
+  else delete it.pinned
   save(items)
 }
 

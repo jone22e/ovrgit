@@ -703,9 +703,29 @@ function adopt(saved: AgentTurn[], stillRunning: boolean) {
       if (!t.blocks.length) t.error = 'A resposta foi interrompida antes de terminar.'
     }
     turns.push(t)
-    for (const b of t.blocks) if (b.kind === 'files' && b.repos) for (const r of Object.values(b.repos)) loadRepoIcon(r.root)
+    // pelo proxy reativo (não pelo objeto cru): o `repos` preenchido depois precisa redesenhar o card
+    for (const b of turns[turns.length - 1].blocks) {
+      if (b.kind !== 'files') continue
+      if (b.repos) for (const r of Object.values(b.repos)) loadRepoIcon(r.root)
+      else backfillRepos(b)
+    }
   }
   if (turns.length && stillRunning) running.value = true
+}
+/** Card guardado antes de o app registrar o repositório de cada arquivo: descobre agora os de fora do projeto */
+function backfillRepos(b: FilesBlock) {
+  const cwd = info.value?.cwd
+  // só os que saem do projeto: `../algo` ou absolutos fora da pasta da janela
+  const outside = b.paths.filter((p) => /^\.\.[\\/]/.test(p) || (/^([a-zA-Z]:)?[\\/]/.test(p) && under(p, cwd) === p))
+  if (!outside.length) return
+  api
+    .agentFileRepos(uid, outside)
+    .then((repos) => {
+      if (!Object.keys(repos).length) return
+      b.repos = repos
+      for (const r of Object.values(repos)) loadRepoIcon(r.root)
+    })
+    .catch(() => undefined)
 }
 async function restore(i: AgentWindowInfo) {
   try {
@@ -949,15 +969,16 @@ onUnmounted(() => offs.forEach((f) => f()))
             </div>
             <div v-else class="files">
               <div class="files-head">
-                <Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}
                 <template v-for="(r, i) in otherRepos(b)" :key="r.root">
-                  <span class="faint">{{ i === 0 ? 'em' : 'e' }}</span>
+                  <span v-if="i > 0" class="faint">e</span>
                   <span class="repo" :title="r.root">
                     <img v-if="repoIcons.get(r.root)" :src="repoIcons.get(r.root)!" class="favicon" alt="" />
                     <Icon v-else name="folder" :size="12" />
                     {{ r.name }}
                   </span>
                 </template>
+                <span v-if="otherRepos(b).length" class="faint sep">·</span>
+                <Icon name="pencil" :size="12" /> Alterou {{ b.paths.length }} {{ b.paths.length === 1 ? 'arquivo' : 'arquivos' }}
                 <span v-if="sumStats(b)" class="stat"><b class="add">+{{ sumStats(b)!.add }}</b> <b class="del">−{{ sumStats(b)!.del }}</b></span>
               </div>
               <div v-for="p in b.paths" :key="p" class="file">
@@ -1244,6 +1265,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .files { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 8px 10px; font-size: 12.5px; }
 .files-head { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 4px; min-width: 0; }
 .files-head .faint { font-weight: 400; }
+.files-head .sep { margin: 0 2px; }
 .repo { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .repo .favicon { width: 13px; height: 13px; object-fit: contain; border-radius: 3px; flex: none; }
 .file { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 12px; padding: 2px 0 2px 18px; user-select: text; min-width: 0; }

@@ -16,18 +16,30 @@ const query = ref('')
 
 const list = computed(() => {
   const q = query.value.trim().toLowerCase()
-  return q ? items.value.filter((i) => `${i.title} ${i.model}`.toLowerCase().includes(q)) : items.value
+  const all = q ? items.value.filter((i) => `${i.title} ${i.model}`.toLowerCase().includes(q)) : items.value
+  // fixadas no topo; entre iguais, as mais recentes
+  return [...all].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt)
 })
 
 async function load() {
   if (!state.repo) return
   loading.value = true
   try {
-    ;[items.value, known.value] = await Promise.all([api.agentHistory(state.repo.root), known.value ? Promise.resolve(known.value) : api.knownModels().catch(() => null)])
+    items.value = await api.agentHistory(state.repo.root)
   } finally {
     loading.value = false
   }
+  // o catálogo de modelos consulta o CLI (pode levar segundos na primeira vez): a lista aparece antes,
+  // com os nomes que já conhecemos, e ganha os rótulos do catálogo quando ele chegar
+  if (!known.value && !loadingKnown) {
+    loadingKnown = true
+    api.knownModels()
+      .then((k) => (known.value = k))
+      .catch(() => null)
+      .finally(() => (loadingKnown = false))
+  }
 }
+let loadingKnown = false
 watch(open, (v) => v && load())
 // janelas de agente abertas/fechadas: atualiza o selo "aberta"
 watch(() => state.agentWindows.length, () => open.value && load())
@@ -40,6 +52,12 @@ async function reopen(h: AgentHistoryItem) {
   } catch (e) {
     state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
   }
+}
+async function pin(h: AgentHistoryItem) {
+  const pinned = !h.pinned
+  h.pinned = pinned
+  await api.agentPin(h.sessionId, pinned)
+  toast(pinned ? 'Conversa fixada no topo.' : 'Conversa solta.')
 }
 async function forget(h: AgentHistoryItem) {
   await api.agentForget(h.sessionId)
@@ -78,13 +96,14 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         Nenhuma conversa guardada ainda. Elas entram aqui depois da primeira resposta do agente.
       </p>
       <div class="list">
-        <div v-for="h in list" :key="h.sessionId" class="item" @click="reopen(h)">
+        <div v-for="h in list" :key="h.sessionId" class="item" :class="{ pinned: h.pinned }" @click="reopen(h)">
           <AgentLogo :source="h.provider" :size="14" />
           <span class="text">
             <span class="ellipsis title">{{ h.title }}</span>
             <small class="faint">{{ modelLabel(h.provider, h.model, catalogOf(known, h.provider)) }} · {{ h.turns }} {{ h.turns === 1 ? 'mensagem' : 'mensagens' }} · {{ when(h.updatedAt) }}</small>
           </span>
           <span v-if="state.agentWindows.includes(h.sessionId)" class="badge accent">aberta</span>
+          <button class="ghost rm pin" :class="{ on: h.pinned }" :title="h.pinned ? 'Soltar do topo' : 'Fixar no topo'" @click.stop="pin(h)"><Icon name="pin" :size="12" /></button>
           <button class="ghost rm" title="Esquecer esta conversa" @click.stop="forget(h)"><Icon name="x" :size="12" /></button>
         </div>
       </div>
@@ -116,4 +135,8 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .text small { font-size: 11px; }
 .rm { width: 24px; height: 24px; padding: 0; color: var(--faint); opacity: 0; flex: none; }
 .item:hover .rm { opacity: 1; }
+.pin.on { opacity: 1; color: var(--accent); }
+/* separa o bloco de fixadas do resto */
+.item.pinned + .item:not(.pinned) { margin-top: 5px; position: relative; }
+.item.pinned + .item:not(.pinned)::before { content: ''; position: absolute; left: 8px; right: 8px; top: -3px; border-top: 1px solid var(--border); }
 </style>
