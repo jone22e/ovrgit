@@ -1,407 +1,157 @@
-Jone, isso é totalmente viável e, pelo que você descreveu, eu faria como um **Git client propositalmente simplificado**, sem tentar virar outro SourceTree/GitKraken.
+# Ovseer
 
-A ideia principal seria: você abre uma pasta do projeto e o app transforma o estado do Git em algo muito mais legível.
+Git client para macOS e Windows que entende o que você fez. Em vez de uma lista de arquivos alterados, a IA agrupa
+as mudanças por assunto, escreve as mensagens e divide o trabalho em commits. O dia a dia cabe em quatro botões:
+**Commit**, **Criar Feature**, **Pull** e **Push**.
 
-Eu faria assim:
+O app usa o Git instalado na máquina e as assinaturas de IA que você já tem (Claude, ChatGPT, Antigravity) ou um
+modelo local pelo Ollama.
 
-### Tela principal
+## Funcionalidades
 
-Visual parecido com o print, mas mais orientado a **“o que foi feito”** do que simplesmente arquivos.
+### Alterações e commits
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│  projeto: flexi2                         branch: main   ● 38 │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Alterações                                                  │
-│                                                              │
-│  ▼ Nota de entrada                              8 arquivos   │
-│    Modificado fluxo de precificação                          │
-│    Adicionada nota de entrada manual                         │
-│    Ajustados testes das rotas                                │
-│                                                              │
-│    ▸ backend/src/compras/notaEntradaItensRoutes.ts            │
-│    ▸ backend/src/compras/notaEntradaManualRoutes.ts           │
-│    ▸ backend/src/.../usecase.ts                              │
-│                                                              │
-│  ▼ Devoluções                                    6 arquivos  │
-│    Ajustado controle de devoluções                           │
-│    Modificados endpoints de detalhe                          │
-│                                                              │
-│  ▼ Permissões                                    2 arquivos  │
-│    Alteradas permissões legadas                              │
-│                                                              │
-├──────────────────────────────────────────────────────────────┤
-│  Mensagem do commit                                          │
-│  [ Ajusta nota de entrada, devoluções e permissões       ]   │
-│                                                              │
-│  [ Commit ]   [ Criar Feature ]   [ Pull ]   [ Push ]        │
-└──────────────────────────────────────────────────────────────┘
-```
+- Lista de alterações em árvore ou lista, com diff lado a lado.
+- **Analisar com IA**: agrupa os arquivos por mudança funcional e propõe um plano com vários commits, cada um com
+  sua mensagem.
+- Mensagem de commit gerada pela IA a partir dos arquivos selecionados.
+- Commit parcial: escolha só alguns trechos de um arquivo; o resto continua na lista.
+- Salvar e enviar em um passo.
+- Checagem rápida antes de salvar, sem IA: chaves e senhas esquecidas no código, `console.log` e afins.
+- Revisão das alterações com IA.
 
-A IA entra justamente nessa parte:
+### Branches e fluxo de trabalho
 
-```text
-38 arquivos modificados
-```
+- **Criar Feature**: move os commits locais da `main` para uma branch nova, envia ao servidor e restaura a `main`,
+  com cópia de segurança automática antes.
+- Troca de branch levando as alterações junto ou guardando para quando você voltar.
+- Pull com opção de guardar as alterações locais antes.
+- Push que configura o upstream sozinho.
+- Limpeza de branches já incorporadas e de cópias de segurança antigas.
+- Histórico de commits com explicação de cada versão em linguagem simples.
 
-vira:
+### Rede de segurança
 
-```text
-Nota de entrada
-- adicionada rota de nota manual
-- alterada precificação
-- novos testes
+- Descartar manda as alterações para uma lixeira, de onde dá para recuperar.
+- Desfazer o último commit e editar a última mensagem, enquanto não foram enviados.
+- Operações que escrevem no repositório rodam uma de cada vez.
 
-Devoluções
-- alterado controle
-- ajustados detalhes
+### Conflitos e merge
 
-Permissões
-- ajustadas permissões legadas
-```
+- Aviso de merge em andamento, com continuar ou abortar.
+- Resolução por arquivo: ficar com a sua versão, com a do servidor, ou pedir uma proposta à IA.
+- Abrir o projeto no VS Code ou no Cursor.
 
-E ela também pode sugerir:
+### GitHub
 
-> `feat: adiciona fluxo de nota de entrada manual e ajusta devoluções`
+- Clonar repositórios da sua conta.
+- Publicar um projeto local no GitHub, público ou privado, ou em qualquer URL.
+- Criar Pull Request com título e descrição escritos pela IA.
+- Acompanhar o PR da branch atual e fazer o merge pelo app.
 
-### Stack que eu usaria
+### Agentes de IA
 
-Como você já trabalha bastante com TypeScript/Vue, eu iria de:
+- Janela própria para conversar com Claude Code, Codex (ChatGPT) e Antigravity, dentro da pasta do projeto.
+- Escolha de modelo e esforço por conversa.
+- Modos de permissão, incluindo o modo Plano: o agente apresenta um plano para leitura e aprovação antes de
+  executar.
+- Perguntas do agente viram cartões com opções.
+- Anexos: arquivos, imagens e conteúdo colado.
+- Enviar uma mensagem com o agente trabalhando, para redirecionar no meio da tarefa.
+- Histórico de conversas por repositório ou de todos, com fixação, busca e retomada.
+- Grid para posicionar várias janelas de agente na tela.
+- Instruções personalizadas que valem para todos os agentes.
+- Acompanhamento de agentes abertos em outros apps (ChatGPT, Claude), com aviso quando terminam. Lê só os
+  registros locais; nada sai do computador.
+- Indicador de consumo das assinaturas.
 
-```text
-Tauri 2
-Vue 3
-TypeScript
-Rust apenas para integração nativa
-Git CLI instalado no Mac
-SQLite para configurações locais
-Ollama para IA local
-```
+### Tarefas (Ovseer)
 
-**Tauri**, em vez de Electron, porque o app ficaria muito menor e com aparência/aplicação realmente desktop.
+- Login na plataforma Ovseer pelo navegador.
+- Painel de tarefas do workspace, atualizado em tempo real.
+- Criar tarefa com plano, responsável, prioridade, prazo e explicação gravada em áudio.
+- Começar uma tarefa já cria a branch dela.
+- Commits vinculados às tarefas.
+- Entrega da tarefa com relatório gerado pela IA: o que foi planejado e o que foi feito.
 
-O backend não precisa implementar Git. O próprio app executa:
+### Terminal
 
-```bash
-git status --porcelain=v2
-git diff
-git diff --cached
-git log
-git branch
-git rev-parse
-```
+- Terminal integrado com abas, na pasta do projeto.
+- Conexões SSH salvas, com importação do `~/.ssh/config` e de planilhas CSV.
+- Comandos salvos (snippets).
+- Fonte, peso e tamanho configuráveis.
 
-Isso é muito mais seguro do que tentar reimplementar Git.
+### Aparência
 
----
+- Tema padrão que segue o modo claro/escuro do sistema.
+- Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark e GitHub Light.
 
-## Os 4 comandos principais
+### Atualização automática
 
-Eu deixaria exatamente os comandos que você falou.
+- O app procura versões novas ao abrir e a cada 4 horas, baixa em segundo plano e instala ao reiniciar.
+- Dá para desligar ou verificar na hora em Configurações → Geral.
 
-### `Pull`
+## Provedores de IA
 
-Internamente:
+| Provedor | Como conecta |
+|---|---|
+| Claude | Sua assinatura, pelo Claude Code |
+| ChatGPT | Sua assinatura, pelo Codex CLI |
+| Antigravity | Sua conta Google, pelo Antigravity CLI |
+| Ollama | Modelo local; nada sai da máquina |
+| Sem IA | Agrupa as alterações por pasta |
 
-```bash
-git pull
-```
+## Atalhos
 
-Mas antes o app verifica se existem alterações locais.
+| Ação | Atalho |
+|---|---|
+| Trocar projeto | `Cmd/Ctrl + P` |
+| Abrir pasta | `Cmd/Ctrl + O` |
+| Atualizar | `Cmd/Ctrl + R` |
+| Configurações | `Cmd/Ctrl + ,` |
+| Analisar com IA | `Cmd/Ctrl + I` |
+| Commit | `Cmd/Ctrl + Enter` |
+| Criar Feature | `Cmd/Ctrl + Shift + F` |
+| Pull | `Cmd/Ctrl + Shift + L` |
+| Push | `Cmd/Ctrl + Shift + P` |
+| Mostrar diff | `Cmd/Ctrl + D` |
+| Mostrar terminal | ``Ctrl + ` `` |
 
-Se houver:
+## Instalação
 
-```text
-Existem alterações não commitadas.
+Baixe o instalador da versão mais recente em
+[Releases](https://github.com/jone22e/ovrgit/releases/latest): `.dmg` no macOS (arm64 para Apple Silicon, o outro
+para Intel) ou `.exe` no Windows.
 
-[ Cancelar ]
-[ Stash + Pull ]
-```
+Requisitos: Git instalado. Para as funções do GitHub, o [GitHub CLI](https://cli.github.com) com login feito.
 
-Nada de executar operações perigosas automaticamente.
-
----
-
-### `Push`
-
-Se a branch já tiver upstream:
-
-```bash
-git push
-```
-
-Se não tiver:
+## Desenvolvimento
 
 ```bash
-git push -u origin nome-da-branch
+npm install
+npm run dev
 ```
 
-O usuário não precisa saber a diferença.
-
----
-
-### `Commit`
-
-Seleciona tudo ou grupos de arquivos:
-
-```text
-☑ Nota de entrada
-☑ Devoluções
-☐ Permissões
-```
-
-O app executaria:
-
-```bash
-git add <arquivos>
-git commit -m "..."
-```
-
-A IA poderia gerar automaticamente a mensagem.
-
----
-
-# `Criar Feature`
-
-Essa seria uma das melhores funções do app.
-
-No cenário que acabamos de conversar:
-
-```text
-branch atual: main
-
-origin/main
-    A
-    |
-    B
-    |
-    C
-    |
-    D ← commits locais
-    |
-    E ← commits locais
-```
-
-Ao clicar:
-
-```text
-Criar Feature
-```
-
-abre algo extremamente simples:
-
-```text
-Criar feature
-
-Nome:
-[ nota-entrada-devolucoes ]
-
-Foram encontrados:
-3 commits locais na main
-38 arquivos alterados
-
-A main remota não será alterada.
-
-[ Cancelar ]     [ Criar Feature ]
-```
-
-E internamente:
-
-```bash
-git switch -c feature/nota-entrada-devolucoes
-git push -u origin feature/nota-entrada-devolucoes
-git switch main
-git fetch origin
-git reset --hard origin/main
-git switch feature/nota-entrada-devolucoes
-```
-
-Resultado:
-
-```text
-main
-A---B---C
-         \
-          D---E   feature/nota-entrada-devolucoes
-```
-
-E então poderia aparecer:
-
-```text
-✓ Feature criada
-✓ Main restaurada
-✓ Feature enviada para origin
-
-[ Criar Pull Request ]
-```
-
----
-
-## Mas eu faria uma proteção importante
-
-Antes de qualquer coisa destrutiva:
-
-```bash
-git branch backup/auto-2026-09-25-1130
-```
-
-Então a operação real seria:
-
-```text
-cria backup
-↓
-cria feature
-↓
-faz push
-↓
-restaura main
-```
-
-Assim, mesmo que alguma coisa saia errada, o código continua recuperável.
-
----
-
-# IA
-
-Aqui tem uma oportunidade interessante.
-
-Não mandaria o projeto inteiro para a IA.
-
-Você consegue gerar o contexto usando Git:
-
-```bash
-git diff --stat
-git diff --numstat
-git diff --unified=2
-```
-
-E mandar para a IA algo como:
-
-```text
-Analise as alterações abaixo.
-
-Agrupe os arquivos por mudança funcional.
-
-Para cada grupo retorne:
-- título
-- descrição curta
-- arquivos relacionados
-- tipo: feat/fix/refactor/test/chore
-
-Também sugira:
-- mensagem de commit
-- nome da branch
-```
-
-Resposta estruturada:
-
-```json
-{
-  "groups": [
-    {
-      "title": "Nota de entrada",
-      "type": "feat",
-      "summary": "Adiciona fluxo de nota de entrada manual.",
-      "files": [
-        "notaEntradaManualRoutes.ts",
-        "notaEntradaManualRoutes.test.ts"
-      ]
-    }
-  ],
-  "commit": "feat: adiciona fluxo de nota de entrada manual",
-  "branch": "feature/nota-entrada-manual"
-}
-```
-
-Isso permite montar a interface sem depender de texto livre.
-
----
-
-# E eu iria além
-
-Tem uma funcionalidade que combinaria muito com o que você está fazendo no dia a dia:
-
-### Separar alterações em commits automaticamente
-
-Imagine esses 38 arquivos.
-
-O app detecta:
-
-```text
-Alteração 1
-Nota de entrada
-12 arquivos
-
-Alteração 2
-Devoluções
-8 arquivos
-
-Alteração 3
-Permissões
-4 arquivos
-
-Alteração 4
-Refatoração
-14 arquivos
-```
-
-E oferece:
-
-```text
-[ Criar 4 commits ]
-```
-
-Então ele executa os `git add` por grupo e cria:
-
-```text
-feat: adiciona nota de entrada manual
-
-fix: ajusta processamento de devoluções
-
-refactor: reorganiza permissões legadas
-
-test: atualiza testes de precificação
-```
-
-Esse, para mim, seria o **diferencial real do aplicativo**.
-
-Não seria apenas:
-
-> Git com interface bonita.
-
-Seria:
-
-> **Git que entende o que o programador fez.**
-
-### MVP que eu faria
-
-```text
-Git AI
-│
-├── Abrir projeto
-├── Detectar branch
-├── Listar alterações
-├── Visualizar diff
-├── IA
-│   ├── resumir alterações
-│   ├── agrupar arquivos
-│   ├── gerar commit
-│   └── sugerir nome da feature
-│
-├── Commit
-├── Pull
-├── Push
-├── Criar Feature
-│   ├── preservar commits locais
-│   ├── criar branch
-│   ├── push
-│   └── restaurar main
-│
-└── Histórico
-    └── últimos commits
-```
-
-Eu manteria o MVP **deliberadamente pequeno**. Sem merge visual, rebase interativo, cherry-pick, submodules, Git Flow etc. Isso acabaria transformando o projeto em mais um GitKraken.
-
-A proposta seria justamente você poder trabalhar quase sempre com **quatro botões: Commit, Criar Feature, Pull e Push**, deixando Git e IA resolverem o resto por baixo.
+| Comando | O que faz |
+|---|---|
+| `npm run dev` | Abre o app em modo de desenvolvimento |
+| `npm run typecheck` | Checagem de tipos |
+| `npm test` | Testes |
+| `make build-mac` | Gera o instalador local, sem assinar |
+| `make update` | Sobe a versão e publica (ver [RELEASE.md](RELEASE.md)) |
+
+### Estrutura
+
+| Pasta | Conteúdo |
+|---|---|
+| `src/main` | Processo principal: Git, IA, agentes, terminal, integrações |
+| `src/preload` | Ponte entre o processo principal e a interface |
+| `src/renderer` | Interface em Vue 3 |
+| `src/shared` | Tipos e funções usados pelos dois lados |
+| `test` | Testes |
+
+Feito com Electron, Vue 3 e TypeScript.
+
+## Licença
+
+MIT
