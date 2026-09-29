@@ -1,0 +1,37 @@
+# Gera o instalador do Windows e anexa ao release (ver RELEASE.md).
+# Roda sozinho quando uma versão é publicada pelo `make update`; também dá para rodar à mão informando a tag.
+name: Instalador do Windows
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da versão (ex.: v0.1.1)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --win --publish never
+      - name: Anexar ao release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber -R "$GITHUB_REPOSITORY"

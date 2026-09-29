@@ -37,13 +37,19 @@ if gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null | gr
 fi
 echo "Versão: $VERSION"
 
+# texto do release: o que entrou desde a versão anterior (dá para editar depois no GitHub)
+PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+NOTES="$(mktemp)"
+git log --no-merges --format='- %s' ${PREV:+"$PREV"..}HEAD | grep -v '^- chore: versão' > "$NOTES" || true
+[ -s "$NOTES" ] || echo "- Melhorias e correções" > "$NOTES"
+
 step "Testes"
 npm run typecheck
 npm test
 
 # o rascunho já existe antes do envio: arm64 e x64 publicam ao mesmo tempo e cada um criaria o seu
 gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
-  || gh release create "$TAG" -R "$REPO" --draft --title "$VERSION" --notes "" >/dev/null
+  || gh release create "$TAG" -R "$REPO" --draft --title "$VERSION" --notes-file "$NOTES" >/dev/null
 
 step "Compilando, assinando e notarizando (a notarização leva alguns minutos)"
 APPLE_KEYCHAIN_PROFILE="$PROFILE" GH_TOKEN="$(gh auth token)" npm run release:mac
@@ -57,7 +63,7 @@ git tag "$TAG"
 git push --quiet origin main "$TAG"
 
 step "Liberando para os usuários"
-gh release edit "$TAG" -R "$REPO" --draft=false --latest >/dev/null
+gh release edit "$TAG" -R "$REPO" --draft=false --latest --notes-file "$NOTES" >/dev/null
 
 echo
 echo "✓ Ovseer $VERSION publicado: https://github.com/$REPO/releases/tag/$TAG"

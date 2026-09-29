@@ -71,17 +71,26 @@ instalar". Em Configurações → Geral → Atualização dá para ver a versão
 
 ## Windows
 
-O `make update` publica só o macOS. O instalador do Windows precisa ser gerado em uma máquina Windows, na mesma
-versão, depois do `make update`:
+O instalador do Windows é gerado pelo GitHub Actions (`.github/workflows/release-windows.yml`). Quando o
+`make update` publica a versão, o GitHub compila em uma máquina Windows e anexa o `.exe` e o `latest.yml` ao mesmo
+release, cerca de 10 minutos depois. Não precisa de máquina Windows nem de comando extra.
+
+Para gerar de novo o instalador de uma versão já publicada:
 
 ```bash
-git pull
-npm ci
-GH_TOKEN=<token> npm run release:win
+gh workflow run release-windows.yml -f tag=v0.1.1
 ```
 
-Os arquivos entram no mesmo release. No Windows a atualização automática funciona sem certificado, mas o
-SmartScreen avisa na primeira instalação.
+O instalador do Windows não é assinado: a atualização automática funciona, mas o SmartScreen avisa na primeira
+instalação.
+
+## Texto do release
+
+O `make update` preenche o texto com os commits que entraram desde a versão anterior. Para reescrever:
+
+```bash
+gh release edit v0.1.1 --notes "Texto novo"
+```
 
 ## Problemas comuns
 
@@ -99,5 +108,6 @@ SmartScreen avisa na primeira instalação.
 |---|---|
 | `src/main/updater.ts` | Checagem, download e instalação |
 | `scripts/release.sh` | Passos do `make update` |
+| `.github/workflows/release-windows.yml` | Instalador do Windows |
 | `package.json` → `build` | Assinatura, notarização e destino da publicação |
 | `build/entitlements.mac.plist` | Permissões do app assinado |
