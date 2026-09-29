@@ -38,6 +38,23 @@ async function toggleAgents(on: boolean) {
   if (!on) state.agents = []
 }
 
+// atualização do app: salva e aplica na hora
+const update = computed(() => state.update)
+const updateText = computed(() => {
+  const u = update.value
+  if (!u) return ''
+  if (u.status === 'unsupported') return 'Disponível só no app instalado.'
+  if (u.status === 'checking') return 'Procurando versão nova…'
+  if (u.status === 'available') return `Versão ${u.version} disponível.`
+  if (u.status === 'downloading') return `Baixando a versão ${u.version ?? 'nova'}… ${u.percent ?? 0}%`
+  if (u.status === 'ready') return `Versão ${u.version} pronta para instalar.`
+  if (u.status === 'error') return u.error ?? 'Não foi possível verificar.'
+  return u.checkedAt ? 'Você está na versão mais recente.' : ''
+})
+async function checkUpdate() {
+  state.update = await api.updateCheck()
+}
+
 // terminal: salva e aplica na hora (sem depender do botão Salvar)
 const termSize = computed(() => state.settings?.terminalFontSize ?? 14)
 const termWeight = computed(() => state.settings?.terminalFontWeight ?? 500)
@@ -207,6 +224,33 @@ async function save() {
                   <span class="theme-name">{{ t.name }}</span>
                 </button>
               </div>
+            </div>
+
+            <h2>Atualização</h2>
+            <div class="block">
+              <div class="row-head">
+                <div>
+                  <strong>Ovseer {{ update?.current }}</strong>
+                  <p :class="{ bad: update?.status === 'error' }">{{ updateText }}</p>
+                </div>
+                <button v-if="update?.status === 'ready'" type="button" class="primary" @click="api.updateInstall()">Reiniciar e atualizar</button>
+                <button v-else-if="update?.status === 'available'" type="button" @click="api.updateDownload()">Baixar</button>
+                <button
+                  v-else
+                  type="button"
+                  :disabled="!update || ['unsupported', 'checking', 'downloading'].includes(update.status)"
+                  @click="checkUpdate"
+                >
+                  Verificar agora
+                </button>
+              </div>
+              <label class="switch-row">
+                <div>
+                  <strong>Atualizar automaticamente</strong>
+                  <p>Procura versões novas ao abrir o app e a cada poucas horas, e baixa em segundo plano. A instalação acontece ao reiniciar.</p>
+                </div>
+                <input type="checkbox" class="switch" :checked="state.settings?.autoUpdate !== false" @change="saveSettings({ autoUpdate: ($event.target as HTMLInputElement).checked })" />
+              </label>
             </div>
           </template>
 

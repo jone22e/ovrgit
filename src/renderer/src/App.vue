@@ -29,13 +29,14 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, commit, hasPlan, init, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
 const showPull = ref(false)
 const showSwitcher = ref(false)
 const showPublish = ref(false)
+const updateDismissed = ref(false)
 // terminal maximizado só vale com o painel aberto
 const termMaximized = computed(() => state.showTerminal && state.terminalMax)
 
@@ -117,6 +118,13 @@ onUnmounted(() => {
       <Icon name="alert" />
       <span class="msg">{{ state.error }}</span>
       <button class="ghost icon small" title="Fechar" @click="state.error = null"><Icon name="x" :size="14" /></button>
+    </div>
+
+    <div v-if="state.update?.status === 'ready' && !updateDismissed" class="update-bar">
+      <Icon name="down" />
+      <span class="msg">Ovseer {{ state.update.version }} está pronto para instalar.</span>
+      <button class="primary small" @click="api.updateInstall()">Reiniciar e atualizar</button>
+      <button class="ghost icon small" title="Depois (instala ao fechar o app)" @click="updateDismissed = true"><Icon name="x" :size="14" /></button>
     </div>
 
     <Welcome v-if="!state.repo" />
@@ -203,6 +211,11 @@ aside.full { flex: 1; }
   display: flex; align-items: center; gap: 10px; padding: 8px 12px;
   background: var(--del-bg); color: var(--del); border-bottom: 1px solid var(--border);
 }
+.update-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--accent-soft); border-bottom: 1px solid var(--border);
+}
+.update-bar .msg { flex: 1; font-size: 12.5px; }
 .error-bar .msg { flex: 1; white-space: pre-wrap; user-select: text; font-size: 12.5px; }
 .toast {
   position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); text-align: center;

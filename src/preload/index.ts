@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentChatEvent, AgentSession, AuthEvent, OvseerApi, Settings } from '../shared/types'
+import type { AgentChatEvent, AgentSession, AuthEvent, OvseerApi, Settings, UpdateState } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -184,6 +184,15 @@ const api: OvseerApi = {
     const h = (_e: unknown, ids: string[]) => cb(ids)
     ipcRenderer.on('agents:windows', h)
     return () => ipcRenderer.off('agents:windows', h)
+  },
+  updateState: () => ipcRenderer.invoke('update:state'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdate: (cb) => {
+    const h = (_e: unknown, s: UpdateState) => cb(s)
+    ipcRenderer.on('update:changed', h)
+    return () => ipcRenderer.off('update:changed', h)
   },
   platform: process.platform
 }

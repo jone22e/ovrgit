@@ -3,7 +3,7 @@ import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
   Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, OvseerNewTask, OvseerStatus, OvseerTask, RepoStatus,
-  AgentSession, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec
+  AgentSession, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
 } from '@shared/types'
 
 const api = window.ovseer
@@ -39,6 +39,8 @@ export const state = reactive({
   result: null as (OperationResult & { title: string }) | null,
   toast: null as string | null,
   showSettings: false,
+  /** Atualização do app (versão nova disponível, baixando, pronta para instalar) */
+  update: null as UpdateState | null,
   showDiff: readPref('ovseer.diff') === '1',
   showTerminal: readPref('ovseer.terminal') === '1',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */
@@ -258,6 +260,8 @@ export async function init() {
   applyTheme(state.settings.theme)
   listenAgents()
   listenOvseer()
+  api.onUpdate((s) => (state.update = s))
+  api.updateState().then((s) => (state.update = s))
   refreshOvseer()
   if (state.settings.lastProject) {
     try {

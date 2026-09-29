@@ -242,8 +242,23 @@ export interface Settings {
   agentFontSize: number
   /** Grid de posicionamento das janelas de agente (colunas × linhas da área útil da tela) */
   agentGrid: GridSize
+  /** Checar e baixar versões novas do app sozinho */
+  autoUpdate: boolean
   recentProjects: string[]
   lastProject: string | null
+}
+
+/** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'unsupported'
+  /** Versão instalada */
+  current: string
+  /** Versão nova encontrada */
+  version?: string
+  percent?: number
+  error?: string
+  /** Última checagem que terminou sem versão nova */
+  checkedAt?: number
 }
 
 export interface StepResult {
@@ -756,5 +771,11 @@ export interface OvseerApi {
   termKill(id: number): Promise<void>
   onTermData(cb: (id: number, data: string) => void): () => void
   onTermExit(cb: (id: number, code: number) => void): () => void
+  updateState(): Promise<UpdateState>
+  updateCheck(): Promise<UpdateState>
+  updateDownload(): Promise<void>
+  /** Fecha o app e abre a versão nova */
+  updateInstall(): Promise<void>
+  onUpdate(cb: (s: UpdateState) => void): () => void
   platform: string
 }

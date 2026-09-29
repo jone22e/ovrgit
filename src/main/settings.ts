@@ -26,6 +26,7 @@ const DEFAULTS: Settings = {
   agentFont: '',
   agentFontSize: 14,
   agentGrid: GRID_DEFAULT,
+  autoUpdate: true,
   recentProjects: [],
   lastProject: null
 }

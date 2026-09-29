@@ -10,8 +10,10 @@
     "preview": "electron-vite preview",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win"
+    "dist:mac": "electron-vite build && electron-builder --mac -c.mac.identity=null -c.mac.notarize=false",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "release:mac": "electron-vite build && electron-builder --mac --publish always",
+    "release:win": "electron-vite build && electron-builder --win --publish always"
   },
   "author": "Jone",
   "license": "MIT",
@@ -53,13 +55,24 @@
             "arm64",
             "x64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "O Ovseer usa o microfone para gravar a explicação em áudio das tarefas."
-      }
+      },
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "identity": "C2S Business Ltda (3UG973ND38)"
     },
     "win": {
       "target": [
@@ -74,9 +87,17 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jone22e",
+        "repo": "ovrgit"
+      }
+    ]
   },
   "dependencies": {
-    "@lydell/node-pty": "^1.2.0-beta.15"
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "electron-updater": "^6.8.9"
   }
 }

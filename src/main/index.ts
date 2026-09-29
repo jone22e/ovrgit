@@ -33,6 +33,7 @@ import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
 import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from './auth'
 import * as g from './git'
 import { getSettings, rememberProject, saveSettings } from './settings'
+import * as updater from './updater'
 
 let win: BrowserWindow | null = null
 let root: string | null = null
@@ -570,6 +571,10 @@ function registerIpc() {
       if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('settings:changed', next)
     return next
   })
+  ipcMain.handle('update:state', () => updater.updateState())
+  ipcMain.handle('update:check', () => updater.checkForUpdates())
+  ipcMain.handle('update:download', () => updater.downloadUpdate())
+  ipcMain.handle('update:install', () => updater.installUpdate())
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
   })
@@ -615,6 +620,7 @@ app.whenReady().then(() => {
   agentChat.setupAgentWindows({ icon, background: initialBackground })
   createWindow()
   if (getSettings().watchAgents) startAgents()
+  updater.setupUpdater((s) => toMain('update:changed', s))
   app.on('activate', () => {
     // clicar no Dock com só janelas de agente abertas: reabre a principal
     if (!win || win.isDestroyed()) createWindow()
@@ -626,6 +632,7 @@ app.on('before-quit', () => {
   ovseer.cancelLogin()
   ovseer.stopStream()
   agentWatch.stopAgentWatch()
+  updater.stopUpdater()
   agentChat.shutdownAgents()
   killAllTerminals()
 })
