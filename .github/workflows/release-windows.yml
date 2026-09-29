@@ -29,7 +29,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx electron-builder --win --publish never
+      # nome sem espaços: é o que o latest.yml referencia e o que o app procura para se atualizar
+      - shell: bash
+        run: npx electron-builder --win --publish never -c.nsis.artifactName='Ovseer-Setup-${version}.${ext}'
       - name: Anexar ao release
         shell: bash
         env:
