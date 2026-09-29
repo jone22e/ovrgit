@@ -102,7 +102,7 @@ export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', co
 export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'shield' | 'zap'; hint: string }[] = [
   { id: 'plan', label: 'Plano', icon: 'clipboard', hint: 'Só lê o projeto e propõe um plano. Nada é alterado.' },
   { id: 'safe', label: 'Só edições', icon: 'shield', hint: 'Edita arquivos do projeto à vontade; comandos fora do sandbox são negados.' },
-  { id: 'full', label: 'Tudo liberado', icon: 'zap', hint: 'Roda qualquer comando sem perguntar. Use quando confiar na tarefa.' }
+  { id: 'full', label: 'Controle Total', icon: 'zap', hint: 'Roda qualquer comando sem perguntar. Use quando confiar na tarefa.' }
 ]
 
 /** Nome curto e legível de um modelo (ex.: "claude-opus-4-6" → "Opus 4.6", "gpt-5.6-sol" → "GPT-5.6 Sol"). */

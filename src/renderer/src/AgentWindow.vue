@@ -271,7 +271,7 @@ async function copyPlan() {
     /* sem acesso à área de transferência */
   }
 }
-/** Modo da aprovação: o que estava em uso antes do Plano; sem anterior conhecido, "Tudo liberado" */
+/** Modo da aprovação: o que estava em uso antes do Plano; sem anterior conhecido, "Controle Total" */
 const approveMode = computed<AgentMode>(() => modeBeforePlan.value ?? 'full')
 /** Modos que executam: cada um vira uma opção do cartão, com o da aprovação em primeiro */
 const PLAN_STARTS = computed(() => MODES.filter((m) => m.id !== 'plan').sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
@@ -774,7 +774,7 @@ interface SlashCommand {
   /** Nomes pelos quais o comando é achado (sem acento) */
   keys: string[]
 }
-const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], safe: ['edicoes', 'edits', 'safe'], full: ['liberado', 'full', 'tudo'] }
+const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
 const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const slashClosed = ref(false)
 const slashIndex = ref(0)
@@ -1340,10 +1340,9 @@ onUnmounted(() => offs.forEach((f) => f()))
         </button>
         <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
         <div ref="modeRoot" class="mode-menu">
-          <button type="button" class="chip" :class="[mode, { on: modeOpen }]" :title="currentMode.hint" @click="modeOpen = !modeOpen">
-            <Icon :name="currentMode.icon" :size="12" />
-            {{ currentMode.label }}
-            <Icon name="chevron" :size="11" class="chev" />
+          <!-- só o ícone: o nome do modo fica na dica e no menu -->
+          <button type="button" class="chip mode-chip" :class="[mode, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
+            <Icon :name="currentMode.icon" :size="13" />
           </button>
           <div v-if="modeOpen" class="pop">
             <button v-for="m in MODES" :key="m.id" type="button" class="ghost opt" :class="{ cur: mode === m.id }" @click="setMode(m.id), (modeOpen = false)">
@@ -1598,6 +1597,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .row .spacer { flex: 1 1 auto; }
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
+.chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
 .chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
 .chip.plan { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
 .chip.on { background: var(--hover); }
