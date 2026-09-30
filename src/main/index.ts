@@ -562,6 +562,8 @@ function registerIpc() {
   ipcMain.handle('agent:blob', (_e, uid: string, file: { name: string; type: string; data: ArrayBuffer }) =>
     agentChat.saveBlob(String(uid), String(file?.name ?? 'arquivo').slice(0, 120), String(file?.type ?? ''), new Uint8Array(file.data))
   )
+  ipcMain.handle('agent:keepFile', (_e, uid: string, p: string) => agentChat.keepFile(String(uid), String(p)))
+  ipcMain.handle('agent:image', (_e, p: string) => agentChat.attachmentImage(String(p)))
   ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
   ipcMain.handle('agent:new', (_e, uid: string) => agentChat.newChat(String(uid)))
   ipcMain.handle('agent:back', (_e, uid: string) => agentChat.backToPreviousChat(String(uid)))

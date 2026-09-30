@@ -168,6 +168,8 @@ const api: OvseerApi = {
   agentPin: (sessionId, pinned) => ipcRenderer.invoke('agent:pin', sessionId, pinned),
   agentSetTitle: (uid, title) => ipcRenderer.invoke('agent:setTitle', uid, title),
   agentSaveBlob: (uid, file) => ipcRenderer.invoke('agent:blob', uid, file),
+  agentKeepFile: (uid, path) => ipcRenderer.invoke('agent:keepFile', uid, path),
+  agentImage: (path) => ipcRenderer.invoke('agent:image', path),
   filePath: (file) => {
     try {
       return webUtils.getPathForFile(file)

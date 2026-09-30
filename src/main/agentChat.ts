@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
 import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
@@ -426,6 +426,41 @@ export function saveBlob(uid: string, name: string, type: string, data: Uint8Arr
   const file = path.join(dir, `${Date.now().toString(36)}-${base}`)
   writeFileSync(file, data)
   return describeFile(file)
+}
+
+/** Pasta temporária do sistema: o arquivo pode sumir a qualquer momento (ex.: a captura de tela arrastada da miniatura do macOS) */
+export function isTemporaryPath(p: string, tmp = os.tmpdir()): boolean {
+  const norm = (x: string) => x.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  const file = norm(p)
+  const roots = [tmp, '/tmp', '/private/tmp', '/var/folders', '/private/var/folders'].map(norm)
+  return file.includes('/temporaryitems/') || roots.some((r) => file.startsWith(`${r}/`))
+}
+
+/**
+ * Anexo arrastado do sistema. Se o arquivo está numa pasta temporária, o app guarda uma cópia: a mensagem pode
+ * ficar na fila, e até lá o original já não existe mais. Os demais seguem pelo caminho original (o agente pode
+ * precisar mexer no próprio arquivo).
+ */
+export function keepFile(uid: string, p: string): AgentAttachment {
+  if (!wins.has(uid)) throw new Error('Janela do agente não encontrada.')
+  if (!isTemporaryPath(p)) return describeFile(p)
+  if (statSync(p).size > 50 * 1024 * 1024) throw new Error('Arquivo grande demais (máx. 50 MB).')
+  const dir = blobDir(uid)
+  mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `${Date.now().toString(36)}-${path.basename(p).replace(/[^\w.\-() ]+/g, '_')}`)
+  copyFileSync(p, file)
+  return { ...describeFile(file), name: path.basename(p) }
+}
+
+/** Imagem anexada, para a miniatura e a visão ampliada na conversa. null: não é imagem, sumiu ou é grande demais. */
+export function attachmentImage(p: string): string | null {
+  const mime = IMAGE_MIME[path.extname(p).slice(1).toLowerCase()]
+  try {
+    if (!mime || statSync(p).size > 25 * 1024 * 1024) return null
+    return `data:${mime};base64,${readFileSync(p).toString('base64')}`
+  } catch {
+    return null
+  }
 }
 
 const KIND_LABEL: Record<AgentAttachment['kind'], string> = { image: 'imagem', audio: 'áudio', file: 'arquivo' }

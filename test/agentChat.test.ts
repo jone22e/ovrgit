@@ -269,6 +269,18 @@ describe('grid de posicionamento da janela', () => {
   })
 })
 
+describe('anexo em pasta temporária', () => {
+  it('reconhece as pastas temporárias do sistema, inclusive a da captura de tela do macOS', async () => {
+    const { isTemporaryPath } = await import('../src/main/agentChat')
+    expect(isTemporaryPath('/var/folders/y1/abc/T/TemporaryItems/NSIRD_screencaptureui_x/Captura de Tela.png')).toBe(true)
+    expect(isTemporaryPath('/private/var/folders/y1/abc/T/foto.png')).toBe(true)
+    expect(isTemporaryPath('/tmp/foto.png')).toBe(true)
+    expect(isTemporaryPath('C:\\Users\\jone\\AppData\\Local\\Temp\\foto.png', 'C:\\Users\\jone\\AppData\\Local\\Temp')).toBe(true)
+    expect(isTemporaryPath('/Users/jone/Desktop/Captura de Tela.png')).toBe(false)
+    expect(isTemporaryPath('/Users/jone/Flexi/ovrgit/tmp/foto.png')).toBe(false)
+  })
+})
+
 describe('janela nova na próxima área livre do grid', () => {
   const area = { x: 0, y: 25, width: 1200, height: 775 }
 

@@ -780,6 +780,10 @@ export interface OvseerApi {
   agentPickFiles(uid: string): Promise<AgentAttachment[]>
   /** Guarda um arquivo sem caminho (imagem colada, gravação) e devolve o anexo */
   agentSaveBlob(uid: string, file: { name: string; type: string; data: ArrayBuffer }): Promise<AgentAttachment>
+  /** Anexo arrastado do sistema: arquivo em pasta temporária vira uma cópia guardada pelo app */
+  agentKeepFile(uid: string, path: string): Promise<AgentAttachment>
+  /** Imagem anexada como data URL, para a miniatura e a visão ampliada (null se não dá para mostrar) */
+  agentImage(path: string): Promise<string | null>
   /** Caminho real de um arquivo arrastado para a janela (vazio se não houver) */
   filePath(file: File): string
   /** Histórico de conversas abertas pelo Ovseer (todas, ou só de um projeto) */

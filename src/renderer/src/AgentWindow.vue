@@ -470,7 +470,6 @@ function notifyDone(t: Turn) {
 
 // ---------- anexos: clipe, arrastar, colar ----------
 const isImage = (type: string, name: string) => /^image\//.test(type) || /\.(png|jpe?g|gif|webp)$/i.test(name)
-const isAudio = (type: string, name: string) => /^audio\//.test(type) || /\.(mp3|m4a|wav|ogg|webm|aac|flac|opus)$/i.test(name)
 
 function pushPending(a: Shown) {
   if (pending.some((p) => p.path === a.path)) return
@@ -484,22 +483,38 @@ function pushPending(a: Shown) {
 async function pickFiles() {
   attachError.value = null
   try {
-    for (const a of await api.agentPickFiles(uid)) pushPending(a)
+    for (const a of await api.agentPickFiles(uid)) {
+      pushPending(a)
+      loadPreview(pending[pending.length - 1])
+    }
   } catch (e) {
     attachError.value = clean(e)
   }
 }
+
+const PREVIEW_MAX = 25 * 1024 * 1024
+/** Miniatura de uma imagem anexada que ainda não tem (escolhida pelo seletor, ou de uma conversa reaberta) */
+async function loadPreview(a: Shown | undefined) {
+  if (!a || a.preview || a.kind !== 'image') return
+  const url = await api.agentImage(a.path).catch(() => null)
+  if (url) a.preview = url
+}
+/** Imagem aberta em tamanho maior (clique na miniatura) */
+const zoom = ref<{ src: string; name: string } | null>(null)
+const onZoomKey = (e: KeyboardEvent) => e.key === 'Escape' && (zoom.value = null)
+watch(zoom, (z) => (z ? window.addEventListener('keydown', onZoomKey) : window.removeEventListener('keydown', onZoomKey)))
 
 /** Arquivos vindos do sistema (arrastados) ou só com bytes (colados): os sem caminho são guardados pelo app. */
 async function addFiles(files: File[]) {
   attachError.value = null
   for (const f of files) {
     try {
-      const preview = isImage(f.type, f.name) ? URL.createObjectURL(f) : undefined
+      // a prévia vem dos bytes lidos agora, não do arquivo: o original pode sumir (captura de tela arrastada
+      // da miniatura do macOS) e uma prévia ligada a ele quebraria junto
+      const preview = isImage(f.type, f.name) && f.size <= PREVIEW_MAX ? URL.createObjectURL(new Blob([await f.arrayBuffer()], { type: f.type || 'image/png' })) : undefined
       const real = api.filePath(f)
       if (real) {
-        const kind = isImage(f.type, f.name) ? 'image' : isAudio(f.type, f.name) ? 'audio' : 'file'
-        pushPending({ name: f.name, path: real, mime: f.type, size: f.size, kind, preview })
+        pushPending({ ...(await api.agentKeepFile(uid, real)), preview })
       } else {
         const name = f.name && f.name !== 'image.png' ? f.name : `colado-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`
         const saved = await api.agentSaveBlob(uid, { name, type: f.type, data: await f.arrayBuffer() })
@@ -939,6 +954,8 @@ function adopt(saved: AgentTurn[], stillRunning: boolean) {
       if (!t.blocks.length) t.error = 'A resposta foi interrompida antes de terminar.'
     }
     turns.push(t)
+    // as prévias não são guardadas com a conversa: recarrega as das imagens que ainda existem
+    for (const a of turns[turns.length - 1].attachments) loadPreview(a)
     // pelo proxy reativo (não pelo objeto cru): o `repos` preenchido depois precisa redesenhar o card
     for (const b of turns[turns.length - 1].blocks) {
       if (b.kind !== 'files') continue
@@ -1172,11 +1189,15 @@ onUnmounted(() => offs.forEach((f) => f()))
         <div v-if="!t.silent" class="user">
           <div class="bubble">
             <div v-if="t.attachments.length" class="atts">
-              <span v-for="a in t.attachments" :key="a.path" class="att" :title="a.path">
-                <img v-if="a.preview" :src="a.preview" alt="" />
-                <Icon v-else :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
-                <span class="ellipsis">{{ a.name }}</span>
-              </span>
+              <template v-for="a in t.attachments" :key="a.path">
+                <button v-if="a.preview" type="button" class="thumb" :title="`${a.name}: clique para ampliar`" @click="zoom = { src: a.preview, name: a.name }">
+                  <img :src="a.preview" :alt="a.name" />
+                </button>
+                <span v-else class="att" :title="a.path">
+                  <Icon :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
+                  <span class="ellipsis">{{ a.name }}</span>
+                </span>
+              </template>
             </div>
             <p :class="{ clamp: isLongUser(t) && !expandedUsers.has(t.id) }">{{ t.user }}</p>
             <button v-if="isLongUser(t)" type="button" class="ghost more" @click="expandedUsers.has(t.id) ? expandedUsers.delete(t.id) : expandedUsers.add(t.id)">
@@ -1332,12 +1353,17 @@ onUnmounted(() => offs.forEach((f) => f()))
       </div>
       <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="16" /> Solte para anexar</div>
       <div v-if="pending.length" class="pending">
-        <span v-for="(a, i) in pending" :key="a.path" class="att" :title="`${a.path}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
-          <img v-if="a.preview" :src="a.preview" alt="" />
-          <Icon v-else :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
-          <span class="ellipsis">{{ a.name }}</span>
-          <button type="button" class="ghost rm" title="Remover" @click="removePending(i)"><Icon name="x" :size="11" /></button>
-        </span>
+        <template v-for="(a, i) in pending" :key="a.path">
+          <span v-if="a.preview" class="thumb" :title="`${a.name}${a.size ? ` · ${sizeOf(a.size)}` : ''}: clique para ampliar`" @click="zoom = { src: a.preview, name: a.name }">
+            <img :src="a.preview" :alt="a.name" />
+            <button type="button" class="thumb-rm" title="Remover" @click.stop="removePending(i)"><Icon name="x" :size="11" /></button>
+          </span>
+          <span v-else class="att" :title="`${a.path}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
+            <Icon :name="a.kind === 'image' ? 'panel' : a.kind === 'audio' ? 'mic' : 'paperclip'" :size="12" />
+            <span class="ellipsis">{{ a.name }}</span>
+            <button type="button" class="ghost rm" title="Remover" @click="removePending(i)"><Icon name="x" :size="11" /></button>
+          </span>
+        </template>
       </div>
       <div v-if="pastes.length" class="pending">
         <span v-for="(p, i) in pastes" :key="p.id" class="att paste" :title="p.text.slice(0, 400)">
@@ -1403,6 +1429,12 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
       </div>
     </footer>
+    <!-- imagem anexada em tamanho maior: clique fora ou Esc fecha -->
+    <div v-if="zoom" class="zoom" @click="zoom = null">
+      <img :src="zoom.src" :alt="zoom.name" @click.stop />
+      <button type="button" class="zoom-close" title="Fechar (Esc)" @click="zoom = null"><Icon name="x" :size="16" /></button>
+    </div>
+
     <Modal v-if="planOpen && planText" title="Plano" :width="760" @close="planOpen = false">
       <div class="md plan-read" @click="onMdClick" v-html="md(planText, false)" />
       <template #footer>
@@ -1490,7 +1522,31 @@ onUnmounted(() => offs.forEach((f) => f()))
   display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; max-width: 220px;
   border-radius: 8px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; color: var(--muted);
 }
-.att img { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex: none; }
+/* imagem anexada: quadro com a miniatura; clique amplia */
+.thumb {
+  position: relative; display: block; width: 72px; height: 72px; padding: 0; flex: none; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--panel-2); cursor: zoom-in;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb:hover { border-color: var(--accent); }
+.bubble .thumb { width: 120px; height: 90px; }
+.thumb-rm {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 0;
+  display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer;
+}
+.thumb-rm:hover { background: rgba(0, 0, 0, 0.85); }
+.zoom {
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 32px;
+  background: rgba(0, 0, 0, 0.78); cursor: zoom-out; animation: zoom-in 0.12s ease-out;
+  -webkit-app-region: no-drag; /* cobre o cabeçalho, que arrasta a janela */
+}
+.zoom img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); cursor: default; object-fit: contain; min-height: 0; }
+.zoom-close {
+  position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 0;
+  display: grid; place-items: center; background: rgba(255, 255, 255, 0.14); color: #fff; cursor: pointer;
+}
+.zoom-close:hover { background: rgba(255, 255, 255, 0.26); }
+@keyframes zoom-in { from { opacity: 0; } }
 .att.paste { height: auto; padding: 6px 8px 6px 8px; max-width: 320px; align-items: flex-start; }
 .paste-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text); }
 .paste-text small { font-family: var(--font); font-size: 11px; }
