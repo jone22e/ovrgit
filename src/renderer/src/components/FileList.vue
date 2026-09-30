@@ -341,11 +341,14 @@ function split(path: string) {
 .tbadge { flex: none; font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; color: var(--add); background: color-mix(in srgb, var(--add) 16%, transparent); }
 /* linhas adicionadas/removidas e a barrinha de proporção, à direita */
 .stats { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+/* colunas de largura fixa: os números variam de tamanho e a barrinha ficaria em posição diferente a cada linha */
+.stats > .add, .stats > .del { display: inline-block; min-width: 38px; text-align: right; }
 .stats .add, .totals .add { color: var(--add); font-weight: 600; }
 .stats .del, .totals .del { color: var(--del); font-weight: 600; }
-.stats .del { margin-left: 2px; }
-.bar { display: inline-flex; gap: 1px; margin-left: 4px; }
-.bar i { width: 7px; height: 7px; border-radius: 1.5px; background: var(--faint); opacity: 0.35; }
+.stats .del { margin-left: 0; }
+/* blocos em pixels inteiros, alinhados à grade: sem meio pixel, todos ficam do mesmo tamanho */
+.bar { display: inline-grid; grid-template-columns: repeat(5, 7px); gap: 2px; margin-left: 4px; width: 43px; flex: none; }
+.bar i { width: 7px; height: 7px; border-radius: 1px; background: var(--faint); opacity: 0.35; }
 .bar i.add { background: var(--add); opacity: 1; }
 .bar i.del { background: var(--del); opacity: 1; }
 .stats + .row-act, .tbadge + .row-act { margin-left: 0; }
