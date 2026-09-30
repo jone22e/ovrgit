@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentHistoryItem, AgentStatus, AgentTurn, AgentWindowInfo, WindowBounds } from '../shared/types'
+import type { AgentHistoryItem, AgentStatus, AgentTurn, AgentWindowInfo, DaySummary, WindowBounds } from '../shared/types'
+import { checksOf, DEPLOY_CMD, testCount } from '../shared/agentChecks'
 
 /**
  * Histórico das conversas abertas pelo Ovseer. A sessão em si fica com o CLI (é retomada por id);
@@ -153,4 +154,60 @@ export function loadTranscript(sessionId: string): AgentTurn[] | null {
 export function forget(sessionId: string) {
   save(load().filter((i) => i.sessionId !== sessionId))
   rmSync(transcriptFile(sessionId), { force: true })
+}
+
+/**
+ * Resumo de hoje: conversas com atividade desde a meia-noite, arquivos alterados, deploys, o que ficou pendente
+ * (sinais concretos: typecheck não rodado, testes falhando, esperando resposta, interrompida) e o que foi entregue.
+ * `open`: sessões com janela aberta (as outras que estavam trabalhando foram interrompidas).
+ */
+export function daySummary(open: Set<string>): DaySummary {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const day = start.getTime()
+  const files = new Set<string>()
+  let agents = 0
+  let deploys = 0
+  let noTypecheck = 0
+  const pending: string[] = []
+  const delivered: DaySummary['delivered'] = []
+  for (const it of load().filter((i) => i.updatedAt >= day).sort((a, b) => b.updatedAt - a.updatedAt)) {
+    const turns = (loadTranscript(it.sessionId) ?? []).filter((t) => (t.startedAt ?? it.updatedAt) >= day)
+    if (!turns.length) continue
+    agents++
+    // cada arquivo conta uma vez, pela alteração mais recente (a mesma aparece de novo a cada resposta)
+    const stats = new Map<string, { add: number; del: number }>()
+    let tests: number | undefined
+    for (const t of turns) {
+      for (const b of t.blocks) {
+        if (b.kind === 'files') {
+          for (const p of b.paths) files.add(p.startsWith('/') ? p : `${it.cwd}/${p}`)
+          for (const [p, st] of Object.entries(b.stats ?? {})) if (st) stats.set(p, st)
+        } else if (b.kind === 'tool' && b.ok !== null) {
+          if (DEPLOY_CMD.test(b.detail ?? '')) deploys++
+          const n = b.ok ? testCount(b.output ?? '') : undefined
+          if (n !== undefined) tests = n
+        }
+      }
+    }
+    // o que vale é como a última resposta terminou
+    const add = [...stats.values()].reduce((n, st) => n + st.add, 0)
+    const del = [...stats.values()].reduce((n, st) => n + st.del, 0)
+    const last = turns[turns.length - 1]
+    const lastPaths = last.blocks.flatMap((b) => (b.kind === 'files' ? b.paths : []))
+    const checks = checksOf(last.blocks, lastPaths)
+    const status = it.status === 'live' && !open.has(it.sessionId) ? 'stopped' : it.status
+    if (status === 'waiting') pending.push(`Aguardando sua resposta: ${it.title}`)
+    else if (status === 'error' || status === 'stopped') pending.push(`Interrompida: ${it.title}`)
+    if (checks?.tests && !checks.tests.ok) pending.push(`Testes falhando: ${it.title}`)
+    if (checks?.typecheck === false) pending.push(`Typecheck com erro: ${it.title}`)
+    if (checks?.typecheck === null) noTypecheck++
+    // concluída (conversas antigas não têm situação gravada; as que ainda trabalham não entram)
+    if (status === 'done' || !status || status === 'idle') {
+      const detail = tests ? `${tests} testes` : add || del ? `+${add} −${del}` : ''
+      delivered.push({ title: it.title, project: it.project, detail })
+    }
+  }
+  if (noTypecheck) pending.unshift(`Typecheck não rodado em ${noTypecheck} ${noTypecheck === 1 ? 'conversa' : 'conversas'}`)
+  return { day, agents, files: files.size, deploys, pending, delivered }
 }

@@ -592,6 +592,7 @@ function registerIpc() {
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('agent:close', (_e, uids: string[]) => agentChat.closeAgentWindows(Array.isArray(uids) ? uids.map(String) : []))
   ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
+  ipcMain.handle('agent:daySummary', () => agentHistory.daySummary(agentChat.openSessionIds()))
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
   ipcMain.handle('agent:regrid', (_e, uid: string, from: GridSize, to: GridSize) => agentChat.regridAgentWindows(String(uid), from, to))
   ipcMain.handle('agent:gridCells', (_e, uid: string, grid: GridSize) => agentChat.agentGridCells(String(uid), grid))

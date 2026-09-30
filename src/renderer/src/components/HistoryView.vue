@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import type { SavedChanges } from '@shared/types'
 import { api, dropSaved, editLastMessage, loadHistory, restoreSaved, state, undoLastCommit } from '../store'
+import DaySummaryCard from './DaySummaryCard.vue'
 import Icon from './Icon.vue'
 import PaneSwitch from './PaneSwitch.vue'
 
@@ -74,6 +75,7 @@ async function saveEdit() {
     <div class="toolbar"><PaneSwitch /></div>
     <div class="scroll">
     <div class="inner">
+      <DaySummaryCard />
       <section v-if="state.saved.length" class="saved">
         <h3><Icon name="archive" :size="15" /> Guardadas</h3>
         <p class="muted hint">Alterações que saíram da lista mas não foram perdidas. Recupere quando quiser.</p>

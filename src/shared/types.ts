@@ -471,6 +471,22 @@ export interface AgentChecks {
   deploy?: boolean
 }
 
+/** Resumo do dia das conversas com agentes (Histórico): para acompanhar e copiar para a daily */
+export interface DaySummary {
+  /** Meia-noite do dia (ms) */
+  day: number
+  /** Conversas com atividade no dia */
+  agents: number
+  /** Arquivos diferentes alterados */
+  files: number
+  /** Comandos de deploy rodados */
+  deploys: number
+  /** O que ficou pendente: typecheck não rodado, testes falhando, conversas esperando ou interrompidas */
+  pending: string[]
+  /** Conversas concluídas, da mais recente para a mais antiga */
+  delivered: { title: string; project: string; detail: string }[]
+}
+
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {
   uid: string
@@ -902,6 +918,8 @@ export interface OvseerApi {
   agentClose(uids: string[]): Promise<void>
   /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */
   agentArrange(): Promise<void>
+  /** Resumo das conversas com agentes de hoje */
+  agentDaySummary(): Promise<DaySummary>
   /** Situação das conversas com janela aberta, por id de sessão */
   agentStatuses(): Promise<Record<string, AgentStatus>>
   onAgentStatuses(cb: (statuses: Record<string, AgentStatus>) => void): () => void

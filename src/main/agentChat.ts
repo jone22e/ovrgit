@@ -366,6 +366,11 @@ function broadcastWindows() {
 
 // ---------- gerenciador de agentes: cada janela publica um resumo; as ações voltam para ela ----------
 
+/** Sessões com janela aberta (uma conversa "trabalhando" sem janela foi interrompida) */
+export function openSessionIds(): Set<string> {
+  return new Set([...wins.values()].flatMap((w) => (w.info.sessionId && !w.win.isDestroyed() ? [w.info.sessionId] : [])))
+}
+
 /** Resumos das janelas abertas, na ordem em que foram abertas */
 export function agentSnapshots(): AgentSnapshot[] {
   return [...wins.values()].filter((w) => w.snap && !w.win.isDestroyed()).map((w) => w.snap!)

@@ -4,12 +4,13 @@ import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
   GridCell,
-  AgentAction, AgentAsk, AgentChecks, AgentSnapshot,
+  AgentAction, AgentAsk, AgentSnapshot,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
+import { checksOf } from '@shared/agentChecks'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
 import Icon from './components/Icon.vue'
@@ -1108,34 +1109,6 @@ const statusSince = ref(Date.now())
 const lastEventAt = ref(Date.now())
 watch(running, (r) => r && (lastEventAt.value = Date.now()))
 /** Comandos de verificação vistos nas ferramentas da resposta */
-/** Comando que começa a linha ou vem depois de ; && || | ( (não conta quando é só texto buscado, ex.: rg deploy) */
-const CMD = (re: string) => new RegExp(`(^|[;&|(]\\s*)(${re})`, 'm')
-const TEST_CMD = CMD(String.raw`(npm|pnpm|yarn|bun)( run)? test\b|npx (vitest|jest)\b|vitest\b|jest\b|pytest\b|python -m pytest\b|node --test\b|go test\b|cargo test\b|phpunit\b`)
-const TYPE_CMD = CMD(String.raw`(npx )?(tsc|vue-tsc)\b|(npm|pnpm|yarn|bun)( run)? typecheck\b|mypy\b|pyright\b`)
-const BUILD_CMD = CMD(String.raw`(npm|pnpm|yarn|bun)( run)? build\b|(npx )?(vite|next|electron-vite) build\b`)
-const DEPLOY_CMD = CMD(String.raw`(npm|pnpm|yarn|bun) run [\w:-]*deploy|[\w./-]*deploy[\w.-]*\.sh\b|kubectl (apply|rollout)\b|aws ecs update-service\b|fly deploy\b|vercel\b`)
-/** Quantos testes passaram, pela saída do comando (vitest, jest, node --test, pytest) */
-function testCount(out: string): number | undefined {
-  const m = /Tests?:?\s+(\d+) passed/.exec(out) ?? /# pass (\d+)/.exec(out) ?? /(\d+) passed/.exec(out)
-  return m ? Number(m[1]) : undefined
-}
-function checksOf(t: Turn | undefined, paths: string[]): AgentChecks | undefined {
-  const out: AgentChecks = {}
-  for (const b of t?.blocks ?? []) {
-    if (b.kind !== 'tool' || b.ok === null) continue
-    const cmd = `${b.detail ?? ''}`
-    if (TEST_CMD.test(cmd)) {
-      const n = testCount(b.output ?? '')
-      out.tests = { ok: b.ok && (out.tests?.ok ?? true), count: n ?? out.tests?.count }
-    }
-    if (TYPE_CMD.test(cmd)) out.typecheck = b.ok
-    if (BUILD_CMD.test(cmd)) out.build = b.ok
-    if (DEPLOY_CMD.test(cmd)) out.deploy = true
-  }
-  // mexeu em código tipado e não conferiu os tipos
-  if (out.typecheck === undefined && paths.some((p) => /\.(ts|tsx|vue|mts|cts)$/.test(p))) out.typecheck = null
-  return Object.keys(out).length ? out : undefined
-}
 watch(statusKind, () => (statusSince.value = Date.now()))
 /** Primeira linha de texto da última resposta, sem marcas de Markdown */
 /** Resultado da última resposta: o primeiro parágrafo de verdade do último texto (pula títulos), sem Markdown */
@@ -1181,7 +1154,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     startedAt: cur ? workStart(cur) : undefined,
     lastEventAt: cur ? lastEventAt.value : undefined,
     lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,
-    checks: last && !last.running ? checksOf(last, paths) : undefined,
+    checks: last && !last.running ? checksOf(last.blocks, paths) : undefined,
     ask
   }
 })

@@ -223,6 +223,7 @@ const api: OvseerApi = {
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
   agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
   agentArrange: () => ipcRenderer.invoke('agent:arrange'),
+  agentDaySummary: () => ipcRenderer.invoke('agent:daySummary'),
   agentStatuses: () => ipcRenderer.invoke('agent:statuses'),
   onAgentStatuses: (cb) => {
     const h = (_e: unknown, s: Record<string, AgentStatus>) => cb(s)
