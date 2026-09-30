@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { isPartial, setDiffMode, setShowDiff, state, toggleHunk } from '../store'
+import { isPartial, openSource, setDiffMode, setPane, setShowDiff, state, toggleHunk } from '../store'
 import Icon from './Icon.vue'
+
+/** Abre o arquivo do diff no editor, numa aba fixa, para editar */
+function edit(path: string) {
+  setPane('files')
+  openSource(path, true)
+}
 
 /**
  * Diff do arquivo: em linha ou lado a lado, com as palavras alteradas destacadas.
@@ -165,6 +171,7 @@ const stats = computed(() => {
           <button :class="{ on: state.diffMode === 'unified' }" title="Em linha" @click="setDiffMode('unified')"><Icon name="list" :size="13" /></button>
           <button :class="{ on: state.diffMode === 'split' }" title="Lado a lado (antes | depois)" @click="setDiffMode('split')"><Icon name="columns" :size="13" /></button>
         </div>
+        <button v-if="file.kind !== 'deleted'" class="ghost icon small" title="Abrir no editor" @click="edit(file.path)"><Icon name="pencil" :size="13" /></button>
         <button class="ghost icon small" title="Fechar" @click="setShowDiff(false)"><Icon name="x" :size="14" /></button>
       </header>
 
