@@ -51,12 +51,18 @@ const FILTERS = computed<{ id: Filter; label: string; n: number | null }[]>(() =
   { id: 'code', label: 'Código', n: codeCount.value },
   { id: 'tests', label: 'Testes', n: testCount.value }
 ])
-/** Arquivos mostrados: os do filtro (com o filtro sem resultado, cai para todos) */
+/** Busca por texto: todas as palavras aparecem no caminho, em qualquer ordem */
+const query = ref('')
+const matches = (p: string) => {
+  const words = query.value.toLowerCase().split(/\s+/).filter(Boolean)
+  const low = p.toLowerCase()
+  return words.every((w) => low.includes(w))
+}
+/** Arquivos mostrados: os do filtro (com o filtro sem resultado, cai para todos) e da busca */
 const files = computed(() => {
   const all = allFiles.value
-  if (filter.value === 'all') return all
-  const sel = all.filter((f) => isTestFile(f.path) === (filter.value === 'tests'))
-  return sel.length ? sel : all
+  const byKind = filter.value === 'all' ? all : all.filter((f) => isTestFile(f.path) === (filter.value === 'tests'))
+  return (byKind.length ? byKind : all).filter((f) => matches(f.path))
 })
 const total = computed(() => allFiles.value.length)
 /** Soma das linhas adicionadas e removidas dos arquivos mostrados */
@@ -152,6 +158,11 @@ function split(path: string) {
   <div class="list">
     <div class="toolbar">
       <PaneSwitch />
+      <label class="search">
+        <Icon name="search" :size="13" />
+        <input v-model="query" type="text" placeholder="Buscar" spellcheck="false" @keydown.esc="query = ''" />
+        <button v-if="query" class="ghost clear" title="Limpar" @click="query = ''"><Icon name="x" :size="12" /></button>
+      </label>
       <span class="spacer" />
       <button
         v-if="state.selected.size && !state.repo?.operation"
@@ -207,6 +218,7 @@ function split(path: string) {
     </div>
 
     <div class="scroll">
+      <p v-if="total && !files.length" class="faint none">Nenhum arquivo com esse nome.</p>
       <template v-for="r in rows" :key="r.key">
         <div
           v-if="r.kind === 'dir'"
@@ -291,6 +303,15 @@ function split(path: string) {
 }
 .all { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; white-space: nowrap; overflow: hidden; }
 .spacer { flex: 1; }
+.search {
+  display: flex; align-items: center; gap: 6px; flex: 1 1 120px; min-width: 60px; max-width: 260px; height: 28px; padding: 0 6px 0 8px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); color: var(--faint);
+}
+.search:focus-within { border-color: var(--accent); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; height: 100%; font-size: 12.5px; color: var(--text); }
+.search input:focus { box-shadow: none; }
+.clear { width: 20px; height: 20px; padding: 0; }
+.none { margin: 16px 12px; font-size: 12.5px; }
 .summary {
   display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box; height: 36px; padding: 0 12px;
   border-bottom: 1px solid var(--border); font-size: 12.5px;
