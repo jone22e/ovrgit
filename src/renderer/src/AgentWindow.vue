@@ -1130,7 +1130,7 @@ onUnmounted(() => offs.forEach((f) => f()))
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
   >
-    <header class="bar">
+    <header class="bar" :class="`mode-${mode}`">
       <AgentLogo v-if="info" :source="provider" :size="16" />
       <div v-if="info" class="head-text" @mousedown="dragWindow">
         <input
@@ -1458,6 +1458,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 .bar {
   height: var(--titlebar); display: flex; align-items: center; gap: 8px; padding: 0 14px; flex: none;
   border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
+}
+/* modo Plano (roxo) e Controle total (dourado): um degradê discreto na parte esquerda do cabeçalho, nas cores dos chips */
+.bar.mode-plan { --mode-tint: var(--hunk); }
+.bar.mode-full { --mode-tint: var(--mod); }
+.bar.mode-plan, .bar.mode-full {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--mode-tint) 16%, transparent), color-mix(in srgb, var(--mode-tint) 5%, transparent) 40%, transparent 65%), var(--panel);
 }
 :root[data-platform='darwin'] .bar { padding-left: 90px; }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
