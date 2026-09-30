@@ -71,17 +71,6 @@ defineEmits<{ settings: [] }>()
     <UsageChip />
 
     <template v-if="state.repo">
-      <nav class="tabs nodrag">
-        <button :class="{ active: state.tab === 'changes' }" class="ghost small" title="Alterações" @click="state.tab = 'changes'">
-          <Icon name="list" :size="14" class="tab-icon" />
-          <span class="tab-label">Alterações</span>
-          <span v-if="state.repo.files.length" class="count">{{ state.repo.files.length }}</span>
-        </button>
-        <button :class="{ active: state.tab === 'history' }" class="ghost small" title="Histórico" @click="state.tab = 'history'">
-          <Icon name="history" :size="14" class="tab-icon" />
-          <span class="tab-label">Histórico</span>
-        </button>
-      </nav>
       <span class="layout">
         <button
           class="ghost icon"
@@ -182,17 +171,8 @@ defineEmits<{ settings: [] }>()
 @media (max-width: 720px) {
   .wide-only { display: none; }
   .branch { max-width: 130px; }
-  .tabs .count { display: none; }
 }
-.tab-icon { display: none; }
 @media (max-width: 600px) {
   .topbar { gap: 4px; }
-  .tabs button { padding: 0 8px; }
-  .tab-label { display: none; }
-  .tab-icon { display: block; }
 }
-.tabs { display: flex; gap: 2px; padding: 2px; background: var(--panel-2); border-radius: 9px; margin-right: 4px; }
-.tabs button { height: 26px; }
-.tabs button.active { background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-.count { font-size: 11px; color: var(--accent); font-weight: 700; }
 </style>

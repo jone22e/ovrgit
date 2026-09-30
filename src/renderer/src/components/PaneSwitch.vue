@@ -2,16 +2,28 @@
 import { setPane, state } from '../store'
 import Icon from './Icon.vue'
 
-/** Alterna a lista da esquerda entre os arquivos alterados (diff à direita) e todos os arquivos do projeto (editor à direita) */
+/** Alterna entre os arquivos alterados (diff à direita), todos os arquivos do projeto (editor à direita) e o histórico de versões */
+const current = () => (state.tab === 'history' ? 'history' : state.pane)
+function go(v: 'changes' | 'files' | 'history') {
+  if (v === 'history') {
+    state.tab = 'history'
+    return
+  }
+  state.tab = 'changes'
+  setPane(v)
+}
 </script>
 
 <template>
   <div class="seg pane-switch" role="group" aria-label="Lista de arquivos">
-    <button :class="{ on: state.pane === 'changes' }" title="Arquivos alterados: ver o que mudou" @click="setPane('changes')">
+    <button :class="{ on: current() === 'changes' }" title="Arquivos alterados: ver o que mudou" @click="go('changes')">
       <Icon name="commit" :size="14" /><span class="lbl">Alterações</span>
     </button>
-    <button :class="{ on: state.pane === 'files' }" title="Todos os arquivos do projeto: abrir no editor" @click="setPane('files')">
+    <button :class="{ on: current() === 'files' }" title="Todos os arquivos do projeto: abrir no editor" @click="go('files')">
       <Icon name="folder" :size="14" /><span class="lbl">Arquivos</span>
+    </button>
+    <button :class="{ on: current() === 'history' }" title="Histórico: versões salvas e alterações guardadas" @click="go('history')">
+      <Icon name="history" :size="14" /><span class="lbl">Histórico</span>
     </button>
   </div>
 </template>

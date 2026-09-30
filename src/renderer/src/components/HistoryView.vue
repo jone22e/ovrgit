@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import type { SavedChanges } from '@shared/types'
 import { api, dropSaved, editLastMessage, loadHistory, restoreSaved, state, undoLastCommit } from '../store'
 import Icon from './Icon.vue'
+import PaneSwitch from './PaneSwitch.vue'
 
 onMounted(loadHistory)
 
@@ -70,6 +71,8 @@ async function saveEdit() {
 
 <template>
   <div class="history">
+    <div class="toolbar"><PaneSwitch /></div>
+    <div class="scroll">
     <div class="inner">
       <section v-if="state.saved.length" class="saved">
         <h3><Icon name="archive" :size="15" /> Guardadas</h3>
@@ -156,11 +159,14 @@ async function saveEdit() {
         </ol>
       </section>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.history { flex: 1; overflow: auto; background: var(--panel); }
+.history { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); }
+.toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
+.scroll { flex: 1; min-height: 0; overflow: auto; }
 .inner { max-width: 900px; margin: 0 auto; padding: 18px 24px 30px; display: flex; flex-direction: column; gap: 24px; }
 h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; }
 h3 svg { color: var(--accent); }
