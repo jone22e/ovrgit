@@ -95,6 +95,19 @@ async function reopen(h: AgentHistoryItem) {
     state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
   }
 }
+/** Fixadas que não estão abertas: reabre todas de uma vez (uma de cada vez, para cada janela achar o seu lugar no grid) */
+const closedPinned = computed(() => list.value.filter((h) => h.pinned && !state.agentWindows.includes(h.sessionId)))
+async function reopenPinned() {
+  const todo = [...closedPinned.value]
+  open.value = false
+  for (const h of todo) {
+    try {
+      await api.agentOpen({ provider: h.provider, model: h.model, effort: h.effort, mode: h.mode, cwd: h.cwd, resumeId: h.sessionId })
+    } catch (e) {
+      state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+    }
+  }
+}
 async function pin(h: AgentHistoryItem) {
   const pinned = !h.pinned
   h.pinned = pinned
@@ -143,7 +156,17 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       </p>
       <div class="list">
         <template v-for="{ h, label } in rows" :key="h.sessionId">
-        <div v-if="label" class="sep"><span>{{ label }}</span></div>
+        <div v-if="label" class="sep">
+          <span>{{ label }}</span>
+          <button
+            v-if="label === 'Fixadas' && closedPinned.length"
+            class="ghost reopen-all"
+            :title="`Reabrir ${closedPinned.length === 1 ? 'a conversa fixada que está fechada' : `as ${closedPinned.length} conversas fixadas que estão fechadas`}`"
+            @click.stop="reopenPinned"
+          >
+            reabrir todas
+          </button>
+        </div>
         <div class="item" @click="reopen(h)">
           <span class="dot" :class="statusOf(h)" :title="STATUS_LABEL[statusOf(h)]" />
           <AgentLogo :source="h.provider" :size="14" />
@@ -202,5 +225,7 @@ header strong { min-width: 0; flex: 1; }
 .pin.on { opacity: 1; color: var(--accent); }
 /* separador discreto entre os grupos: rótulo pequeno seguido de uma linha */
 .sep { display: flex; align-items: center; gap: 8px; padding: 6px 8px 2px; font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.04em; }
-.sep::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+.sep::after { content: ''; flex: 1; border-top: 1px solid var(--border); order: 1; }
+.reopen-all { order: 2; height: 18px; padding: 0 6px; border-radius: 5px; font-size: 10.5px; color: var(--faint); text-transform: none; letter-spacing: 0; }
+.reopen-all:hover { color: var(--accent); background: var(--accent-soft); }
 </style>
