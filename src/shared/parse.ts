@@ -19,6 +19,27 @@ function kindFromXY(xy: string): ChangeKind {
   return 'modified'
 }
 
+/** Arquivo de teste: pelo nome (x.test.ts, x.spec.js, x_test.go) ou pela pasta (test/, tests/, __tests__/, spec/) */
+export const isTestFile = (p: string) => /(\.|_)(test|spec)\.[a-z0-9]+$/i.test(p) || /(^|\/)(tests?|__tests__|spec)\//i.test(p)
+
+/**
+ * Interpreta a saída de `git diff --numstat -z`: linhas adicionadas e removidas por arquivo. Binários ("-") ficam
+ * de fora. Renomeados vêm como "add\tdel\t" seguido de origem e destino: valem pelo destino.
+ */
+export function parseNumstat(out: string): Record<string, { add: number; del: number }> {
+  const res: Record<string, { add: number; del: number }> = {}
+  const tokens = out.split('\0')
+  for (let i = 0; i < tokens.length; i++) {
+    const m = /^(\d+|-)\t(\d+|-)\t(.*)$/s.exec(tokens[i])
+    if (!m) continue
+    let file = m[3]
+    if (!file) file = tokens[(i += 2)] ?? ''
+    if (!file || m[1] === '-' || m[2] === '-') continue
+    res[file] = { add: Number(m[1]), del: Number(m[2]) }
+  }
+  return res
+}
+
 /** Interpreta a saída de `git status --porcelain=v2 --branch -z --untracked-files=all`. */
 export function parseStatus(out: string): ParsedStatus {
   const res: ParsedStatus = {

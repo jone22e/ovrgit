@@ -1,16 +1,49 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { FileChange } from '@shared/types'
 import {
   discardFiles, hasPlan, isPartial, openPlan, refresh, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
   toggleCollapsed, toggleFile, toggleFiles
 } from '../store'
+import { isTestFile } from '@shared/parse'
 import Icon from './Icon.vue'
 import PaneSwitch from './PaneSwitch.vue'
 
 type Row =
   | { kind: 'dir'; key: string; depth: number; name: string; files: string[] }
+  /** Subpasta dentro de um grupo: só um rótulo (caminho relativo ao grupo), sem caixa nem recolher */
+  | { kind: 'sub'; key: string; prefix: string; last: string }
   | { kind: 'file'; key: string; depth: number; file: FileChange }
+
+/** Filtro da lista: todos, só código ou só testes (a escolha fica guardada) */
+type Filter = 'all' | 'code' | 'tests'
+const FILTER_KEY = 'ovseer.changesFilter'
+const readFilter = (): Filter => {
+  try {
+    const v = localStorage.getItem(FILTER_KEY)
+    return v === 'code' || v === 'tests' ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+const filter = ref<Filter>(readFilter())
+/** Painel estreito: os filtros somem (CSS); para a lista não ficar filtrada sem aviso, volta para todos */
+const NARROW = 560
+const listEl = ref<HTMLElement>()
+let ro: ResizeObserver | undefined
+onMounted(() => {
+  ro = new ResizeObserver(([e]) => e && e.contentRect.width <= NARROW && filter.value !== 'all' && setFilter('all'))
+  if (listEl.value) ro.observe(listEl.value)
+})
+onUnmounted(() => ro?.disconnect())
+function setFilter(f: Filter) {
+  filter.value = f
+  try {
+    localStorage.setItem(FILTER_KEY, f)
+  } catch {
+    /* só nesta sessão */
+  }
+}
 
 interface Dir {
   name: string
@@ -19,8 +52,33 @@ interface Dir {
   files: FileChange[]
 }
 
-const files = computed(() => state.repo?.files ?? [])
-const total = computed(() => files.value.length)
+const allFiles = computed(() => state.repo?.files ?? [])
+const testCount = computed(() => allFiles.value.filter((f) => isTestFile(f.path)).length)
+const codeCount = computed(() => allFiles.value.length - testCount.value)
+const FILTERS = computed<{ id: Filter; label: string; n: number | null }[]>(() => [
+  { id: 'all', label: 'Todos', n: null },
+  { id: 'code', label: 'Código', n: codeCount.value },
+  { id: 'tests', label: 'Testes', n: testCount.value }
+])
+/** Arquivos mostrados: os do filtro (com o filtro sem resultado, cai para todos) */
+const files = computed(() => {
+  const all = allFiles.value
+  if (filter.value === 'all') return all
+  const sel = all.filter((f) => isTestFile(f.path) === (filter.value === 'tests'))
+  return sel.length ? sel : all
+})
+const total = computed(() => allFiles.value.length)
+/** Soma das linhas adicionadas e removidas dos arquivos mostrados */
+const totals = computed(() => files.value.reduce((t, f) => ({ add: t.add + (f.stats?.add ?? 0), del: t.del + (f.stats?.del ?? 0) }), { add: 0, del: 0 }))
+/** Proporção adicionado/removido em cinco blocos, como no GitHub */
+function blocks(f: FileChange): ('add' | 'del' | 'none')[] {
+  const st = f.stats
+  if (!st || st.add + st.del === 0) return Array(5).fill('none')
+  let a = Math.round((5 * st.add) / (st.add + st.del))
+  if (st.del && a === 5) a = 4
+  if (st.add && a === 0) a = 1
+  return [...Array(a).fill('add'), ...Array(5 - a).fill('del')]
+}
 const allChecked = computed(() => total.value > 0 && state.selected.size === total.value)
 const someChecked = computed(() => state.selected.size > 0 && !allChecked.value)
 
@@ -48,21 +106,34 @@ const rows = computed<Row[]>(() => {
     cur.files.push(f)
   }
   const out: Row[] = []
-  const walk = (d: Dir, depth: number) => {
-    for (const child of [...d.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-      let node = child
-      let name = child.name
-      while (node.files.length === 0 && node.dirs.size === 1) {
-        node = [...node.dirs.values()][0]
-        name = `${name}/${node.name}`
-      }
-      out.push({ kind: 'dir', key: `d:${node.path}`, depth, name, files: descendants(node) })
-      if (!state.collapsed.has(node.path)) walk(node, depth + 1)
+  const byPath = (a: FileChange, b: FileChange) => a.path.localeCompare(b.path)
+  // arquivos na raiz do projeto: sem grupo
+  for (const f of [...root.files].sort(byPath)) out.push({ kind: 'file', key: f.path, depth: 0, file: f })
+  // um grupo por pasta de primeiro nível (compactada enquanto tiver um filho só); dentro dele, as subpastas
+  // viram rótulos com o caminho relativo ao grupo, e os arquivos ficam todos no mesmo nível
+  for (const child of [...root.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+    let node = child
+    let name = child.name
+    while (node.files.length === 0 && node.dirs.size === 1) {
+      node = [...node.dirs.values()][0]
+      name = `${name}/${node.name}`
     }
-    for (const f of [...d.files].sort((a, b) => a.path.localeCompare(b.path)))
-      out.push({ kind: 'file', key: f.path, depth, file: f })
+    out.push({ kind: 'dir', key: `d:${node.path}`, depth: 0, name, files: descendants(node) })
+    if (state.collapsed.has(node.path)) continue
+    const leaves: { rel: string; files: FileChange[] }[] = []
+    const collect = (d: Dir, rel: string) => {
+      if (d.files.length) leaves.push({ rel, files: [...d.files].sort(byPath) })
+      for (const sd of [...d.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) collect(sd, rel ? `${rel}/${sd.name}` : sd.name)
+    }
+    collect(node, '')
+    for (const leaf of leaves) {
+      if (leaf.rel) {
+        const i = leaf.rel.lastIndexOf('/')
+        out.push({ kind: 'sub', key: `s:${node.path}/${leaf.rel}`, prefix: i < 0 ? '' : leaf.rel.slice(0, i + 1), last: leaf.rel.slice(i + 1) })
+      }
+      for (const f of leaf.files) out.push({ kind: 'file', key: f.path, depth: 1, file: f })
+    }
   }
-  walk(root, 0)
   return out
 })
 
@@ -87,14 +158,20 @@ function split(path: string) {
 </script>
 
 <template>
-  <div class="list">
+  <div ref="listEl" class="list">
     <div class="toolbar">
       <PaneSwitch />
       <label class="all" :title="allChecked ? 'Desmarcar tudo' : 'Marcar tudo'">
         <input type="checkbox" :checked="allChecked" :indeterminate="someChecked" @change="toggleAll" />
-        <strong>{{ total }}</strong>
-        <span class="muted label-long">arquivo{{ total === 1 ? '' : 's' }} alterado{{ total === 1 ? '' : 's' }}</span>
+        <strong>{{ state.selected.size }} de {{ total }}</strong>
+        <span class="muted label-long">arquivo{{ total === 1 ? '' : 's' }}</span>
+        <span v-if="totals.add || totals.del" class="totals label-long"><b class="add">+{{ totals.add }}</b> <b class="del">−{{ totals.del }}</b></span>
       </label>
+      <div v-if="testCount && codeCount" class="seg filters" role="group" aria-label="Filtro">
+        <button v-for="f in FILTERS" :key="f.id" :class="{ on: filter === f.id }" :title="f.id === 'all' ? 'Todos os arquivos' : f.id === 'code' ? 'Só os arquivos de código' : 'Só os arquivos de teste'" @click="setFilter(f.id)">
+          {{ f.label }}<span v-if="f.n !== null" class="fn">{{ f.n }}</span>
+        </button>
+      </div>
 
       <button
         v-if="state.selected.size && !state.repo?.operation"
@@ -162,6 +239,10 @@ function split(path: string) {
           <span class="faint n">{{ r.files.length }}</span>
         </div>
 
+        <div v-else-if="r.kind === 'sub'" class="row sub">
+          <span class="ellipsis"><span class="faint">{{ r.prefix }}</span><b>{{ r.last }}</b></span>
+        </div>
+
         <div
           v-else
           class="row file"
@@ -181,6 +262,11 @@ function split(path: string) {
           <span class="kind" :class="r.file.kind">{{ KIND_LETTER[r.file.kind] }}</span>
           <span class="path ellipsis">
             <template v-if="state.viewMode === 'list'"><span class="faint">{{ split(r.file.path).dir }}</span></template>{{ split(r.file.path).name }}
+          </span>
+          <span v-if="isTestFile(r.file.path)" class="tbadge" title="Arquivo de teste">T</span>
+          <span v-if="r.file.stats && r.file.kind !== 'conflict'" class="stats" :title="`${r.file.stats.add} linha(s) adicionada(s), ${r.file.stats.del} removida(s)`">
+            <b class="add">+{{ r.file.stats.add }}</b><b class="del">−{{ r.file.stats.del }}</b>
+            <span class="bar"><i v-for="(b, i) in blocks(r.file)" :key="i" :class="b" /></span>
           </span>
           <button
             v-if="r.file.kind !== 'conflict' && !state.repo?.operation"
@@ -227,6 +313,25 @@ function split(path: string) {
 .dir .chev { color: var(--faint); transition: transform 0.12s; margin: 0 -3px; }
 .dir .chev.open { transform: rotate(90deg); }
 .dirname { font-weight: 600; font-size: 12.5px; }
+/* subpasta dentro do grupo: rótulo discreto, com o caminho relativo e a última pasta em destaque */
+.row.sub { height: 24px; padding-left: 30px; cursor: default; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.row.sub:hover { background: transparent; }
+.row.sub b { font-weight: 600; color: var(--text); }
+.tbadge { flex: none; font-size: 10px; font-weight: 700; line-height: 1; padding: 3px 5px; border-radius: 4px; color: var(--add); background: color-mix(in srgb, var(--add) 16%, transparent); }
+/* linhas adicionadas/removidas e a barrinha de proporção, à direita */
+.stats { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.stats .add, .totals .add { color: var(--add); font-weight: 600; }
+.stats .del, .totals .del { color: var(--del); font-weight: 600; }
+.stats .del { margin-left: 2px; }
+.bar { display: inline-flex; gap: 1px; margin-left: 4px; }
+.bar i { width: 7px; height: 7px; border-radius: 1.5px; background: var(--faint); opacity: 0.35; }
+.bar i.add { background: var(--add); opacity: 1; }
+.bar i.del { background: var(--del); opacity: 1; }
+.stats + .row-act, .tbadge + .row-act { margin-left: 0; }
+.totals { font-size: 12px; margin-left: 2px; }
+.filters button { width: auto; padding: 0 9px; font-size: 12px; gap: 4px; }
+.filters .fn { color: var(--faint); font-variant-numeric: tabular-nums; }
+.filters button.on .fn { color: var(--muted); }
 .n { font-size: 11.5px; margin-left: auto; }
 .file.active { background: var(--accent-soft); }
 .file.conflict { background: var(--del-bg); height: 32px; }
@@ -237,6 +342,13 @@ function split(path: string) {
 /* adapta à largura do painel (que encolhe quando o diff está aberto), não só da janela */
 @container (max-width: 620px) {
   .label-long { display: none; }
+}
+@container (max-width: 700px) {
+  .bar { display: none; }
+  .filters .fn { display: none; }
+}
+@container (max-width: 560px) {
+  .filters { display: none; }
 }
 @container (max-width: 400px) {
   .toolbar { gap: 6px; padding: 0 10px; }

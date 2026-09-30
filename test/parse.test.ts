@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { heuristicGroups, parseStatus, pullRequestUrl, slugify } from '../src/shared/parse'
+import { heuristicGroups, isTestFile, parseNumstat, parseStatus, pullRequestUrl, slugify } from '../src/shared/parse'
 import { normalizeAnalysis } from '../src/main/ai'
 import type { FileChange } from '../src/shared/types'
 
@@ -34,6 +34,21 @@ describe('parseStatus', () => {
     expect(parseStatus('# branch.oid (initial)\0# branch.head main\0').hasCommits).toBe(false)
     const d = parseStatus('# branch.oid abc\0# branch.head (detached)\0')
     expect(d).toMatchObject({ detached: true, branch: null })
+  })
+})
+
+describe('parseNumstat', () => {
+  it('lê linhas por arquivo, pula binários e usa o destino dos renomeados', () => {
+    const out = ['12\t3\tsrc/a.ts', '-\t-\timg.png', '5\t0\t', 'old.ts', 'new.ts', ''].join('\x00')
+    expect(parseNumstat(out)).toEqual({ 'src/a.ts': { add: 12, del: 3 }, 'new.ts': { add: 5, del: 0 } })
+    expect(parseNumstat('')).toEqual({})
+  })
+})
+
+describe('isTestFile', () => {
+  it('reconhece testes pelo nome e pela pasta', () => {
+    for (const p of ['a/policy.test.ts', 'b.spec.js', 'x_test.go', 'test/git.test.ts', 'src/__tests__/a.ts', 'spec/models/a.rb', 'tests/a.py']) expect(isTestFile(p)).toBe(true)
+    for (const p of ['src/policy.ts', 'src/testes/a.ts', 'contest.ts', 'src/latest.ts', 'spec.ts']) expect(isTestFile(p)).toBe(false)
   })
 })
 

@@ -45,6 +45,8 @@ describe('git', () => {
       ['README.md', 'modified'],
       ['src/novo.ts', 'untracked']
     ])
+    // linhas: o modificado pelo diff, o novo contado do próprio arquivo
+    expect(st.files.map((f) => f.stats)).toEqual([{ add: 1, del: 1 }, { add: 1, del: 0 }])
   })
 
   it('diff funciona para arquivo modificado e novo', async () => {

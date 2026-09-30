@@ -7,6 +7,8 @@ export interface FileChange {
   kind: ChangeKind
   staged: boolean
   unstaged: boolean
+  /** Linhas adicionadas e removidas em relação à última versão (ausente em binários) */
+  stats?: { add: number; del: number }
 }
 
 export type RepoOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null

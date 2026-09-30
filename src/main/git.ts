@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import type {
   CommitInfo, CreatedCommit, FeaturePreview, FileChange, OperationResult, RepoOperation, RepoStatus, StepResult
 } from '../shared/types'
-import { commitWebUrl, LOG_FORMAT, parseLog, parseStatus, pullRequestUrl, repoWebUrl, slugify } from '../shared/parse'
+import { commitWebUrl, LOG_FORMAT, parseLog, parseNumstat, parseStatus, pullRequestUrl, repoWebUrl, slugify } from '../shared/parse'
 import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 export class GitError extends Error {
@@ -120,6 +120,7 @@ export async function status(root: string): Promise<RepoStatus> {
     currentOperation(root)
   ])
   const s = parseStatus(out)
+  await addStats(root, s.files, s.hasCommits)
   const conflicts = s.files.filter((f) => f.kind === 'conflict').length
   // upstream "gone": configurado, mas a branch não existe no remoto (ex.: repositório recém-criado e vazio)
   const published = !!s.upstream && (await refExists(root, `refs/remotes/${s.upstream}`))
@@ -129,6 +130,33 @@ export async function status(root: string): Promise<RepoStatus> {
       : 0
   return {
     root, name: path.basename(root), hasRemote: rems.includes('origin'), operation, conflicts, published, unpublished, ...s
+  }
+}
+
+/** Até este tamanho um arquivo novo tem as linhas contadas (acima disso, ou binário, fica sem números) */
+const COUNT_MAX = 2 * 1024 * 1024
+
+/**
+ * Linhas adicionadas e removidas de cada arquivo, em relação à última versão (staged e não staged juntos).
+ * Arquivos novos não entram no diff: as linhas são contadas do próprio arquivo.
+ */
+async function addStats(root: string, files: FileChange[], hasCommits: boolean) {
+  if (!files.length) return
+  const tracked = await git(root, ['diff', '--numstat', '-M', '-z', ...(hasCommits ? ['HEAD'] : []), '--']).catch(() => '')
+  const stats = parseNumstat(tracked)
+  for (const f of files) {
+    if (f.kind === 'untracked') {
+      try {
+        const full = path.join(root, f.path)
+        if (statSync(full).size > COUNT_MAX) continue
+        const buf = readFileSync(full)
+        if (buf.includes(0)) continue // binário
+        const text = buf.toString('utf8')
+        f.stats = { add: text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0, del: 0 }
+      } catch {
+        /* sumiu ou sem permissão: sem números */
+      }
+    } else if (stats[f.path]) f.stats = stats[f.path]
   }
 }
 
