@@ -118,9 +118,15 @@ const gridRoot = ref<HTMLElement>()
 /** Colunas × linhas do grid: carregado das configurações do app ao abrir a janela; a troca é gravada lá
  * (o app também usa esse tamanho para abrir janelas novas na próxima área livre) */
 const gridSize = ref<GridSize>({ ...GRID_DEFAULT })
-function setGridSize(s: GridSize) {
-  gridSize.value = normalizeGrid(s)
-  api.saveSettings({ agentGrid: gridSize.value }).catch(() => undefined)
+async function setGridSize(s: GridSize) {
+  const from = gridSize.value
+  const to = normalizeGrid(s)
+  if (to.cols === from.cols && to.rows === from.rows) return
+  gridSize.value = to
+  api.saveSettings({ agentGrid: to }).catch(() => undefined)
+  // as janelas de agente desta tela acompanham o grid novo; depois o desenho mostra onde cada uma ficou
+  await api.agentRegrid(uid, { ...from }, { ...to }).catch(() => undefined)
+  gridCells.value = await api.agentGridCells(uid, { ...to }).catch(() => [])
 }
 /** Escolha feita no grid: a janela vai para a área correspondente da tela e o menu fecha */
 /** Células já cobertas por janelas de agente: recarrega ao abrir o menu e ao mudar o tamanho do grid */

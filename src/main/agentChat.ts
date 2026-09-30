@@ -266,6 +266,66 @@ export function placeAgentWindow(uid: string, p: GridPlacement): WindowBounds {
   return w.win.getBounds()
 }
 
+/**
+ * Novo lugar de cada janela quando o grid muda de tamanho. Cada janela é encaixada no grid antigo (célula e
+ * extensão mais próximas) e mantém a mesma célula e a mesma extensão no novo: com mais colunas ficam mais
+ * estreitas, com menos ficam mais largas. Quem ocupava a tela toda numa direção continua ocupando.
+ * A extensão cresce até caber a janela mínima; quem não cabe mais onde estava (saiu do grid ou bateria em
+ * outra) vai para a primeira área livre, em ordem de leitura. Sem área livre, fica onde der, sobreposta.
+ */
+export function regridBounds(area: WindowBounds, from: GridSize, to: GridSize, windows: WindowBounds[], min = MIN_WIN): WindowBounds[] {
+  const f = normalizeGrid(from)
+  const { cols, rows } = normalizeGrid(to)
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+  const old = windows.map((b) => {
+    const col = clamp(Math.round((b.x - area.x) / (area.width / f.cols)), 0, f.cols - 1)
+    const row = clamp(Math.round((b.y - area.y) / (area.height / f.rows)), 0, f.rows - 1)
+    return {
+      col,
+      row,
+      colSpan: clamp(Math.round(b.width / (area.width / f.cols)), 1, f.cols - col),
+      rowSpan: clamp(Math.round(b.height / (area.height / f.rows)), 1, f.rows - row)
+    }
+  })
+  const minCols = Math.ceil(min.width / (area.width / cols))
+  const minRows = Math.ceil(min.height / (area.height / rows))
+  const taken = new Set<string>()
+  const free = (col: number, row: number, colSpan: number, rowSpan: number) => {
+    if (col < 0 || row < 0 || col + colSpan > cols || row + rowSpan > rows) return false
+    for (let r = row; r < row + rowSpan; r++) for (let c = col; c < col + colSpan; c++) if (taken.has(`${c},${r}`)) return false
+    return true
+  }
+  const out: WindowBounds[] = []
+  // em ordem de leitura: quem está mais acima e à esquerda escolhe primeiro
+  const order = old.map((_, i) => i).sort((a, b) => old[a].row - old[b].row || old[a].col - old[b].col)
+  for (const i of order) {
+    const o = old[i]
+    const colSpan = Math.min(cols, o.colSpan === f.cols ? cols : Math.max(o.colSpan, minCols))
+    const rowSpan = Math.min(rows, o.rowSpan === f.rows ? rows : Math.max(o.rowSpan, minRows))
+    let spot = free(o.col, o.row, colSpan, rowSpan) ? { col: o.col, row: o.row } : null
+    for (let r = 0; !spot && r + rowSpan <= rows; r++) for (let c = 0; !spot && c + colSpan <= cols; c++) if (free(c, r, colSpan, rowSpan)) spot = { col: c, row: r }
+    spot ??= { col: clamp(o.col, 0, cols - colSpan), row: clamp(o.row, 0, rows - rowSpan) }
+    for (let r = spot.row; r < spot.row + rowSpan; r++) for (let c = spot.col; c < spot.col + colSpan; c++) taken.add(`${c},${r}`)
+    out[i] = gridBounds(area, { cols, rows, ...spot, colSpan, rowSpan })
+  }
+  return out
+}
+
+/** O grid mudou de tamanho: as janelas de agente da tela onde a janela `uid` está vão para o lugar delas no novo. */
+export function regridAgentWindows(uid: string, from: GridSize, to: GridSize) {
+  const me = wins.get(uid)
+  if (!me || me.win.isDestroyed()) return
+  const display = screen.getDisplayMatching(me.win.getBounds())
+  const open = [...wins.values()].filter(
+    (w) => !w.win.isDestroyed() && !w.win.isMinimized() && !w.win.isFullScreen() && screen.getDisplayMatching(w.win.getBounds()).id === display.id
+  )
+  const next = regridBounds(display.workArea, from, to, open.map((w) => w.win.getBounds()))
+  open.forEach((w, i) => {
+    if (w.win.isMaximized()) w.win.unmaximize()
+    w.win.setBounds(next[i], true)
+  })
+}
+
 /** Células do grid cobertas por janelas de agente, na tela onde a janela `uid` está. */
 export function agentGridCells(uid: string, grid: GridSize): GridCell[] {
   const me = wins.get(uid)

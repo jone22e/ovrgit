@@ -281,6 +281,23 @@ describe('janela nova na próxima área livre do grid', () => {
     expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left, { x: 600, y: 25, width: 600, height: 775 }])).toBeNull()
   })
 
+  it('grid muda de tamanho: as janelas mantêm a célula, e quem não cabe vai para a área livre', async () => {
+    const { regridBounds } = await import('../src/main/agentChat')
+    const big = { x: 0, y: 25, width: 2400, height: 1000 }
+    const cell = (cols: number, rows: number, col: number, row: number) => ({ x: (2400 / cols) * col, y: 25 + (1000 / rows) * row, width: 2400 / cols, height: 1000 / rows })
+    const tiny = { width: 100, height: 100 }
+    // três janelas de uma célula na linha de baixo de um 6 × 2 (colunas 1, 2 e 3)
+    const three = [cell(6, 2, 1, 1), cell(6, 2, 2, 1), cell(6, 2, 3, 1)]
+    // mais colunas: mesma célula, mais estreitas
+    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 8, rows: 2 }, three, tiny)).toEqual([cell(8, 2, 1, 1), cell(8, 2, 2, 1), cell(8, 2, 3, 1)])
+    // menos colunas: mais largas; a da coluna 3 saiu do grid e vai para a primeira área livre
+    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 3, rows: 2 }, three, tiny)).toEqual([cell(3, 2, 1, 1), cell(3, 2, 2, 1), cell(3, 2, 0, 0)])
+    // janela na altura toda continua na altura toda; célula menor que a janela mínima junta vizinhas
+    const tall = [{ x: 0, y: 25, width: 400, height: 1000 }]
+    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 6, rows: 4 }, tall, tiny)).toEqual(tall)
+    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 12, rows: 2 }, tall, { width: 420, height: 480 })).toEqual([{ x: 0, y: 25, width: 600, height: 1000 }])
+  })
+
   it('células cobertas: a de outro agente tranca, a da própria janela só marca', async () => {
     const { coveredCells } = await import('../src/main/agentChat')
     // 6 × 2 em 1200 × 775: outro agente na metade esquerda, esta janela na coluna 3 de cima e sobre a coluna 2

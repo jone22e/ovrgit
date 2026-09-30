@@ -583,6 +583,7 @@ function registerIpc() {
   ipcMain.on('agent:status', (_e, uid: string, status: AgentStatus) => agentChat.reportStatus(String(uid), status))
   ipcMain.handle('agent:statuses', () => agentChat.agentStatuses())
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
+  ipcMain.handle('agent:regrid', (_e, uid: string, from: GridSize, to: GridSize) => agentChat.regridAgentWindows(String(uid), from, to))
   ipcMain.handle('agent:gridCells', (_e, uid: string, grid: GridSize) => agentChat.agentGridCells(String(uid), grid))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)

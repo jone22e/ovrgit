@@ -178,6 +178,7 @@ const api: OvseerApi = {
   agentFocus: (sessionId) => ipcRenderer.invoke('agent:focus', sessionId),
   agentWindows: () => ipcRenderer.invoke('agent:windows'),
   agentPlace: (uid, p) => ipcRenderer.invoke('agent:place', uid, p),
+  agentRegrid: (uid, from, to) => ipcRenderer.invoke('agent:regrid', uid, from, to),
   agentGridCells: (uid, grid) => ipcRenderer.invoke('agent:gridCells', uid, grid),
   knownModels: () => ipcRenderer.invoke('agents:models'),
   usage: (force) => ipcRenderer.invoke('usage:get', !!force),
