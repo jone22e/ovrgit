@@ -43,7 +43,7 @@ export const state = reactive({
   showSettings: false,
   /** Atualização do app (versão nova disponível, baixando, pronta para instalar) */
   update: null as UpdateState | null,
-  showDiff: readPref('ovseer.diff') === '1',
+  showDiff: readPref('ovseer.diff') === '1' || readPref('ovseer.pane') === 'files',
   /** Árvore de arquivos oculta enquanto o editor está aberto: o editor ocupa a largura toda */
   hideTree: readPref('ovseer.hideTree') === '1',
   showTerminal: readPref('ovseer.terminal') === '1',
@@ -198,6 +198,8 @@ export function isPartial(path: string) {
 export function setPane(v: Pane) {
   state.pane = v
   writePref('ovseer.pane', v)
+  // no modo Arquivos a coluna da direita (o editor) já abre junto
+  if (v === 'files' && !state.showDiff) setShowDiff(true)
   if (v === 'files') loadSourceFiles()
 }
 
