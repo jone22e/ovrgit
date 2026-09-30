@@ -34,10 +34,17 @@ function badges(p: string) {
   return out
 }
 
+/** Projeto com trabalho aberto: alterações não salvas ou junção pela metade */
+const pending = (p: string) => {
+  const o = overview.value.get(p)
+  return !!o?.ok && (o.changes > 0 || o.operation)
+}
+/** Projetos com alterações vêm primeiro; dentro de cada grupo, a ordem de uso recente se mantém */
 const items = computed(() => {
   const q = query.value.trim().toLowerCase()
   const list = state.settings?.recentProjects ?? []
-  return q ? list.filter((p) => p.toLowerCase().includes(q)) : list
+  const found = q ? list.filter((p) => p.toLowerCase().includes(q)) : [...list]
+  return found.sort((a, b) => Number(pending(b)) - Number(pending(a)))
 })
 
 watch(
@@ -49,10 +56,14 @@ watch(
 watch(open, async (v) => {
   if (!v) return
   items.value.forEach(loadProjectIcon)
-  loadOverview()
   query.value = ''
-  const cur = items.value.indexOf(state.repo?.root ?? '')
-  index.value = cur >= 0 && items.value.length > 1 ? (cur === 0 ? 1 : 0) : 0
+  // começa no primeiro projeto que não é o aberto; de novo quando a situação chega e a ordem muda
+  const pickStart = () => {
+    const cur = items.value.indexOf(state.repo?.root ?? '')
+    index.value = cur >= 0 && items.value.length > 1 ? (cur === 0 ? 1 : 0) : 0
+  }
+  pickStart()
+  loadOverview().then(() => open.value && !query.value && pickStart())
   await nextTick()
   input.value?.focus()
 })
