@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { ProviderUsage, UsageInfo, UsageWindow } from '@shared/types'
+import type { CliProvider, CliUpdates, ProviderUsage, UsageInfo, UsageWindow } from '@shared/types'
 import { api } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
 /**
  * Consumo semanal das assinaturas Claude e ChatGPT, como duas barrinhas no cabeçalho.
- * Clique: detalhe por assinatura, com a janela de 5 horas e quando cada limite zera.
+ * Clique: detalhe por assinatura, com a janela de 5 horas e quando cada limite zera,
+ * e se há versão nova do CLI (com um botão que roda o `update` do próprio CLI).
  */
 const usage = ref<UsageInfo | null>(null)
 const open = ref(false)
@@ -15,7 +16,39 @@ const root = ref<HTMLElement>()
 const loading = ref(false)
 let timer: ReturnType<typeof setInterval>
 
+const updates = ref<CliUpdates | null>(null)
+/** CLI sendo atualizado agora */
+const updating = ref<CliProvider | null>(null)
+const updateError = ref<Partial<Record<CliProvider, string>>>({})
+/** Atualizado nesta sessão: mostra a confirmação no lugar do botão */
+const updated = ref<Partial<Record<CliProvider, string>>>({})
+
+async function loadUpdates(force = false) {
+  try {
+    updates.value = await api.cliUpdates(force)
+  } catch {
+    /* sem rede: não mostra nada */
+  }
+}
+const hasUpdate = computed(() => rows.value.some((r) => updates.value?.[r.id]?.available))
+
+async function runUpdate(id: CliProvider) {
+  if (updating.value) return
+  updating.value = id
+  delete updateError.value[id]
+  try {
+    const after = await api.cliUpdate(id)
+    if (updates.value) updates.value[id] = after
+    if (after && !after.available) updated.value[id] = after.current
+  } catch (e) {
+    updateError.value[id] = String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  } finally {
+    updating.value = null
+  }
+}
+
 async function load(force = false) {
+  loadUpdates(force)
   loading.value = true
   try {
     usage.value = await api.usage(force)
@@ -85,6 +118,7 @@ onUnmounted(() => {
         <circle class="ring-fill" cx="10" cy="10" r="8" :stroke-dasharray="`${(Math.max(0, Math.min(100, weekAvg)) / 100) * RING} ${RING}`" />
       </svg>
       <span class="pct">{{ Math.round(weekAvg) }}%</span>
+      <span v-if="hasUpdate" class="dot" title="Há versão nova de um CLI" />
     </button>
 
     <div v-if="open" class="pop">
@@ -103,6 +137,21 @@ onUnmounted(() => {
           <span class="spacer" />
           <small class="faint">{{ ago(r.u.at) }}</small>
         </div>
+        <div v-if="updates?.[r.id]" class="ver">
+          <small class="faint mono" :title="updates[r.id]!.latest ? `Mais recente: ${updates[r.id]!.latest}` : 'Não foi possível consultar a versão mais recente'">v{{ updates[r.id]!.current }}</small>
+          <template v-if="updates[r.id]!.available">
+            <small class="new">nova: v{{ updates[r.id]!.latest }}</small>
+            <span class="spacer" />
+            <button class="upd" :disabled="!!updating" @click="runUpdate(r.id)">
+              <span v-if="updating === r.id" class="spinner" />
+              <Icon v-else name="down" :size="12" />
+              {{ updating === r.id ? 'Atualizando…' : 'Atualizar' }}
+            </button>
+          </template>
+          <small v-else-if="updated[r.id]" class="ok">atualizado</small>
+          <small v-else-if="updates[r.id]!.latest" class="faint">em dia</small>
+        </div>
+        <p v-if="updateError[r.id]" class="bad">{{ updateError[r.id] }}</p>
         <p v-if="r.u.error" class="bad">{{ r.u.error }}</p>
         <template v-else>
           <div v-for="w in (r.id === 'agy' ? [] : ([['Semana', r.u.week], ['5 horas', r.u.fiveHour]] as [string, UsageWindow | null][]))" :key="w[0]" class="line">
@@ -135,6 +184,11 @@ onUnmounted(() => {
 .fill.codex { background: var(--text); opacity: 0.75; }
 .track.warm .fill { background: var(--mod); opacity: 1; }
 .track.hot .fill { background: var(--del); opacity: 1; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: -2px; }
+.ver { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.ver .new { color: var(--accent); font-weight: 600; }
+.ver .ok { color: var(--add); }
+.upd { height: 22px; padding: 0 8px; gap: 5px; font-size: 11.5px; border-radius: 6px; }
 .pct { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
 
 .pop {

@@ -25,6 +25,7 @@ import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
 import { getUsage } from './usage'
+import { getCliUpdates, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
 import { createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
@@ -32,6 +33,7 @@ import { analysisHash, analyze, taskContext, cancelAnalysis, commitMessage, dete
 import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
 import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from './auth'
 import * as g from './git'
+import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 
@@ -259,6 +261,13 @@ function registerIpc() {
   ipcMain.handle('project:icon', (_e, dir: string) => findFavicon(String(dir)))
   ipcMain.handle('git:status', () => (root ? g.status(root) : null))
   ipcMain.handle('git:diff', (_e, f: FileChange) => g.diff(requireRoot(), f))
+  ipcMain.handle('src:list', () => listSourceFiles(requireRoot()))
+  ipcMain.handle('src:create', (_e, rel: string, content: string) => createSourceFile(requireRoot(), String(rel), String(content ?? '')))
+  ipcMain.handle('src:image', (_e, rel: string) => readSourceImage(requireRoot(), String(rel)))
+  ipcMain.handle('src:read', (_e, rel: string) => readSourceFile(requireRoot(), String(rel)))
+  ipcMain.handle('src:write', (_e, rel: string, content: string, mtime?: number) =>
+    writeSourceFile(requireRoot(), String(rel), String(content), typeof mtime === 'number' ? mtime : undefined)
+  )
   ipcMain.handle('git:log', (_e, limit?: number) => g.log(requireRoot(), limit))
   ipcMain.handle('safe:discard', (_e, files: string[]) => exclusive(() => safety.discard(requireRoot(), files.map(String))))
   ipcMain.handle('safe:undo', () => exclusive(() => safety.undoLastCommit(requireRoot())))
@@ -568,6 +577,11 @@ function registerIpc() {
     return agentWatch.knownModels()
   })
   ipcMain.handle('usage:get', (_e, force?: boolean) => getUsage(!!force))
+  ipcMain.handle('cli:updates', (_e, force?: boolean) => getCliUpdates(!!force))
+  ipcMain.handle('cli:update', (_e, id: CliProvider) => {
+    if (id !== 'claude' && id !== 'codex' && id !== 'agy') throw new Error('CLI desconhecido.')
+    return updateCli(id)
+  })
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)

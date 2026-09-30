@@ -404,7 +404,10 @@ function apply(ev: AgentChatEvent) {
     notifyDone(t)
     nextTick(() => box.value?.focus())
     // interrompida para dar lugar a outra mensagem: não é erro
-    if (sendAfterStop && t.error === 'Interrompido.') t.error = undefined
+    if (sendAfterStop) {
+      t.superseded = true
+      if (t.error === 'Interrompido.') t.error = undefined
+    }
     flushQueue()
   }
 }
@@ -656,6 +659,7 @@ async function sendAfter(p: Payload) {
       if (cur) {
         cur.running = false
         cur.thinking = false
+        cur.superseded = true
       }
       turns.push({ id: p.id, user: p.body, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: cur ? workStart(cur) : undefined, mode: mode.value })
       scrollToEnd(true)
@@ -1221,7 +1225,7 @@ onUnmounted(() => offs.forEach((f) => f()))
             </button>
           </div>
           <p v-if="t.error" class="err"><Icon name="alert" :size="13" /> {{ t.error }}</p>
-          <p v-if="!t.running && (t.durationMs || t.costUsd)" class="meta faint">
+          <p v-if="!t.running && !t.superseded && (t.durationMs || t.costUsd)" class="meta faint">
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
             <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
           </p>

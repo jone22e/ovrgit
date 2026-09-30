@@ -6,6 +6,9 @@ import '@fontsource/source-code-pro/400.css'
 import '@fontsource/source-code-pro/500.css'
 import '@fontsource/source-code-pro/600.css'
 import '@fontsource/source-code-pro/700.css'
+// JetBrains Mono variável: o editor usa peso intermediário (450), como a fonte aparece na IDE
+import '@fontsource-variable/jetbrains-mono/wght.css'
+import '@fontsource-variable/jetbrains-mono/wght-italic.css'
 
 document.documentElement.dataset.platform = window.ovseer.platform
 const app = createApp(App)

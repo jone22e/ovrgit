@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { commit, generateMessage, ovseerReady, push, reviewWithAi, setMessage, state } from '../store'
+import { analyze, cancelAnalysis, commit, generateMessage, hasPlan, ovseerReady, push, reviewWithAi, setMessage, state } from '../store'
 import PrStatus from './PrStatus.vue'
 import TaskPicker from './TaskPicker.vue'
 import Icon from './Icon.vue'
@@ -43,6 +43,31 @@ function saveOnly() {
   commit()
 }
 
+// análise detalhada: cronômetro na dica enquanto roda; clique cancela
+const elapsed = ref(0)
+let tick: ReturnType<typeof setInterval> | undefined
+watch(
+  () => state.busy === 'analyze',
+  (on) => {
+    clearInterval(tick)
+    elapsed.value = 0
+    if (on) tick = setInterval(() => (elapsed.value = Math.round((Date.now() - state.analyzeStartedAt) / 1000)), 500)
+  }
+)
+onUnmounted(() => clearInterval(tick))
+const nFiles = computed(() => state.repo?.files.length ?? 0)
+const detailedTitle = computed(() =>
+  state.busy === 'analyze'
+    ? `Analisando… ${elapsed.value}s · clique para cancelar`
+    : hasPlan.value
+      ? `Análise detalhada: pedir à IA uma nova separação das alterações em versões (${mod}+I)`
+      : `Análise detalhada: a IA organiza suas alterações em versões separadas por assunto (${mod}+I)`
+)
+function detailed() {
+  if (state.busy === 'analyze') cancelAnalysis()
+  else analyze(hasPlan.value)
+}
+
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault()
@@ -66,16 +91,26 @@ function onKey(e: KeyboardEvent) {
         @input="setMessage(($event.target as HTMLTextAreaElement).value)"
         @keydown="onKey"
       />
-      <button
-        class="ghost icon ai-msg"
-        :class="{ running: state.busy === 'message' }"
-        :disabled="(!!state.busy && state.busy !== 'message') || !nSelected"
-        :title="state.busy === 'message' ? 'Escrevendo… clique para cancelar' : `A IA escreve a descrição para os ${nSelected} arquivo(s) marcados`"
-        @click="generateMessage"
-      >
-        <span v-if="state.busy === 'message'" class="spinner" />
-        <Icon v-else name="sparkles" :size="16" />
-      </button>
+      <div class="ai-btns">
+        <button
+          class="ghost icon ai-msg"
+          :disabled="(!!state.busy && state.busy !== 'message') || !nSelected"
+          :title="state.busy === 'message' ? 'Escrevendo… clique para cancelar' : `Análise rápida: a IA escreve a descrição para os ${nSelected} arquivo(s) marcados`"
+          @click="generateMessage"
+        >
+          <span v-if="state.busy === 'message'" class="spinner" />
+          <Icon v-else name="zap" :size="16" />
+        </button>
+        <button
+          class="ghost icon ai-msg"
+          :disabled="(!!state.busy && state.busy !== 'analyze') || !nFiles || !!state.repo?.operation"
+          :title="detailedTitle"
+          @click="detailed"
+        >
+          <span v-if="state.busy === 'analyze'" class="spinner" />
+          <Icon v-else name="layers" :size="16" />
+        </button>
+      </div>
       </div>
     </div>
     <div class="actions">
@@ -191,11 +226,11 @@ function onKey(e: KeyboardEvent) {
   gap: 10px;
 }
 label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin-bottom: 5px; }
-textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; padding-right: 44px; display: block; min-height: 52px; overflow-y: hidden; }
+textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; padding-right: 76px; display: block; min-height: 52px; overflow-y: hidden; }
 .msg-box { position: relative; }
-.ai-msg { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; color: var(--accent); }
+.ai-btns { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; gap: 2px; }
+.ai-msg { width: 30px; height: 30px; color: var(--accent); }
 .ai-msg:hover:not(:disabled) { background: var(--accent-soft); }
-.ai-msg.running { color: var(--accent); }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .gap { flex: 1; }
 .op-hint { font-size: 12px; }

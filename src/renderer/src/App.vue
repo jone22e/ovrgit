@@ -8,6 +8,8 @@ import DiffView from './components/DiffView.vue'
 import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
 import HistoryView from './components/HistoryView.vue'
+import SourceEditor from './components/SourceEditor.vue'
+import SourceTree from './components/SourceTree.vue'
 import MergeBanner from './components/MergeBanner.vue'
 import DeliveryDialog from './components/DeliveryDialog.vue'
 import NewAgentDialog from './components/NewAgentDialog.vue'
@@ -136,11 +138,12 @@ onUnmounted(() => {
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
           <aside :class="{ full: !state.showDiff }" :style="state.showDiff ? { width: `${leftWidth}px` } : undefined">
-            <FileList />
+            <SourceTree v-if="state.pane === 'files'" />
+            <FileList v-else />
           </aside>
           <template v-if="state.showDiff">
             <div class="resizer" @mousedown.prevent="startResize" />
-            <section class="right"><DiffView /></section>
+            <section class="right"><SourceEditor v-if="state.pane === 'files'" /><DiffView v-else /></section>
           </template>
         </main>
         <HistoryView v-else />

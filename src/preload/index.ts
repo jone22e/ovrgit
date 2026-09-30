@@ -18,6 +18,11 @@ const api: OvseerApi = {
   status: () => ipcRenderer.invoke('git:status'),
   diff: (f) => ipcRenderer.invoke('git:diff', f),
   log: (limit) => ipcRenderer.invoke('git:log', limit),
+  sourceFiles: () => ipcRenderer.invoke('src:list'),
+  readSource: (p) => ipcRenderer.invoke('src:read', p),
+  readSourceImage: (p) => ipcRenderer.invoke('src:image', p),
+  createSource: (p, content) => ipcRenderer.invoke('src:create', p, content),
+  writeSource: (p, content, mtime) => ipcRenderer.invoke('src:write', p, content, mtime),
   discard: (files) => ipcRenderer.invoke('safe:discard', files),
   undoLastCommit: () => ipcRenderer.invoke('safe:undo'),
   editLastMessage: (msg) => ipcRenderer.invoke('safe:editMessage', msg),
@@ -176,6 +181,8 @@ const api: OvseerApi = {
   agentGridCells: (uid, grid) => ipcRenderer.invoke('agent:gridCells', uid, grid),
   knownModels: () => ipcRenderer.invoke('agents:models'),
   usage: (force) => ipcRenderer.invoke('usage:get', !!force),
+  cliUpdates: (force) => ipcRenderer.invoke('cli:updates', !!force),
+  cliUpdate: (id) => ipcRenderer.invoke('cli:update', id),
   onAgentEvent: (cb) => {
     const h = (_e: unknown, uid: string, ev: AgentChatEvent) => cb(uid, ev)
     ipcRenderer.on('agent:event', h)

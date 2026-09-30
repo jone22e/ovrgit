@@ -11,6 +11,8 @@ const api = window.ovseer
 export type Busy = null | 'load' | 'analyze' | 'message' | 'commit' | 'pull' | 'push' | 'feature' | 'merge'
 
 export type ViewMode = 'tree' | 'list'
+/** Lista da esquerda: arquivos alterados (diff à direita) ou todos os arquivos do projeto (editor à direita) */
+export type Pane = 'changes' | 'files'
 
 export const state = reactive({
   repo: null as RepoStatus | null,
@@ -103,7 +105,24 @@ export const state = reactive({
   excludedHunks: {} as Record<string, number[]>,
   hunkCounts: {} as Record<string, number>,
   diffMode: (readPref('ovseer.diffMode') === 'split' ? 'split' : 'unified') as 'unified' | 'split',
-  ovseerLive: false
+  ovseerLive: false,
+  pane: (readPref('ovseer.pane') === 'files' ? 'files' : 'changes') as Pane,
+  /** Arquivos do projeto (modo "Arquivos") */
+  sourceList: [] as string[],
+  sourceLoading: false,
+  /** Arquivo aberto no editor (a aba ativa) e as abas abertas, na ordem */
+  sourcePath: null as string | null,
+  sourceTabs: [] as string[],
+  /** Aba temporária (clique simples): o próximo arquivo aberto assim a substitui; duplo clique ou editar a fixa */
+  sourcePreview: null as string | null,
+  /** Quando cada arquivo aberto foi lido/salvo (para não sobrescrever mudanças feitas por outro) */
+  sourceMtimes: {} as Record<string, number>,
+  /** Arquivos cujo salvamento automático parou porque mudaram no disco enquanto eram editados */
+  sourceConflicts: {} as Record<string, boolean>,
+  /** Pastas abertas na árvore de arquivos (começam fechadas) */
+  sourceOpen: new Set<string>(),
+  /** Edições não salvas, por arquivo: sobrevivem à troca de arquivo */
+  sourceDrafts: {} as Record<string, string>
 })
 
 function readPref(key: string): string | null {
@@ -167,6 +186,136 @@ export function toggleHunk(path: string, index: number) {
 
 export function isPartial(path: string) {
   return (state.excludedHunks[path]?.length ?? 0) > 0 && state.selected.has(path)
+}
+
+export function setPane(v: Pane) {
+  state.pane = v
+  writePref('ovseer.pane', v)
+  if (v === 'files') loadSourceFiles()
+}
+
+export async function loadSourceFiles() {
+  if (!state.repo) return
+  state.sourceLoading = !state.sourceList.length
+  try {
+    state.sourceList = await api.sourceFiles()
+    // arquivo apagado (e sem edição pendente): a aba fecha, como no JetBrains
+    const gone = state.sourceTabs.filter((p) => !state.sourceList.includes(p) && !(p in state.sourceDrafts))
+    for (const p of gone) closeSource(p)
+  } catch (e) {
+    state.error = cleanError(e)
+  } finally {
+    state.sourceLoading = false
+  }
+}
+
+/**
+ * Abre no editor, como no JetBrains: clique simples abre numa aba temporária, que o próximo arquivo aberto assim
+ * substitui; `pin` (duplo clique) abre numa aba fixa, ou fixa a temporária.
+ */
+export function openSource(path: string, pin = false) {
+  if (state.sourceTabs.includes(path)) {
+    if (pin && state.sourcePreview === path) state.sourcePreview = null
+  } else {
+    const prev = state.sourcePreview
+    const at = prev ? state.sourceTabs.indexOf(prev) : state.sourcePath ? state.sourceTabs.indexOf(state.sourcePath) + 1 : state.sourceTabs.length
+    if (prev) {
+      // a temporária dá lugar ao novo arquivo (salvando antes o que estiver pendente nela)
+      if (prev in state.sourceDrafts && !state.sourceConflicts[prev]) void saveSource(prev)
+      state.sourceTabs.splice(at, 1, path)
+    } else state.sourceTabs.splice(at || state.sourceTabs.length, 0, path)
+    state.sourcePreview = pin ? null : path
+  }
+  state.sourcePath = path
+  setShowDiff(true)
+  revealSource(path)
+  saveTabs()
+}
+
+/** Abre na árvore as pastas até o caminho (`dir`: o próprio caminho é uma pasta e também abre) */
+export function revealSource(path: string, dir = false) {
+  const parts = path.split('/')
+  const open = new Set(state.sourceOpen)
+  for (let i = 1; i < parts.length + (dir ? 1 : 0); i++) open.add(parts.slice(0, i).join('/'))
+  state.sourceOpen = open
+}
+
+/** Fecha a aba (salvando antes o que estiver pendente); a ativa passa para a vizinha */
+export async function closeSource(path: string) {
+  if (path in state.sourceDrafts && !state.sourceConflicts[path]) await saveSource(path)
+  const i = state.sourceTabs.indexOf(path)
+  if (i < 0) return
+  state.sourceTabs.splice(i, 1)
+  delete state.sourceDrafts[path]
+  delete state.sourceMtimes[path]
+  delete state.sourceConflicts[path]
+  if (state.sourcePreview === path) state.sourcePreview = null
+  if (state.sourcePath === path) state.sourcePath = state.sourceTabs[Math.min(i, state.sourceTabs.length - 1)] ?? null
+  saveTabs()
+}
+
+/** Torna fixa a aba temporária (duplo clique nela, ou quando o arquivo é editado) */
+export function pinSource(path: string) {
+  if (state.sourcePreview !== path) return
+  state.sourcePreview = null
+  saveTabs()
+}
+
+export function closeOtherSources(keep: string) {
+  for (const p of [...state.sourceTabs]) if (p !== keep) closeSource(p)
+}
+
+/**
+ * Salva a edição pendente do arquivo (o editor chama sozinho, logo depois de parar de digitar).
+ * Se o arquivo mudou no disco desde a leitura, não sobrescreve: marca conflito e o editor pergunta o que fazer.
+ * `force` sobrescreve mesmo assim.
+ */
+export async function saveSource(path: string, force = false): Promise<boolean> {
+  const text = state.sourceDrafts[path]
+  if (text === undefined) return true
+  try {
+    state.sourceMtimes[path] = await api.writeSource(path, text, force ? undefined : state.sourceMtimes[path])
+    if (state.sourceDrafts[path] === text) delete state.sourceDrafts[path]
+    delete state.sourceConflicts[path]
+    refreshSoon()
+    return true
+  } catch (e) {
+    const msg = cleanError(e)
+    if (/mudou no disco/.test(msg)) state.sourceConflicts[path] = true
+    else state.error = msg
+    return false
+  }
+}
+
+/** Atualiza a lista de alterações depois de salvar, sem disparar a cada tecla */
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+function refreshSoon() {
+  clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => refresh(), 1500)
+}
+
+/** Abas abertas de cada projeto ficam lembradas */
+function saveTabs() {
+  if (state.repo) writePref(`ovseer.tabs:${state.repo.root}`, JSON.stringify({ tabs: state.sourceTabs, active: state.sourcePath, preview: state.sourcePreview }))
+}
+function restoreTabs(root: string) {
+  try {
+    const v = JSON.parse(readPref(`ovseer.tabs:${root}`) ?? 'null') as { tabs?: string[]; active?: string | null; preview?: string | null } | null
+    state.sourceTabs = Array.isArray(v?.tabs) ? v.tabs.filter((p) => typeof p === 'string') : []
+    state.sourcePath = v?.active && state.sourceTabs.includes(v.active) ? v.active : (state.sourceTabs[0] ?? null)
+    state.sourcePreview = v?.preview && state.sourceTabs.includes(v.preview) ? v.preview : null
+  } catch {
+    state.sourceTabs = []
+    state.sourcePreview = null
+    state.sourcePath = null
+  }
+}
+
+export function toggleSourceDir(dir: string) {
+  const open = new Set(state.sourceOpen)
+  if (open.has(dir)) open.delete(dir)
+  else open.add(dir)
+  state.sourceOpen = open
 }
 
 export function setViewMode(v: ViewMode) {
@@ -297,6 +446,14 @@ function applyRepo(repo: RepoStatus | null, saved: Analysis | null = null) {
     state.selected = new Set(repo.files.map((f) => f.path))
     state.activeFile = null
     state.diff = ''
+    state.sourceList = []
+    state.sourceOpen = new Set()
+    state.sourceDrafts = {}
+    state.sourceMtimes = {}
+    state.sourceConflicts = {}
+    restoreTabs(repo.root)
+    if (state.sourcePath) revealSource(state.sourcePath)
+    if (state.pane === 'files') loadSourceFiles()
     state.message = ''
     state.messageEdited = false
   }
@@ -337,6 +494,7 @@ export async function refresh() {
   try {
     applyRepo(await api.status())
     if (state.activeFile) await selectFile(fileMap.value.get(state.activeFile.path) ?? null, true)
+    if (state.pane === 'files') loadSourceFiles()
   } catch (e) {
     state.error = cleanError(e)
   }

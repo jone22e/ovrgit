@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import type { FileChange } from '@shared/types'
 import {
-  analyze, cancelAnalysis, discardFiles, hasPlan, isPartial, openPlan, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
+  discardFiles, hasPlan, isPartial, openPlan, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
   toggleCollapsed, toggleFile, toggleFiles
 } from '../store'
 import Icon from './Icon.vue'
+import PaneSwitch from './PaneSwitch.vue'
 
 type Row =
   | { kind: 'dir'; key: string; depth: number; name: string; files: string[] }
@@ -83,23 +84,12 @@ function split(path: string) {
   return i < 0 ? { dir: '', name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) }
 }
 
-// cronômetro da análise
-const elapsed = ref(0)
-let tick: ReturnType<typeof setInterval> | undefined
-watch(
-  () => state.busy === 'analyze',
-  (on) => {
-    clearInterval(tick)
-    elapsed.value = 0
-    if (on) tick = setInterval(() => (elapsed.value = Math.round((Date.now() - state.analyzeStartedAt) / 1000)), 500)
-  }
-)
-onUnmounted(() => clearInterval(tick))
 </script>
 
 <template>
   <div class="list">
     <div class="toolbar">
+      <PaneSwitch />
       <label class="all" :title="allChecked ? 'Desmarcar tudo' : 'Marcar tudo'">
         <input type="checkbox" :checked="allChecked" :indeterminate="someChecked" @change="toggleAll" />
         <strong>{{ total }}</strong>
@@ -123,30 +113,15 @@ onUnmounted(() => clearInterval(tick))
         </button>
       </div>
 
-      <template v-if="state.busy === 'analyze'">
-        <span class="analyzing"><span class="spinner" /> Analisando… {{ elapsed }}s</span>
-        <button class="small" title="Cancelar a análise" @click="cancelAnalysis">Cancelar</button>
-      </template>
-      <template v-else>
-        <button
-          v-if="hasPlan"
-          class="small plan"
-          :class="{ stale: state.planStale }"
-          :title="state.planStale ? 'Versões sugeridas pela IA (os arquivos mudaram desde a análise)' : 'Ver as versões sugeridas pela IA'"
-          @click="openPlan"
-        >
-          <Icon name="layers" :size="14" /> {{ state.groups.length }} {{ state.groups.length === 1 ? 'versão' : 'versões' }}
-        </button>
-        <button
-          class="small ai"
-          :disabled="!total || !!state.busy || !!state.repo?.operation"
-          :title="hasPlan ? 'Pedir uma nova análise à IA' : 'A IA organiza suas alterações em versões separadas por assunto (Ctrl/⌘+I)'"
-          @click="analyze(hasPlan)"
-        >
-          <Icon name="sparkles" :size="14" />
-          <span class="lbl">{{ hasPlan ? 'Reanalisar' : 'Analisar com IA' }}</span>
-        </button>
-      </template>
+      <button
+        v-if="hasPlan && state.busy !== 'analyze'"
+        class="small plan"
+        :class="{ stale: state.planStale }"
+        :title="state.planStale ? 'Versões sugeridas pela IA (os arquivos mudaram desde a análise)' : 'Ver as versões sugeridas pela IA'"
+        @click="openPlan"
+      >
+        <Icon name="layers" :size="14" /> {{ state.groups.length }} {{ state.groups.length === 1 ? 'versão' : 'versões' }}
+      </button>
 
     </div>
 
@@ -234,10 +209,8 @@ onUnmounted(() => clearInterval(tick))
 .seg { display: flex; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 8px; }
 .seg button { height: 24px; width: 28px; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 6px; }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
-.ai { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .plan { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 .plan.stale { background: transparent; border-color: var(--border); color: var(--muted); }
-.analyzing { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
 .scroll { overflow: auto; flex: 1; padding: 6px 6px 12px; }
 .empty { display: flex; flex-direction: column; align-items: center; padding: 48px 16px; color: var(--muted); gap: 4px; }
 .empty p { margin: 0; }
@@ -263,7 +236,6 @@ onUnmounted(() => clearInterval(tick))
   .label-long { display: none; }
 }
 @container (max-width: 400px) {
-  .lbl { display: none; }
   .toolbar { gap: 6px; padding: 0 10px; }
 }
 </style>

@@ -412,6 +412,8 @@ export interface AgentTurn {
   startedAt?: number
   /** Enviada no "agora" com o agente trabalhando: início do trabalho que ela continua (o contador segue dele) */
   workSince?: number
+  /** Encerrada para dar lugar a uma mensagem enviada no "agora": o trabalho segue na próxima, então não mostra a duração */
+  superseded?: boolean
   error?: string
   durationMs?: number
   costUsd?: number
@@ -495,6 +497,23 @@ export interface UsageInfo {
   /** Antigravity não expõe limites localmente: só a conta */
   agy: ProviderUsage | null
 }
+
+/** Arquivo aberto no editor; `content` nulo quando não dá para mostrar (binário, grande demais) e `reason` diz o porquê */
+export interface SourceFile {
+  path: string
+  content: string | null
+  reason?: string
+  mtimeMs?: number
+}
+
+/** Versão instalada de um CLI e a mais recente publicada (`latest` nula: não deu para consultar) */
+export interface CliUpdateInfo {
+  current: string
+  latest: string | null
+  available: boolean
+}
+/** Por CLI; nulo quando o CLI não está instalado */
+export type CliUpdates = Record<CliProvider, CliUpdateInfo | null>
 
 /** Modelos de cada CLI: vistos nas sessões recentes (ids reais) e o catálogo que o CLI guarda localmente */
 export interface KnownModels {
@@ -646,6 +665,15 @@ export interface OvseerApi {
   projectIcon(path: string): Promise<string | null>
   status(): Promise<RepoStatus | null>
   diff(file: FileChange): Promise<string>
+  /** Arquivos do projeto (versionados e novos não ignorados), caminhos relativos à raiz */
+  sourceFiles(): Promise<string[]>
+  readSource(path: string): Promise<SourceFile>
+  /** Imagem do projeto como data URL (png, jpg, webp, gif, svg…), para a prévia */
+  readSourceImage(path: string): Promise<{ dataUrl: string; bytes: number }>
+  /** Salva; com `mtimeMs`, recusa se o arquivo mudou no disco desde a leitura. Devolve o novo mtime */
+  writeSource(path: string, content: string, mtimeMs?: number): Promise<number>
+  /** Cria um arquivo novo (recusa se já existe); `ignored`: o git vai ignorá-lo */
+  createSource(path: string, content: string): Promise<{ path: string; ignored: boolean }>
   log(limit?: number): Promise<CommitInfo[]>
   discard(files: string[]): Promise<OperationResult>
   undoLastCommit(): Promise<OperationResult>
@@ -777,6 +805,10 @@ export interface OvseerApi {
   knownModels(): Promise<KnownModels>
   /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */
   usage(force?: boolean): Promise<UsageInfo>
+  /** Há versão nova de claude, codex ou agy? (consulta a cada 6 h; `force` consulta de novo) */
+  cliUpdates(force?: boolean): Promise<CliUpdates>
+  /** Roda o `update` do próprio CLI; devolve a situação depois dele */
+  cliUpdate(id: CliProvider): Promise<CliUpdateInfo | null>
   onAgentEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   onAgentWindows(cb: (sessionIds: string[]) => void): () => void
   /** A janela do agente informa a situação da conversa dela */
