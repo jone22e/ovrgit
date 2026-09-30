@@ -85,7 +85,7 @@ modelo local pelo Ollama.
 
 - Tema padrão que segue o modo claro/escuro do sistema.
 - Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark e GitHub Light.
-- Temas de Counter-Strike: Dust2 e Mirage, os dois escuros.
+- Temas com nome de mapa do Counter-Strike: Dust2 (tons de arenito) e Mirage (paleta do Ayu Mirage), os dois escuros.
 
 ### Atualização automática
 
