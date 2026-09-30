@@ -49,6 +49,58 @@ function feature() {
   emit('feature')
 }
 
+// envio: o botão enche como uma barra de progresso colorida. O git não informa quanto falta, então a barra anda
+// por etapas (salvar até ~40%, enviar até ~92%, sempre desacelerando) e completa quando termina: verde se deu
+// certo, vermelho se falhou
+type SendPhase = 'idle' | 'run' | 'ok' | 'fail'
+const sendPhase = ref<SendPhase>('idle')
+const sendP = ref(0)
+let sendTarget = 0
+let sendFrame = 0
+let sendEnd: ReturnType<typeof setTimeout> | undefined
+let resultBefore: typeof state.result = null
+function sendLoop() {
+  sendP.value += (sendTarget - sendP.value) * (sendTarget === 1 ? 0.25 : 0.02)
+  sendFrame = sendTarget === 1 && sendP.value > 0.995 ? 0 : requestAnimationFrame(sendLoop)
+  if (!sendFrame) sendP.value = 1
+}
+function sendTo(target: number) {
+  clearTimeout(sendEnd)
+  if (sendPhase.value !== 'run') {
+    sendPhase.value = 'run'
+    sendP.value = 0
+    resultBefore = state.result
+  }
+  sendTarget = Math.max(sendTarget, target)
+  if (!sendFrame) sendFrame = requestAnimationFrame(sendLoop)
+}
+watch(
+  () => state.busy,
+  (b) => {
+    if (b === 'commit') sendTo(0.4)
+    else if (b === 'push') sendTo(0.92)
+    else if (!b && sendPhase.value === 'run')
+      // entre salvar e enviar o estado fica livre por um instante: só termina se o envio não começar logo
+      sendEnd = setTimeout(() => {
+        if (state.busy) return
+        const failed = !!state.error || (state.result !== resultBefore && state.result?.ok === false)
+        sendPhase.value = failed ? 'fail' : 'ok'
+        sendTarget = 1
+        if (!sendFrame) sendFrame = requestAnimationFrame(sendLoop)
+        sendEnd = setTimeout(() => {
+          sendPhase.value = 'idle'
+          sendP.value = sendTarget = 0
+        }, 1100)
+      }, 120)
+  }
+)
+onUnmounted(() => {
+  cancelAnimationFrame(sendFrame)
+  clearTimeout(sendEnd)
+})
+const sendClass = computed(() => (sendPhase.value === 'idle' ? {} : { sending: true, [sendPhase.value]: true }))
+const sendStyle = computed(() => ({ '--p': sendP.value.toFixed(4) }))
+
 // análise detalhada: cronômetro na dica enquanto roda; clique cancela
 const elapsed = ref(0)
 let tick: ReturnType<typeof setInterval> | undefined
@@ -148,10 +200,13 @@ function onKey(e: KeyboardEvent) {
       <div v-if="saveAndSend" ref="split" class="split">
         <button
           class="primary main"
+          :class="sendClass"
+          :style="sendStyle"
           :disabled="!canCommit"
           :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados e já manda para o servidor (commit + push)`"
           @click="commit(true)"
         >
+          <span v-if="sendPhase !== 'idle'" class="fill" />
           <span v-if="state.busy === 'commit' || state.busy === 'push'" class="spinner" />
           <Icon v-else name="up" />
           {{ sendMode === 'send' ? 'Salvar e enviar' : 'Salvar e publicar' }}<span class="n">{{ nSelected }}</span>
@@ -160,18 +215,16 @@ function onKey(e: KeyboardEvent) {
           <Icon name="chevron" :size="14" class="caret" />
         </button>
         <div v-if="menuOpen" class="menu">
-          <button class="ghost item" :disabled="!canCommit" @click="saveOnly">
+          <button class="ghost item" :disabled="!canCommit" title="Guarda a versão só no seu computador, sem enviar" @click="saveOnly">
             <Icon name="commit" :size="14" />
             <span>Apenas salvar</span>
             <kbd class="faint">{{ mod }}+Enter</kbd>
           </button>
-          <p class="faint hint">Guarda a versão só no seu computador, sem enviar.</p>
-          <button class="ghost item" :disabled="!canFeature" @click="feature">
+          <button class="ghost item" :disabled="!canFeature" title="Separa o seu trabalho numa branch própria, atualizada com o servidor, e envia" @click="feature">
             <Icon name="feature" :size="14" />
             <span>Criar Feature…</span>
             <kbd class="faint">{{ mod }}+⇧F</kbd>
           </button>
-          <p class="faint hint">Separa o seu trabalho numa linha própria (branch), atualizada com o servidor, e envia. Ideal para abrir um Pull Request.</p>
         </div>
       </div>
       <button
@@ -189,10 +242,13 @@ function onKey(e: KeyboardEvent) {
       <div v-if="sendMode === 'send'" ref="split" class="split">
         <button
           class="main"
+          :class="sendClass"
+          :style="sendStyle"
           :disabled="!!state.busy || !!state.repo?.operation"
           title="Manda as versões salvas no seu computador para o servidor, onde a equipe vê (push)"
           @click="push"
         >
+          <span v-if="sendPhase !== 'idle'" class="fill" />
           <span v-if="state.busy === 'push'" class="spinner" />
           <Icon v-else name="up" />
           Enviar<span v-if="state.repo?.ahead" class="n">{{ state.repo.ahead }}</span>
@@ -201,17 +257,18 @@ function onKey(e: KeyboardEvent) {
           <Icon name="chevron" :size="14" class="caret" />
         </button>
         <div v-if="menuOpen" class="menu">
-          <button class="ghost item" :disabled="!canFeature" @click="feature">
+          <button class="ghost item" :disabled="!canFeature" title="Separa o seu trabalho numa branch própria, atualizada com o servidor, e envia" @click="feature">
             <Icon name="feature" :size="14" />
             <span>Criar Feature…</span>
             <kbd class="faint">{{ mod }}+⇧F</kbd>
           </button>
-          <p class="faint hint">Separa o seu trabalho numa linha própria (branch), atualizada com o servidor, e envia. Ideal para abrir um Pull Request.</p>
         </div>
       </div>
       <button
         v-else
         class="publish"
+        :class="sendClass"
+        :style="sendStyle"
         :disabled="!!state.busy || !!state.repo?.operation || !state.repo?.hasCommits"
         :title="
           sendMode === 'publishRepo'
@@ -220,6 +277,7 @@ function onKey(e: KeyboardEvent) {
         "
         @click="sendMode === 'publishRepo' ? $emit('publish') : push()"
       >
+        <span v-if="sendPhase !== 'idle'" class="fill" />
         <span v-if="state.busy === 'push'" class="spinner" />
         <Icon v-else name="cloudUp" />
         {{ sendMode === 'publishRepo' ? 'Publicar' : 'Publicar branch' }}
@@ -279,5 +337,20 @@ textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; paddin
 .menu .item { width: 100%; justify-content: flex-start; }
 .menu .item span { flex: 1; text-align: left; }
 .menu kbd { font-family: var(--mono); font-size: 11px; }
-.menu .hint { font-size: 11.5px; margin: 2px 8px 4px; }
+/* envio em andamento: o botão vira barra de progresso (a faixa colorida corre por baixo do texto) */
+.sending { position: relative; overflow: hidden; isolation: isolate; }
+.sending:disabled { opacity: 1; }
+.sending .fill {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  transform-origin: left; transform: scaleX(var(--p, 0));
+  background: linear-gradient(90deg, #f5a524, #f06a3c, #d946ef, #6366f1, #22c1c3, #f5a524);
+  background-size: 300% 100%;
+  animation: send-flow 1.6s linear infinite;
+  opacity: 0.85;
+}
+.sending.ok .fill { background: var(--add); animation: none; transition: background 0.2s; }
+.sending.fail .fill { background: var(--del); animation: none; transition: background 0.2s; }
+.sending.ok, .sending.fail { color: #fff; }
+@keyframes send-flow { to { background-position: 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .sending .fill { animation: none; } }
 </style>
