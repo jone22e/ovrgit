@@ -1317,6 +1317,19 @@ onUnmounted(() => offs.forEach((f) => f()))
           <kbd>/{{ c.name }}</kbd>
         </button>
       </div>
+      <!-- a fila fica em cima: os anexos da mensagem nova ficam junto do texto dela -->
+      <div v-if="queue.length" class="queue">
+        <div v-for="(q, i) in queue" :key="q.id" class="queued" :title="q.body">
+          <Icon name="list" :size="12" class="faint" />
+          <span class="q-text ellipsis">{{ q.body }}</span>
+          <small class="faint">na fila{{ q.attachments.length ? ` · ${q.attachments.length} anexo${q.attachments.length === 1 ? '' : 's'}` : '' }}</small>
+          <span class="q-acts">
+            <button type="button" class="ghost qa now" :title="`Enviar esta agora: ${nowVerb}`" @click="sendQueuedNow(i)"><Icon name="zap" :size="12" /></button>
+            <button type="button" class="ghost qa" title="Voltar para o campo, para editar" @click="editQueued(i)"><Icon name="pencil" :size="11" /></button>
+            <button type="button" class="ghost qa" title="Descartar" @click="discardQueued(i)"><Icon name="x" :size="12" /></button>
+          </span>
+        </div>
+      </div>
       <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="16" /> Solte para anexar</div>
       <div v-if="pending.length" class="pending">
         <span v-for="(a, i) in pending" :key="a.path" class="att" :title="`${a.path}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
@@ -1337,18 +1350,6 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <p v-if="attachError" class="att-err">{{ attachError }}</p>
-      <div v-if="queue.length" class="queue">
-        <div v-for="(q, i) in queue" :key="q.id" class="queued" :title="q.body">
-          <Icon name="list" :size="12" class="faint" />
-          <span class="q-text ellipsis">{{ q.body }}</span>
-          <small class="faint">na fila{{ q.attachments.length ? ` · ${q.attachments.length} anexo${q.attachments.length === 1 ? '' : 's'}` : '' }}</small>
-          <span class="q-acts">
-            <button type="button" class="ghost qa now" :title="`Enviar esta agora: ${nowVerb}`" @click="sendQueuedNow(i)"><Icon name="zap" :size="12" /></button>
-            <button type="button" class="ghost qa" title="Voltar para o campo, para editar" @click="editQueued(i)"><Icon name="pencil" :size="11" /></button>
-            <button type="button" class="ghost qa" title="Descartar" @click="discardQueued(i)"><Icon name="x" :size="12" /></button>
-          </span>
-        </div>
-      </div>
       <textarea
         ref="box"
         v-model="draft"
