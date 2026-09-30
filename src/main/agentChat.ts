@@ -142,13 +142,14 @@ export async function openAgentLikeLast(focused: BrowserWindow | null, projectRo
   if (!base) return null
   const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
   if (!existsSync(cwd)) return null
-  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: base.mode, cwd })
+  // repetir o último agente nunca começa no modo Plano
+  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: base.mode === 'plan' ? 'safe' : base.mode, cwd })
 }
 
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
-  // nunca começa no modo Plano (nem repetindo o último agente, nem reabrindo uma conversa que estava nele)
-  if (opts.mode === 'plan') opts = { ...opts, mode: 'safe' }
+  // conversa reaberta nunca volta no modo Plano (só começa nele quando escolhido no diálogo)
+  if (opts.resumeId && opts.mode === 'plan') opts = { ...opts, mode: 'safe' }
   const uid = crypto.randomUUID()
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
