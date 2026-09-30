@@ -213,9 +213,9 @@ onUnmounted(() => {
 
 <style scoped>
 .usage { position: relative; -webkit-app-region: no-drag; }
-.chip { height: 26px; padding: 0 10px 0 6px; gap: 6px; border-radius: 999px; }
+.chip { height: 30px; padding: 0 12px 0 7px; gap: 7px; border-radius: 999px; }
 .chip.on { background: var(--hover); }
-.ring { width: 18px; height: 18px; transform: rotate(-90deg); flex: none; }
+.ring { width: 20px; height: 20px; transform: rotate(-90deg); flex: none; }
 .ring circle { fill: none; stroke-width: 3; }
 .ring-bg { stroke: var(--panel-2); }
 .ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.3s; }
@@ -233,7 +233,7 @@ onUnmounted(() => {
 .missing > small { font-size: 11.5px; }
 .missing code { font-family: var(--mono); font-size: 11px; }
 .upd { height: 22px; padding: 0 8px; gap: 5px; font-size: 11.5px; border-radius: 6px; }
-.pct { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+.pct { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
 
 .pop {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 340px; padding: 6px 6px 8px;
