@@ -722,8 +722,10 @@ function flushQueue() {
   sendAfterStop = null
   if (next) dispatch(next, prev && workStart(prev))
 }
-/** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela). */
+/** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela).
+ * Campo vazio (sem texto, colagens nem anexos) e fila com mensagens: manda agora a última que entrou na fila. */
 function sendNow() {
+  if (!draft.value.trim() && !pastes.length && !pending.length && queue.length) return sendQueuedNow(queue.length - 1)
   const p = takePayload()
   if (p) sendAfter(p)
 }
