@@ -3,7 +3,7 @@ import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
   Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, OvseerNewTask, OvseerStatus, OvseerTask, RepoStatus,
-  AgentSession, AgentStatus, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
+  AgentSession, AgentSnapshot, AgentStatus, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
 } from '@shared/types'
 
 const api = window.ovseer
@@ -33,7 +33,7 @@ export const state = reactive({
   diff: '',
   diffLoading: false,
   history: [] as CommitInfo[],
-  tab: 'changes' as 'changes' | 'history',
+  tab: 'changes' as 'changes' | 'history' | 'agents',
   message: '',
   messageEdited: false,
   busy: null as Busy,
@@ -87,6 +87,8 @@ export const state = reactive({
   agentWindows: [] as string[],
   /** Situação das conversas com janela aberta, por id de sessão */
   agentStatuses: {} as Record<string, AgentStatus>,
+  /** Resumo de cada janela de agente aberta (gerenciador de agentes) */
+  agentSnaps: [] as AgentSnapshot[],
   showNewAgent: false,
   /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
   newAgentTask: null as OvseerTask | null,
@@ -982,6 +984,8 @@ function listenAgents() {
   api.onAgentWindows((l) => (state.agentWindows = l))
   api.agentStatuses().then((s) => (state.agentStatuses = s)).catch(() => undefined)
   api.onAgentStatuses((s) => (state.agentStatuses = s))
+  api.agentSnapshots().then((s) => (state.agentSnaps = s)).catch(() => undefined)
+  api.onAgentSnapshots((s) => (state.agentSnaps = s))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`

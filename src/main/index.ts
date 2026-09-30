@@ -9,7 +9,7 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
-  AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
+  AgentAction, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -586,6 +586,12 @@ function registerIpc() {
   ipcMain.handle('agent:windows', () => agentChat.agentWindows())
   ipcMain.on('agent:status', (_e, uid: string, status: AgentStatus) => agentChat.reportStatus(String(uid), status))
   ipcMain.handle('agent:statuses', () => agentChat.agentStatuses())
+  ipcMain.on('agent:snapshot', (_e, uid: string, snap: AgentSnapshot) => agentChat.reportSnapshot(String(uid), snap))
+  ipcMain.handle('agent:snapshots', () => agentChat.agentSnapshots())
+  ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
+  ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
+  ipcMain.handle('agent:close', (_e, uids: string[]) => agentChat.closeAgentWindows(Array.isArray(uids) ? uids.map(String) : []))
+  ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
   ipcMain.handle('agent:regrid', (_e, uid: string, from: GridSize, to: GridSize) => agentChat.regridAgentWindows(String(uid), from, to))
   ipcMain.handle('agent:gridCells', (_e, uid: string, grid: GridSize) => agentChat.agentGridCells(String(uid), grid))

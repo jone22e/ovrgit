@@ -7,6 +7,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import DiffView from './components/DiffView.vue'
 import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
+import AgentsView from './components/AgentsView.vue'
 import HistoryView from './components/HistoryView.vue'
 import SourceEditor from './components/SourceEditor.vue'
 import SourceTree from './components/SourceTree.vue'
@@ -167,11 +168,12 @@ onUnmounted(() => {
             <section class="right"><SourceEditor v-if="state.pane === 'files'" /><DiffView v-else /></section>
           </template>
         </main>
+        <AgentsView v-else-if="state.tab === 'agents'" />
         <HistoryView v-else />
       </div>
       </div>
-      <!-- no modo Arquivos a barra de commit some: o espaço fica para a árvore e o editor -->
-      <CommitBar v-show="!termMaximized && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      <!-- em Agentes e no modo Arquivos a barra de commit some: o espaço fica para a árvore e o editor -->
+      <CommitBar v-show="!termMaximized && state.tab !== 'agents' && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
         <div v-show="state.showTerminal && !termMaximized" class="term-resizer" @mousedown.prevent="startTermResize" />

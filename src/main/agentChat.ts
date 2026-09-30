@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, screen, shell } from 'electron'
-import type { AgentAttachment, AgentChatEvent, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -32,6 +32,8 @@ interface AgentWin {
   status?: AgentStatus
   /** Modo da última mensagem enviada por esta janela (ausente: nenhuma ainda) */
   lastMode?: AgentMode
+  /** Resumo publicado pela janela para o gerenciador de agentes */
+  snap?: AgentSnapshot
 }
 
 const wins = new Map<string, AgentWin>()
@@ -358,6 +360,75 @@ function broadcastWindows() {
   const ids = agentWindows()
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('agents:windows', ids)
   broadcastStatuses()
+  broadcastSnapshots()
+}
+
+// ---------- gerenciador de agentes: cada janela publica um resumo; as ações voltam para ela ----------
+
+/** Resumos das janelas abertas, na ordem em que foram abertas */
+export function agentSnapshots(): AgentSnapshot[] {
+  return [...wins.values()].filter((w) => w.snap && !w.win.isDestroyed()).map((w) => w.snap!)
+}
+
+/** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
+function broadcastSnapshots() {
+  const all = agentSnapshots()
+  const agentWins = new Set([...wins.values()].map((w) => w.win))
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && !agentWins.has(w)) w.webContents.send('agents:snapshots', all)
+}
+
+export function reportSnapshot(uid: string, snap: AgentSnapshot) {
+  const w = wins.get(uid)
+  if (!w || !snap || typeof snap !== 'object') return
+  w.snap = { ...snap, uid }
+  broadcastSnapshots()
+}
+
+export function actOnAgent(uid: string, action: AgentAction) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) throw new Error('Janela do agente não encontrada.')
+  w.win.webContents.send('agent:act', uid, action)
+}
+
+export function showAgentWindow(uid: string) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) return
+  if (w.win.isMinimized()) w.win.restore()
+  w.win.show()
+  w.win.focus()
+}
+
+export function closeAgentWindows(uids: string[]) {
+  for (const uid of uids) {
+    const w = wins.get(String(uid))
+    if (w && !w.win.isDestroyed()) w.win.close()
+  }
+}
+
+/**
+ * Organiza as janelas de agente: em cada tela, em ordem de leitura (de cima para baixo, da esquerda para a direita),
+ * cada janela vai para a próxima área livre do grid. As que não couberem ficam onde estão.
+ */
+export function arrangeAgentWindows() {
+  const grid = getSettings().agentGrid
+  const byDisplay = new Map<number, { area: WindowBounds; list: AgentWin[] }>()
+  for (const w of wins.values()) {
+    if (w.win.isDestroyed() || w.win.isMinimized() || w.win.isFullScreen()) continue
+    const d = screen.getDisplayMatching(w.win.getBounds())
+    if (!byDisplay.has(d.id)) byDisplay.set(d.id, { area: d.workArea, list: [] })
+    byDisplay.get(d.id)!.list.push(w)
+  }
+  for (const { area, list } of byDisplay.values()) {
+    list.sort((a, b) => a.win.getBounds().y - b.win.getBounds().y || a.win.getBounds().x - b.win.getBounds().x)
+    const occupied: WindowBounds[] = []
+    for (const w of list) {
+      const slot = freeGridSlot(area, grid, occupied)
+      if (!slot) break
+      if (w.win.isMaximized()) w.win.unmaximize()
+      w.win.setBounds(slot, true)
+      occupied.push(slot)
+    }
+  }
 }
 
 /** Situação das conversas com janela aberta, por id de sessão */

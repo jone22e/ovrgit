@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentChatEvent, AgentSession, AgentStatus, AuthEvent, OvseerApi, Settings, UpdateState } from '../shared/types'
+import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, OvseerApi, Settings, UpdateState } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -207,6 +207,22 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('update:changed', h)
   },
   agentReportStatus: (uid, status) => ipcRenderer.send('agent:status', uid, status),
+  agentReportSnapshot: (uid, snap) => ipcRenderer.send('agent:snapshot', uid, snap),
+  agentSnapshots: () => ipcRenderer.invoke('agent:snapshots'),
+  onAgentSnapshots: (cb) => {
+    const h = (_e: unknown, s: AgentSnapshot[]) => cb(s)
+    ipcRenderer.on('agents:snapshots', h)
+    return () => ipcRenderer.off('agents:snapshots', h)
+  },
+  agentAct: (uid, action) => ipcRenderer.invoke('agent:act', uid, action),
+  onAgentAct: (cb) => {
+    const h = (_e: unknown, uid: string, a: AgentAction) => cb(uid, a)
+    ipcRenderer.on('agent:act', h)
+    return () => ipcRenderer.off('agent:act', h)
+  },
+  agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
+  agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
+  agentArrange: () => ipcRenderer.invoke('agent:arrange'),
   agentStatuses: () => ipcRenderer.invoke('agent:statuses'),
   onAgentStatuses: (cb) => {
     const h = (_e: unknown, s: Record<string, AgentStatus>) => cb(s)

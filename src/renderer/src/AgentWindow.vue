@@ -4,6 +4,7 @@ import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
   GridCell,
+  AgentAction, AgentAsk, AgentSnapshot,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
@@ -1077,6 +1078,87 @@ function loadRepoIcon(root: string) {
     .then((icon) => repoIcons.set(root, icon))
     .catch(() => undefined)
 }
+
+// ---------- gerenciador de agentes: esta janela publica um resumo e executa as ações que vêm de lá ----------
+/** Desde quando a janela está na situação atual (para "esperando há 17 min", "concluído há 1 min") */
+const statusSince = ref(Date.now())
+watch(statusKind, () => (statusSince.value = Date.now()))
+/** Primeira linha de texto da última resposta, sem marcas de Markdown */
+function firstLine(t: Turn | undefined): string {
+  const texts = (t?.blocks ?? []).flatMap((b) => (b.kind === 'text' ? [splitQuestions(b.text).text.trim()] : [])).filter(Boolean)
+  const line = (texts[texts.length - 1] ?? '').split('\n').map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[*`_]/g, '').trim()).find(Boolean) ?? ''
+  return line.length > 160 ? `${line.slice(0, 157)}…` : line
+}
+const snapshot = computed<AgentSnapshot | null>(() => {
+  if (!info.value) return null
+  const last = turns[turns.length - 1] as Turn | undefined
+  const lastUser = [...turns].reverse().find((t) => !t.silent && t.user.trim())?.user.trim() ?? ''
+  let files: AgentSnapshot['files']
+  for (const b of last?.blocks ?? []) {
+    if (b.kind !== 'files') continue
+    files ??= { count: 0, add: 0, del: 0 }
+    files.count += b.paths.length
+    for (const st of Object.values(b.stats ?? {})) if (st) (files.add += st.add), (files.del += st.del)
+  }
+  let ask: AgentAsk | undefined
+  if (showAsk.value && question.value)
+    ask = { kind: 'question', text: question.value.text, options: question.value.options.map((o) => ({ label: o.label, detail: o.detail, recommended: o.recommended })), index: qi.value, total: questions.value.length }
+  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint })) }
+  const cur = current()
+  const tools = cur?.blocks.filter((b): b is ToolBlock => b.kind === 'tool') ?? []
+  return {
+    uid,
+    title: chatTitle.value || info.value.title || `Nova conversa com ${providerName.value}`,
+    project: info.value.project,
+    provider: provider.value,
+    model: modelLabel(provider.value, model.value, catalogOf(known.value, provider.value)),
+    status: statusKind.value,
+    since: statusSince.value,
+    lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
+    error: last?.error,
+    activity: cur ? (tools.length && cur.activity === 'tools' ? groupNow(tools) : activityLabel(cur)) : undefined,
+    summary: last && !last.running ? firstLine(last) : undefined,
+    files,
+    ask
+  }
+})
+let snapTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  snapshot,
+  (snap) => {
+    clearTimeout(snapTimer)
+    if (snap) snapTimer = setTimeout(() => api.agentReportSnapshot(uid, JSON.parse(JSON.stringify(snap))), 250)
+  },
+  { deep: true, immediate: true }
+)
+/** Falhou: se o agente chegou a trabalhar, pede para continuar de onde parou; senão, manda o pedido de novo */
+async function retryLast() {
+  const last = turns[turns.length - 1]
+  if (!last || running.value) return
+  if (last.blocks.length || !last.user.trim()) await dispatch({ id: crypto.randomUUID(), body: 'Continue a tarefa de onde parou.', attachments: [] })
+  else await dispatch({ id: crypto.randomUUID(), body: last.user, attachments: last.attachments as Shown[] })
+}
+function onAct(a: AgentAction) {
+  if (a.type === 'decide') decide(a.choice)
+  else if (a.type === 'plan') startPlan(a.mode)
+  else if (a.type === 'keepPlanning') askOpen.value = false
+  else if (a.type === 'retry') retryLast()
+  else if (a.type === 'reply') {
+    const text = a.text.trim()
+    if (!text) return
+    if (showAsk.value) decide(text)
+    else if (showPlanAsk.value) {
+      otherText.value = text
+      adjustPlan()
+    } else {
+      // mensagem nova, sem mexer no que estiver sendo escrito no campo desta janela
+      const p: Payload = { id: crypto.randomUUID(), body: text, attachments: [] }
+      if (running.value) queue.push(p)
+      else dispatch(p)
+    }
+  }
+}
+offs.push(api.onAgentAct((u, a) => u === uid && onAct(a)))
 
 onMounted(async () => {
   try {

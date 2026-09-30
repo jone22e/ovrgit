@@ -455,6 +455,42 @@ export interface WindowBounds {
 /** Situação de uma conversa de agente: sem conversa, trabalhando, aguardando resposta do usuário, concluída ou com falha */
 export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 
+/** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
+export type AgentAsk =
+  | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number }
+  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string }[] }
+
+/** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
+export interface AgentSnapshot {
+  uid: string
+  title: string
+  project: string
+  provider: CliProvider
+  /** Nome legível do modelo */
+  model: string
+  status: AgentStatus
+  /** Desde quando está nessa situação (ms) */
+  since: number
+  /** Último pedido do usuário (o que estava em andamento, quando falhou) */
+  lastUser: string
+  error?: string
+  /** Trabalhando: o que está fazendo agora */
+  activity?: string
+  /** Primeira linha da última resposta */
+  summary?: string
+  /** Arquivos alterados na última resposta */
+  files?: { count: number; add: number; del: number }
+  ask?: AgentAsk
+}
+
+/** Ação feita no gerenciador de agentes e executada pela janela do agente */
+export type AgentAction =
+  | { type: 'decide'; choice: string | null }
+  | { type: 'plan'; mode: AgentMode }
+  | { type: 'keepPlanning' }
+  | { type: 'reply'; text: string }
+  | { type: 'retry' }
+
 export interface AgentHistoryItem {
   sessionId: string
   provider: CliProvider
@@ -825,6 +861,21 @@ export interface OvseerApi {
   onAgentWindows(cb: (sessionIds: string[]) => void): () => void
   /** A janela do agente informa a situação da conversa dela */
   agentReportStatus(uid: string, status: AgentStatus): void
+  /** A janela do agente publica o seu resumo para o gerenciador de agentes */
+  agentReportSnapshot(uid: string, snap: AgentSnapshot): void
+  /** Resumos das janelas de agente abertas (gerenciador de agentes) */
+  agentSnapshots(): Promise<AgentSnapshot[]>
+  onAgentSnapshots(cb: (snaps: AgentSnapshot[]) => void): () => void
+  /** Manda a janela do agente executar uma ação (responder, implementar o plano, tentar de novo) */
+  agentAct(uid: string, action: AgentAction): Promise<void>
+  /** Na janela do agente: ações vindas do gerenciador */
+  onAgentAct(cb: (uid: string, action: AgentAction) => void): () => void
+  /** Traz a janela do agente para a frente */
+  agentShow(uid: string): Promise<void>
+  /** Fecha janelas de agente */
+  agentClose(uids: string[]): Promise<void>
+  /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */
+  agentArrange(): Promise<void>
   /** Situação das conversas com janela aberta, por id de sessão */
   agentStatuses(): Promise<Record<string, AgentStatus>>
   onAgentStatuses(cb: (statuses: Record<string, AgentStatus>) => void): () => void
