@@ -4,7 +4,7 @@ import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
   GridCell,
-  AgentAction, AgentAsk, AgentSnapshot,
+  AgentAction, AgentAsk, AgentChecks, AgentSnapshot,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
@@ -369,6 +369,7 @@ async function saveTitle() {
 }
 
 function apply(ev: AgentChatEvent) {
+  lastEventAt.value = Date.now()
   if (ev.type === 'session') {
     sessionId.value = ev.sessionId
     return
@@ -1082,30 +1083,68 @@ function loadRepoIcon(root: string) {
 // ---------- gerenciador de agentes: esta janela publica um resumo e executa as ações que vêm de lá ----------
 /** Desde quando a janela está na situação atual (para "esperando há 17 min", "concluído há 1 min") */
 const statusSince = ref(Date.now())
+/** Último sinal do agente (qualquer evento): sem nenhum há minutos, o gerenciador sugere cutucar */
+const lastEventAt = ref(Date.now())
+watch(running, (r) => r && (lastEventAt.value = Date.now()))
+/** Comandos de verificação vistos nas ferramentas da resposta */
+/** Comando que começa a linha ou vem depois de ; && || | ( (não conta quando é só texto buscado, ex.: rg deploy) */
+const CMD = (re: string) => new RegExp(`(^|[;&|(]\\s*)(${re})`, 'm')
+const TEST_CMD = CMD(String.raw`(npm|pnpm|yarn|bun)( run)? test\b|npx (vitest|jest)\b|vitest\b|jest\b|pytest\b|python -m pytest\b|node --test\b|go test\b|cargo test\b|phpunit\b`)
+const TYPE_CMD = CMD(String.raw`(npx )?(tsc|vue-tsc)\b|(npm|pnpm|yarn|bun)( run)? typecheck\b|mypy\b|pyright\b`)
+const BUILD_CMD = CMD(String.raw`(npm|pnpm|yarn|bun)( run)? build\b|(npx )?(vite|next|electron-vite) build\b`)
+const DEPLOY_CMD = CMD(String.raw`(npm|pnpm|yarn|bun) run [\w:-]*deploy|[\w./-]*deploy[\w.-]*\.sh\b|kubectl (apply|rollout)\b|aws ecs update-service\b|fly deploy\b|vercel\b`)
+/** Quantos testes passaram, pela saída do comando (vitest, jest, node --test, pytest) */
+function testCount(out: string): number | undefined {
+  const m = /Tests?:?\s+(\d+) passed/.exec(out) ?? /# pass (\d+)/.exec(out) ?? /(\d+) passed/.exec(out)
+  return m ? Number(m[1]) : undefined
+}
+function checksOf(t: Turn | undefined, paths: string[]): AgentChecks | undefined {
+  const out: AgentChecks = {}
+  for (const b of t?.blocks ?? []) {
+    if (b.kind !== 'tool' || b.ok === null) continue
+    const cmd = `${b.detail ?? ''}`
+    if (TEST_CMD.test(cmd)) {
+      const n = testCount(b.output ?? '')
+      out.tests = { ok: b.ok && (out.tests?.ok ?? true), count: n ?? out.tests?.count }
+    }
+    if (TYPE_CMD.test(cmd)) out.typecheck = b.ok
+    if (BUILD_CMD.test(cmd)) out.build = b.ok
+    if (DEPLOY_CMD.test(cmd)) out.deploy = true
+  }
+  // mexeu em código tipado e não conferiu os tipos
+  if (out.typecheck === undefined && paths.some((p) => /\.(ts|tsx|vue|mts|cts)$/.test(p))) out.typecheck = null
+  return Object.keys(out).length ? out : undefined
+}
 watch(statusKind, () => (statusSince.value = Date.now()))
 /** Primeira linha de texto da última resposta, sem marcas de Markdown */
+/** Resultado da última resposta: o primeiro parágrafo de verdade do último texto (pula títulos), sem Markdown */
 function firstLine(t: Turn | undefined): string {
   const texts = (t?.blocks ?? []).flatMap((b) => (b.kind === 'text' ? [splitQuestions(b.text).text.trim()] : [])).filter(Boolean)
-  const line = (texts[texts.length - 1] ?? '').split('\n').map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[*`_]/g, '').trim()).find(Boolean) ?? ''
-  return line.length > 160 ? `${line.slice(0, 157)}…` : line
+  const paras = (texts[texts.length - 1] ?? '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+  const para = paras.find((p) => !/^#{1,6}\s/.test(p)) ?? paras[0] ?? ''
+  const line = para.replace(/^#{1,6}\s+/gm, '').replace(/^[>*\-\s]+/gm, '').replace(/[*`_]/g, '').replace(/\s+/g, ' ').trim()
+  return line.length > 240 ? `${line.slice(0, 237)}…` : line
 }
 const snapshot = computed<AgentSnapshot | null>(() => {
   if (!info.value) return null
   const last = turns[turns.length - 1] as Turn | undefined
   const lastUser = [...turns].reverse().find((t) => !t.silent && t.user.trim())?.user.trim() ?? ''
   let files: AgentSnapshot['files']
+  const paths: string[] = []
   for (const b of last?.blocks ?? []) {
     if (b.kind !== 'files') continue
     files ??= { count: 0, add: 0, del: 0 }
     files.count += b.paths.length
+    paths.push(...b.paths)
     for (const st of Object.values(b.stats ?? {})) if (st) (files.add += st.add), (files.del += st.del)
   }
   let ask: AgentAsk | undefined
   if (showAsk.value && question.value)
     ask = { kind: 'question', text: question.value.text, options: question.value.options.map((o) => ({ label: o.label, detail: o.detail, recommended: o.recommended })), index: qi.value, total: questions.value.length }
-  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint })), plan: planText.value }
+  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint, tag: m.id === 'full' ? 'risky' : m.id === 'safe' ? 'recommended' : undefined })), plan: planText.value }
   const cur = current()
   const tools = cur?.blocks.filter((b): b is ToolBlock => b.kind === 'tool') ?? []
+  const lastToolBlock = [...(cur ?? last)?.blocks ?? []].reverse().find((b): b is ToolBlock => b.kind === 'tool')
   return {
     uid,
     title: chatTitle.value || info.value.title || `Nova conversa com ${providerName.value}`,
@@ -1119,6 +1158,12 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     activity: cur ? (tools.length && cur.activity === 'tools' ? groupNow(tools) : activityLabel(cur)) : undefined,
     summary: last && !last.running ? firstLine(last) : undefined,
     files,
+    paths: [...new Set(paths)].slice(0, 200),
+    cwd: info.value.cwd,
+    startedAt: cur ? workStart(cur) : undefined,
+    lastEventAt: cur ? lastEventAt.value : undefined,
+    lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,
+    checks: last && !last.running ? checksOf(last, paths) : undefined,
     ask
   }
 })
@@ -1143,6 +1188,10 @@ function onAct(a: AgentAction) {
   else if (a.type === 'plan') startPlan(a.mode)
   else if (a.type === 'keepPlanning') askOpen.value = false
   else if (a.type === 'retry') retryLast()
+  else if (a.type === 'nudge') {
+    const cur = current()
+    if (cur) hurry(cur)
+  }
   else if (a.type === 'reply') {
     const text = a.text.trim()
     if (!text) return

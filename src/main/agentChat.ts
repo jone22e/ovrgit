@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, screen, shell } from 'electron'
+import { app, BrowserWindow, Notification, screen, shell } from 'electron'
 import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
@@ -382,8 +382,46 @@ function broadcastSnapshots() {
 export function reportSnapshot(uid: string, snap: AgentSnapshot) {
   const w = wins.get(uid)
   if (!w || !snap || typeof snap !== 'object') return
+  const was = w.snap
   w.snap = { ...snap, uid }
   broadcastSnapshots()
+  // passou a esperar por você: notificação com as opções como botões e um campo de resposta
+  if (snap.status === 'waiting' && snap.ask && (was?.status !== 'waiting' || !was.ask)) notifyWaiting(w, w.snap)
+}
+
+/** Notificações vivas (sem referência, o macOS perde os cliques nos botões) */
+const notes = new Set<Notification>()
+
+function notifyWaiting(w: AgentWin, snap: AgentSnapshot) {
+  if (!Notification.isSupported() || BrowserWindow.getFocusedWindow()) return
+  const ask = snap.ask!
+  const options: string[] = ask.options.map((o: { label: string }) => o.label)
+  const n = new Notification({
+    title: snap.title,
+    subtitle: `${snap.project} · ${snap.model}`,
+    body: ask.kind === 'plan' ? 'Deseja iniciar a implementação do plano?' : ask.text,
+    actions: options.slice(0, 4).map((text) => ({ type: 'button' as const, text })),
+    hasReply: true,
+    replyPlaceholder: ask.kind === 'plan' ? 'Ajuste para o plano…' : 'Responder…'
+  })
+  const done = () => notes.delete(n)
+  n.on('action', (_e, i) => {
+    done()
+    if (w.win.isDestroyed()) return
+    if (ask.kind === 'plan') actOnAgent(snap.uid, { type: 'plan', mode: ask.options[i].mode })
+    else actOnAgent(snap.uid, { type: 'decide', choice: ask.options[i].label })
+  })
+  n.on('reply', (_e, text) => {
+    done()
+    if (!w.win.isDestroyed() && text.trim()) actOnAgent(snap.uid, { type: 'reply', text })
+  })
+  n.on('click', () => {
+    done()
+    showAgentWindow(snap.uid)
+  })
+  n.on('close', done)
+  notes.add(n)
+  n.show()
 }
 
 export function actOnAgent(uid: string, action: AgentAction) {

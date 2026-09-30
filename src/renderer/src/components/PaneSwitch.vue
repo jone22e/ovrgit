@@ -24,7 +24,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history') {
       <Icon name="bot" :size="14" /><span class="lbl">Agentes</span><span v-if="needYou" class="need">{{ needYou }}</span>
     </button>
     <button :class="{ on: current() === 'changes' }" title="Arquivos alterados: ver o que mudou" @click="go('changes')">
-      <Icon name="commit" :size="14" /><span class="lbl">Alterações</span>
+      <Icon name="commit" :size="14" /><span class="lbl">Alterações</span><span v-if="state.repo?.files.length" class="cnt">{{ state.repo.files.length }}</span>
     </button>
     <button :class="{ on: current() === 'files' }" title="Todos os arquivos do projeto: abrir no editor" @click="go('files')">
       <Icon name="folder" :size="14" /><span class="lbl">Arquivos</span>
@@ -38,6 +38,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history') {
 <style scoped>
 .seg { display: flex; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 8px; flex: none; }
 .seg button { height: 24px; padding: 0 8px; gap: 5px; border: 0; background: transparent; color: var(--muted); border-radius: 6px; font-size: 12px; }
+.cnt { font-size: 11px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .need { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--mod); color: #1a1a1a; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 /* painel estreito: só os ícones */

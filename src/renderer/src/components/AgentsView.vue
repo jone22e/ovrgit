@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
-import { api, loadTasks, openNewAgent, ovseerReady, state } from '../store'
+import { api, loadTasks, openNewAgent, ovseerReady, selectFile, setPane, state, toast } from '../store'
 import { readAgentPrefs } from '../agentPrefs'
-import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import PaneSwitch from './PaneSwitch.vue'
@@ -18,7 +17,7 @@ const snaps = computed(() => state.agentSnaps)
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
 /** Precisa de você: esperando resposta primeiro (a mais antiga no topo), depois as que falharam */
 const needYou = computed(() => [...byStatus('waiting').sort((a, b) => a.since - b.since), ...byStatus('error').sort((a, b) => b.since - a.since)])
-const working = computed(() => byStatus('live').sort((a, b) => a.since - b.since))
+const running = computed(() => byStatus('live').sort((a, b) => a.since - b.since))
 const done = computed(() => byStatus('done').sort((a, b) => b.since - a.since))
 const idle = computed(() => byStatus('idle'))
 
@@ -36,6 +35,109 @@ function ago(ms: number) {
   return h < 24 ? `${h} h` : `${Math.floor(h / 24)} d`
 }
 
+/** Rodando sem nenhum sinal do agente há este tempo: fica âmbar e ganha o "Cutucar" */
+const STALL_MS = 6 * 60_000
+const stalled = (a: AgentSnapshot) => a.status === 'live' && !!a.lastEventAt && now.value - a.lastEventAt >= STALL_MS
+/** Agentes ativos (rodando, esperando ou com falha) sobre o total de janelas */
+const active = computed(() => snaps.value.filter((a) => a.status === 'live' || a.status === 'waiting' || a.status === 'error').length)
+
+// ---------- concluídos: novo até ser visto; o selecionado aparece aberto ----------
+const seenKey = (a: AgentSnapshot) => `${a.uid}:${a.since}`
+const isNew = (a: AgentSnapshot) => a.status === 'done' && !state.agentSeen.has(seenKey(a))
+function markSeen(a: AgentSnapshot) {
+  if (a.status === 'done' && !state.agentSeen.has(seenKey(a))) state.agentSeen = new Set(state.agentSeen).add(seenKey(a))
+}
+/** Etiquetas do resultado: arquivos, testes, typecheck, build e deploy vistos nos comandos do agente */
+function chips(a: AgentSnapshot): { text: string; tone: '' | 'ok' | 'bad' | 'warn' }[] {
+  const out: { text: string; tone: '' | 'ok' | 'bad' | 'warn' }[] = []
+  const c = a.checks
+  if (a.files?.count) out.push({ text: `${a.files.count} ${a.files.count === 1 ? 'arquivo' : 'arquivos'}`, tone: '' })
+  if (c?.tests) out.push({ text: `${c.tests.count ? `${c.tests.count} testes` : 'testes'} ${c.tests.ok ? '✓' : '✗'}`, tone: c.tests.ok ? 'ok' : 'bad' })
+  if (c?.typecheck === null) out.push({ text: 'typecheck não rodado', tone: 'warn' })
+  else if (c?.typecheck !== undefined) out.push({ text: `typecheck ${c.typecheck ? '✓' : '✗'}`, tone: c.typecheck ? 'ok' : 'bad' })
+  if (c?.build !== undefined) out.push({ text: `build ${c.build ? '✓' : '✗'}`, tone: c.build ? 'ok' : 'bad' })
+  if (c?.deploy) out.push({ text: 'com deploy', tone: 'warn' })
+  else if (a.files?.count) out.push({ text: 'sem deploy', tone: '' })
+  return out
+}
+
+/** Caminhos que o agente alterou dentro do projeto aberto, relativos à raiz dele (só os que estão na lista de alterações) */
+function repoPaths(a: AgentSnapshot): string[] {
+  const root = state.repo?.root
+  if (!root || !a.paths?.length) return []
+  const changed = new Set(state.repo!.files.map((f) => f.path))
+  const out: string[] = []
+  for (const p of a.paths) {
+    const abs = p.startsWith('/') ? p : `${a.cwd.replace(/\/$/, '')}/${p}`
+    const rel = abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : null
+    if (rel && changed.has(rel)) out.push(rel)
+  }
+  return out
+}
+/** Concluídos cujas alterações ainda estão na lista do projeto aberto */
+const withChanges = computed(() => done.value.filter((a) => repoPaths(a).length))
+/** Vai para Alterações com os arquivos destes agentes marcados (e o diff do primeiro aberto) */
+function goToChanges(list: AgentSnapshot[], openFirst = false) {
+  const paths = [...new Set(list.flatMap(repoPaths))]
+  if (!paths.length) return toast('As alterações desses agentes não estão mais na lista.')
+  list.forEach(markSeen)
+  state.tab = 'changes'
+  setPane('changes')
+  state.selected = new Set(paths)
+  const first = state.repo?.files.find((f) => f.path === paths[0])
+  if (openFirst && first) selectFile(first)
+}
+/** Fecha as janelas dos concluídos já vistos (a conversa continua em Conversas) */
+const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
+const archiveReviewed = () => api.agentClose(reviewed.value.map((a) => a.uid)).catch(() => undefined)
+
+// ---------- seleção e teclado: J/K navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
+const order = computed(() => [...needYou.value, ...running.value, ...done.value, ...idle.value])
+const selUid = ref<string | null>(null)
+const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
+const root = ref<HTMLElement>()
+function select(a: AgentSnapshot | undefined) {
+  if (!a) return
+  selUid.value = a.uid
+  markSeen(a)
+  nextTick(() => root.value?.querySelector(`[data-uid="${a.uid}"]`)?.scrollIntoView({ block: 'nearest' }))
+}
+/** Clique num concluído: abre (ou fecha) o resumo; nos outros, traz a janela */
+function clickDone(a: AgentSnapshot) {
+  if (selUid.value === a.uid) selUid.value = null
+  else select(a)
+}
+function onKey(e: KeyboardEvent) {
+  if (state.tab !== 'agents' || planUid.value) return
+  const el = e.target as HTMLElement | null
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+  if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
+    const a = order.value[Number(e.key) - 1]
+    if (a) {
+      e.preventDefault()
+      select(a)
+      show(a)
+    }
+    return
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  const i = order.value.findIndex((a) => a.uid === selUid.value)
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault()
+    select(order.value[Math.min(order.value.length - 1, i + 1)])
+  } else if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    select(order.value[Math.max(0, i - 1)])
+  } else if (e.key === 'Enter' && sel.value) {
+    e.preventDefault()
+    show(sel.value)
+  } else if (e.key === 'Escape') selUid.value = null
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
+// o selecionado fechou: tira a seleção
+watch(order, (l) => selUid.value && !l.some((a) => a.uid === selUid.value) && (selUid.value = null))
+
 /** Resposta digitada em cada cartão (uid → texto) */
 const replies = ref<Record<string, string>>({})
 function act(a: AgentSnapshot, action: AgentAction) {
@@ -47,7 +149,10 @@ function reply(a: AgentSnapshot) {
   replies.value[a.uid] = ''
   act(a, { type: 'reply', text })
 }
-const show = (a: AgentSnapshot) => api.agentShow(a.uid).catch(() => undefined)
+function show(a: AgentSnapshot) {
+  markSeen(a)
+  api.agentShow(a.uid).catch(() => undefined)
+}
 
 /** Plano aberto para leitura: o da janela `uid` (acompanha o resumo; some se o cartão deixar de esperar) */
 const planUid = ref<string | null>(null)
@@ -91,27 +196,33 @@ async function arrange() {
   await api.agentArrange().catch(() => undefined)
   arranging.value = false
 }
-const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() => undefined)
 </script>
 
 <template>
-  <div class="agents">
-    <div class="toolbar"><PaneSwitch /></div>
+  <div ref="root" class="agents">
+    <div class="toolbar">
+      <PaneSwitch />
+      <span class="gap" />
+      <small class="keys faint mono" title="Atalhos desta tela">J/K navegar · ↵ abrir · ⌘1–9 focar</small>
+    </div>
 
     <div class="scroll">
       <header class="head">
         <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'janela' : 'janelas' }}</strong>
-        <span v-if="working.length" class="count"><span class="dot live" />{{ working.length }} trabalhando</span>
         <span v-if="byStatus('waiting').length" class="count"><span class="dot waiting" />{{ byStatus('waiting').length }} aguardando</span>
         <span v-if="byStatus('error').length" class="count"><span class="dot error" />{{ byStatus('error').length }} falhou</span>
+        <span v-if="running.length" class="count"><span class="dot live" />{{ running.length }} rodando</span>
         <span v-if="done.length" class="count"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</span>
         <span class="gap" />
+        <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
+          <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
+          <span class="bars"><span v-for="i in Math.min(snaps.length, 12)" :key="i" :class="{ on: i <= active }" /></span>
+        </span>
         <button :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
           <span v-if="arranging" class="spinner" />
           <Icon v-else name="grid" :size="13" />
-          Organizar janelas
+          Organizar
         </button>
-        <button :disabled="!done.length" title="Fecha as janelas dos agentes que já terminaram (a conversa fica em Conversas)" @click="closeDone">Fechar concluídos</button>
       </header>
 
       <div v-if="!snaps.length" class="empty">
@@ -141,7 +252,7 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
       <section v-if="needYou.length">
         <h3 class="sec waiting">Precisa de você</h3>
-        <article v-for="a in needYou" :key="a.uid" class="card" :class="a.status">
+        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
           <div class="row">
             <span class="dot" :class="a.status" />
             <span class="text">
@@ -165,16 +276,18 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
             </p>
             <div class="opts">
               <template v-if="a.ask.kind === 'plan'">
-                <button v-for="(o, i) in a.ask.options" :key="o.mode" class="opt" :class="{ first: i === 0 }" @click="act(a, { type: 'plan', mode: o.mode })">
+                <button v-for="(o, i) in a.ask.options" :key="o.mode" class="opt" @click="act(a, { type: 'plan', mode: o.mode })">
                   <span class="num">{{ i + 1 }}</span><span class="lbl">{{ o.label }}</span><small class="faint ellipsis">{{ o.detail }}</small>
+                  <span v-if="o.tag" class="tag" :class="o.tag">{{ o.tag === 'risky' ? 'arriscado' : 'recomendado' }}</span>
                 </button>
                 <button class="opt" @click="act(a, { type: 'keepPlanning' })">
                   <span class="num">{{ a.ask.options.length + 1 }}</span><span class="lbl">Continuar planejando</span><small class="faint">mantém no modo Plano</small>
                 </button>
               </template>
               <template v-else>
-                <button v-for="(o, i) in a.ask.options" :key="o.label" class="opt" :class="{ first: o.recommended }" @click="act(a, { type: 'decide', choice: o.label })">
+                <button v-for="(o, i) in a.ask.options" :key="o.label" class="opt" @click="act(a, { type: 'decide', choice: o.label })">
                   <span class="num">{{ i + 1 }}</span><span class="lbl">{{ o.label }}</span><small v-if="o.detail" class="faint ellipsis">{{ o.detail }}</small>
+                  <span v-if="o.recommended" class="tag recommended">recomendado</span>
                 </button>
               </template>
             </div>
@@ -189,39 +302,78 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
         </article>
       </section>
 
-      <section v-if="working.length">
-        <h3 class="sec live">Trabalhando</h3>
-        <div v-for="a in working" :key="a.uid" class="item" @click="show(a)">
-          <span class="dot live" />
+      <section v-if="running.length">
+        <h3 class="sec live">Rodando</h3>
+        <div v-for="a in running" :key="a.uid" :data-uid="a.uid" class="item run" :class="{ stalled: stalled(a), sel: selUid === a.uid }" @click="show(a)">
+          <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
-            <strong class="ellipsis">{{ a.title }}</strong>
-            <small class="faint ellipsis">{{ a.project }} · {{ a.activity || 'Trabalhando…' }}</small>
+            <span class="line">
+              <strong class="ellipsis">{{ a.title }}</strong>
+              <small v-if="stalled(a)" class="warn ellipsis">sem saída há {{ ago(a.lastEventAt!) }}{{ a.lastTool ? ` · último: ${a.lastTool}` : '' }}</small>
+              <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
+            </span>
+            <span class="bar" :class="{ stalled: stalled(a) }"><span /></span>
           </span>
-          <small class="faint when">{{ ago(a.since) }}</small>
+          <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
+          <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
 
       <section v-if="done.length">
-        <h3 class="sec done">Concluídos <small class="faint">mais recente primeiro</small></h3>
-        <div v-for="a in done" :key="a.uid" class="item" @click="show(a)">
-          <span class="dot done" />
-          <span class="text">
-            <strong class="ellipsis">{{ a.title }}</strong>
-            <small class="faint ellipsis">{{ a.summary || a.project }}</small>
+        <h3 class="sec done">
+          Concluídos
+          <span class="sec-actions">
+            <button v-if="withChanges.length" class="ghost link accent" title="Abre Alterações com os arquivos desses agentes marcados" @click="goToChanges(withChanges)">
+              Enviar alterações de {{ withChanges.length }} {{ withChanges.length === 1 ? 'agente' : 'agentes' }} →
+            </button>
+            <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
           </span>
-          <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
-            <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
-            <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
-          </span>
-          <small class="faint when">{{ ago(a.since) }}</small>
-          <Icon name="external" :size="13" class="go" />
-        </div>
+        </h3>
+        <template v-for="a in done" :key="a.uid">
+          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel">
+            <div class="row">
+              <span class="dot done" />
+              <strong class="ellipsis grow">{{ a.title }}</strong>
+              <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
+                <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
+                <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
+              </span>
+              <small class="faint when">{{ ago(a.since) }}</small>
+              <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
+            </div>
+            <p v-if="a.summary" class="result">{{ a.summary }}</p>
+            <div v-if="chips(a).length" class="chips">
+              <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
+            </div>
+            <form class="next" @submit.prevent="reply(a)">
+              <input v-model="replies[a.uid]" type="text" placeholder="Próxima instrução para este agente…" maxlength="4000" />
+              <button v-if="a.checks?.typecheck !== true && a.files?.count" type="button" class="small" @click="act(a, { type: 'reply', text: 'Rode o typecheck do projeto e corrija o que falhar.' })">Rodar typecheck</button>
+              <button v-if="repoPaths(a).length" type="button" class="small" @click="goToChanges([a], true)">Ver diff</button>
+            </form>
+          </article>
+          <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
+            <span class="dot done" :class="{ seen: !isNew(a) }" />
+            <span class="text">
+              <span class="line">
+                <strong class="ellipsis" :class="{ light: !isNew(a) }">{{ a.title }}</strong>
+                <span v-if="isNew(a)" class="new">novo</span>
+              </span>
+              <small class="faint ellipsis">{{ a.summary || a.project }}{{ isNew(a) ? '' : ' · revisado' }}</small>
+            </span>
+            <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
+              <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
+              <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
+            </span>
+            <small class="faint when">{{ ago(a.since) }}</small>
+            <button class="ghost icon small go-btn" title="Abrir a janela" @click.stop="show(a)"><Icon name="external" :size="13" /></button>
+          </div>
+        </template>
       </section>
 
       <section v-if="idle.length">
         <h3 class="sec">Sem conversa</h3>
-        <div v-for="a in idle" :key="a.uid" class="item" @click="show(a)">
+        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
           <span class="dot" />
           <span class="text">
             <strong class="ellipsis">{{ a.title }}</strong>
@@ -244,6 +396,9 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
 
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
+.toolbar { gap: 10px; }
+.keys { font-size: 11px; white-space: nowrap; }
+@container (max-width: 640px) { .keys { display: none; } }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -292,7 +447,9 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
 .q small { margin-left: 6px; font-size: 11.5px; }
 .opts { display: flex; flex-direction: column; gap: 6px; }
 .opt { height: auto; min-height: 36px; justify-content: flex-start; gap: 10px; padding: 6px 10px; border-radius: 8px; text-align: left; white-space: normal; }
-.opt.first { border-color: color-mix(in srgb, var(--mod) 55%, var(--border)); background: color-mix(in srgb, var(--mod) 8%, var(--panel)); }
+.opt .tag { margin-left: auto; flex: none; font-size: 11px; padding: 1px 7px; border-radius: 5px; font-weight: 600; }
+.tag.risky { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
+.tag.recommended { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .opt .num { flex: none; width: 20px; height: 20px; border-radius: 5px; background: var(--panel-2); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .opt .lbl { font-weight: 600; font-size: 13px; flex: none; }
 .opt small { font-size: 12px; min-width: 0; }
@@ -303,6 +460,37 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
 .link:hover:not(:disabled) { background: transparent; color: var(--accent); }
 
 .item { display: flex; align-items: center; gap: 12px; padding: 9px 8px; border-radius: 8px; cursor: pointer; min-width: 0; }
+.item.sel, .card.sel { box-shadow: 0 0 0 1px var(--accent); }
+.item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
+.warn { color: var(--mod); }
+.nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
+/* barra de andamento: o CLI não informa quanto falta, então ela corre sem parar enquanto há sinal; parada, fica âmbar */
+.bar { position: relative; display: block; height: 3px; max-width: 520px; margin-top: 5px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.bar span { position: absolute; top: 0; bottom: 0; width: 35%; border-radius: inherit; background: var(--accent); animation: run 1.6s ease-in-out infinite; }
+.bar.stalled span { width: 45%; left: 0; background: var(--mod); animation: none; }
+@keyframes run { from { left: -35%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .bar span { animation: none; left: 0; } }
+.slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.bars { display: inline-flex; gap: 3px; }
+.bars span { width: 12px; height: 4px; border-radius: 2px; background: var(--panel-2); }
+.bars span.on { background: var(--accent); }
+.sec-actions { display: inline-flex; gap: 14px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.link.accent { color: var(--accent); }
+.new { flex: none; font-size: 10.5px; padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.dot.seen { opacity: 0.55; }
+strong.light { font-weight: 500; }
+.grow { flex: 1; font-size: 13.5px; }
+.done-open { gap: 10px; }
+.result { margin: 0 0 0 18px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 18px; }
+.chip { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
+.chip.ok { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
+.chip.bad { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
+.chip.warn { color: var(--mod); background: color-mix(in srgb, var(--mod) 12%, transparent); }
+.next { display: flex; gap: 8px; margin-left: 18px; }
+.next input { flex: 1; min-width: 0; font-size: 12.5px; }
+.next button { height: 30px; }
+.go-btn { color: var(--faint); }
 .item:hover { background: var(--hover); }
 .when { font-size: 12px; white-space: nowrap; min-width: 40px; text-align: right; }
 .stats { display: flex; gap: 8px; font-size: 12px; }

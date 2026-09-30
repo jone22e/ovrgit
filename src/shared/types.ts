@@ -458,7 +458,18 @@ export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 /** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
 export type AgentAsk =
   | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number }
-  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string }[]; /** Texto do plano, em Markdown */ plan: string }
+  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string; tag?: 'risky' | 'recommended' }[]; /** Texto do plano, em Markdown */ plan: string }
+
+/** Verificações vistas nos comandos da última resposta do agente (ausente: não rodou) */
+export interface AgentChecks {
+  /** Testes: passaram? e quantos, quando a saída diz */
+  tests?: { ok: boolean; count?: number }
+  /** Checagem de tipos: true/false; null quando alterou código tipado sem rodar */
+  typecheck?: boolean | null
+  build?: boolean
+  /** Rodou algum comando de deploy */
+  deploy?: boolean
+}
 
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {
@@ -480,6 +491,16 @@ export interface AgentSnapshot {
   summary?: string
   /** Arquivos alterados na última resposta */
   files?: { count: number; add: number; del: number }
+  /** Caminhos alterados na última resposta (como vieram do agente: relativos à pasta dele ou absolutos) */
+  paths?: string[]
+  /** Pasta onde o agente trabalha */
+  cwd: string
+  /** Trabalhando: início do trabalho atual e o último sinal do agente (texto, ferramenta, pensamento) */
+  startedAt?: number
+  lastEventAt?: number
+  /** Último comando ou ferramenta usada */
+  lastTool?: string
+  checks?: AgentChecks
   ask?: AgentAsk
 }
 
@@ -490,6 +511,8 @@ export type AgentAction =
   | { type: 'keepPlanning' }
   | { type: 'reply'; text: string }
   | { type: 'retry' }
+  /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
+  | { type: 'nudge' }
 
 export interface AgentHistoryItem {
   sessionId: string

@@ -89,6 +89,8 @@ export const state = reactive({
   agentStatuses: {} as Record<string, AgentStatus>,
   /** Resumo de cada janela de agente aberta (gerenciador de agentes) */
   agentSnaps: [] as AgentSnapshot[],
+  /** Concluídos já vistos no gerenciador (uid:momento em que concluiu): os outros aparecem como "novo" */
+  agentSeen: new Set<string>(),
   showNewAgent: false,
   /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
   newAgentTask: null as OvseerTask | null,
