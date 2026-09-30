@@ -170,7 +170,8 @@ onUnmounted(() => {
         <HistoryView v-else />
       </div>
       </div>
-      <CommitBar v-show="!termMaximized" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      <!-- no modo Arquivos a barra de commit some: o espaço fica para a árvore e o editor -->
+      <CommitBar v-show="!termMaximized && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
         <div v-show="state.showTerminal && !termMaximized" class="term-resizer" @mousedown.prevent="startTermResize" />
