@@ -506,6 +506,8 @@ export interface SourceFile {
   content: string | null
   reason?: string
   mtimeMs?: number
+  /** Só para .env*: o git ignora este arquivo */
+  ignored?: boolean
 }
 
 /** Versão instalada de um CLI e a mais recente publicada (`latest` nula: não deu para consultar) */

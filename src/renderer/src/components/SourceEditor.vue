@@ -3,8 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { basicSetup } from 'codemirror'
-import { EditorState, Transaction, type Extension } from '@codemirror/state'
-import { EditorView, keymap } from '@codemirror/view'
+import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { HighlightStyle, StreamLanguage, indentUnit, syntaxHighlighting, type StreamParser } from '@codemirror/language'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
@@ -36,8 +36,72 @@ interface Tab {
   eol: '\n' | '\r\n'
   indent: string
   lang: string
+  /** .env*: o git ignora o arquivo */
+  ignored?: boolean
 }
 const cache = new Map<string, Tab>()
+
+// ---------- .env: valores ocultos por padrão ----------
+const ENV_FILE = /(^|\/)\.env(\.[^/]*)?$/
+const isEnv = computed(() => ENV_FILE.test(path.value ?? ''))
+/** Arquivos .env em que o usuário pediu para ver os valores (volta a ocultar ao reabrir o app) */
+const revealed = reactive(new Set<string>())
+const valuesShown = computed(() => !!path.value && revealed.has(path.value))
+class DotsWidget extends WidgetType {
+  toDOM() {
+    const el = document.createElement('span')
+    el.className = 'env-dots'
+    el.textContent = '••••••••••••'
+    return el
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+const ENV_LINE = /^(\s*(?:export\s+)?[\w.-]+\s*=)(.+)$/
+/** Troca o valor de cada CHAVE=valor por pontos; comentários e linhas vazias ficam como estão */
+function maskValues(view: EditorView): DecorationSet {
+  const marks: ReturnType<typeof Decoration.replace>[] = []
+  const ranges: { from: number; to: number }[] = []
+  for (const { from, to } of view.visibleRanges) {
+    for (let pos = from; pos <= to; ) {
+      const line = view.state.doc.lineAt(pos)
+      const m = ENV_LINE.exec(line.text)
+      if (m && m[2].trim()) {
+        ranges.push({ from: line.from + m[1].length, to: line.to })
+        marks.push(Decoration.replace({ widget: new DotsWidget() }))
+      }
+      pos = line.to + 1
+    }
+  }
+  return Decoration.set(ranges.map((r, i) => marks[i].range(r.from, r.to)))
+}
+const envMaskPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+    constructor(view: EditorView) {
+      this.decorations = maskValues(view)
+    }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged) this.decorations = maskValues(u.view)
+    }
+  },
+  { decorations: (v) => v.decorations }
+)
+/** Com os valores ocultos o arquivo não é editável: mostre-os para editar */
+const envMasked: Extension = [envMaskPlugin, EditorState.readOnly.of(true), EditorView.editable.of(false)]
+const envMask = new Compartment()
+function toggleValues() {
+  const p = path.value
+  if (!p) return
+  if (revealed.has(p)) revealed.delete(p)
+  else revealed.add(p)
+  const shown = revealed.has(p)
+  view.value?.dispatch({ effects: envMask.reconfigure(shown ? [] : envMasked) })
+  const tab = cache.get(p)
+  if (tab && view.value) tab.state = view.value.state
+  if (shown) view.value?.focus()
+}
 
 const path = computed(() => state.sourcePath)
 const reason = ref('')
@@ -337,8 +401,10 @@ const minimap = showMinimap.compute(['doc'], () => ({
   showOverlay: 'always'
 }))
 
-function extensions(lang: Extension, eol: string, indent: string): Extension[] {
+function extensions(lang: Extension, eol: string, indent: string, file = ''): Extension[] {
   return [
+    // .env*: começa com os valores ocultos (a não ser que o usuário já tenha pedido para ver)
+    envMask.of(ENV_FILE.test(file) && !revealed.has(file) ? envMasked : []),
     basicSetup,
     EditorState.lineSeparator.of(eol),
     indentUnit.of(indent),
@@ -422,7 +488,7 @@ async function show(p: string | null, prev?: string | null) {
       const indent = detectIndent(f.content)
       if (f.mtimeMs !== undefined) state.sourceMtimes[p] = f.mtimeMs
       const doc = state.sourceDrafts[p] ?? f.content
-      tab = { state: EditorState.create({ doc, extensions: extensions(ext, eol, indent) }), saved: f.content, scroll: 0, eol, indent, lang: lang.name }
+      tab = { state: EditorState.create({ doc, extensions: extensions(ext, eol, indent, p) }), saved: f.content, scroll: 0, eol, indent, lang: lang.name, ignored: f.ignored }
       cache.set(p, tab)
     } catch (e) {
       if (my !== seq) return
@@ -596,6 +662,15 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
       <button class="small" :disabled="saving" @click="keepMine">Manter a minha</button>
     </div>
 
+    <!-- .env: aviso sobre o git e o botão que mostra/oculta os valores -->
+    <div v-if="isEnv && path && !loading && !reason" class="env-bar">
+      <Icon name="lock" :size="13" />
+      <span v-if="cache.get(path)?.ignored" class="env-tag ok">ignorado pelo git</span>
+      <span v-else class="env-tag warn" title="Este arquivo pode ir para o servidor num commit. Se ele tem segredos, coloque-o no .gitignore.">não está no .gitignore</span>
+      <span class="env-note faint">{{ valuesShown ? 'Valores visíveis. Oculte para proteger a tela.' : 'Os valores estão ocultos. Mostre-os para ver ou editar.' }}</span>
+      <button class="small" @click="toggleValues">{{ valuesShown ? 'Ocultar valores' : 'Mostrar valores' }}</button>
+    </div>
+
     <div v-if="!path" class="placeholder faint">Clique num arquivo para abrir.</div>
     <div v-else-if="loading" class="placeholder"><span class="spinner" /></div>
     <div v-else-if="reason" class="placeholder faint">{{ reason }}</div>
@@ -663,6 +738,16 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
   background: color-mix(in srgb, var(--mod) 14%, var(--panel)); border-bottom: 1px solid var(--border); color: var(--text);
 }
 .conflict span { flex: 1; min-width: 0; }
+.env-bar {
+  display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 14px; font-size: 12.5px; color: var(--muted);
+  border-bottom: 1px solid var(--border); background: var(--panel-2);
+}
+.env-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.env-tag.ok { color: var(--mod); background: color-mix(in srgb, var(--mod) 16%, transparent); }
+.env-tag.warn { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
+.env-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.env-bar .small { height: 26px; padding: 0 10px; font-size: 12px; flex: none; }
+.cm-host :deep(.env-dots) { color: var(--faint); letter-spacing: 1px; }
 .conflict .small { height: 26px; padding: 0 10px; font-size: 12px; flex: none; }
 
 .placeholder { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; }

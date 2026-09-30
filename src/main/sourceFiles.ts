@@ -55,7 +55,10 @@ export async function readSourceFile(root: string, rel: string): Promise<SourceF
   const buf = await readFile(abs)
   // byte nulo no começo: binário (imagem, fonte, executável…)
   if (buf.subarray(0, 8000).includes(0)) return { path: rel, content: null, reason: 'Arquivo binário: não dá para mostrar como texto.' }
-  return { path: rel, content: buf.toString('utf8'), mtimeMs: st.mtimeMs }
+  const file: SourceFile = { path: rel, content: buf.toString('utf8'), mtimeMs: st.mtimeMs }
+  // .env*: o editor avisa se o arquivo está (ou não) fora do git
+  if (DOTENV.test(rel)) file.ignored = (await run(root, ['check-ignore', '-q', '--', rel]).catch(() => ({ code: 1 }))).code === 0
+  return file
 }
 
 const IMAGE_MIME: Record<string, string> = {
