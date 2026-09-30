@@ -109,6 +109,7 @@ modelo local pelo Ollama.
 | Abrir pasta | `Cmd/Ctrl + O` |
 | Atualizar | `Cmd/Ctrl + R` |
 | Configurações | `Cmd/Ctrl + ,` |
+| Novo agente igual ao último | `Cmd/Ctrl + Shift + N` |
 | Analisar com IA | `Cmd/Ctrl + I` |
 | Commit | `Cmd/Ctrl + Enter` |
 | Criar Feature | `Cmd/Ctrl + Shift + F` |

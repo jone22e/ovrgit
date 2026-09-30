@@ -8,7 +8,7 @@ import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
 import { normalizeGrid } from '../shared/grid'
-import { findHistory, historyBounds, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
+import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -122,6 +122,25 @@ function openAgentBounds(): WindowBounds[] {
   return [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.win.isMinimized()).map((w) => w.win.getBounds())
 }
 
+/** Último agente aberto ou usado desde que o app abriu: é a base do atalho de "novo agente" */
+let lastAgent: AgentChatOpen | null = null
+
+/**
+ * Novo agente pelo atalho, sem passar pelo diálogo: repete provedor, modelo, esforço e modo.
+ * Com uma janela de agente em foco, a base é ela (e a pasta dela); senão, o último agente aberto ou usado
+ * (depois de reabrir o app, a conversa mais recente do histórico) na pasta do projeto aberto.
+ * Sem nenhuma base, ou sem pasta válida: null (quem chama mostra o diálogo).
+ */
+export async function openAgentLikeLast(focused: BrowserWindow | null, projectRoot: string | null): Promise<AgentWindowInfo | null> {
+  const here = focused ? [...wins.values()].find((w) => w.win === focused) : undefined
+  const recent = () => [...listHistory()].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const base: AgentChatOpen | undefined = here?.info ?? lastAgent ?? recent()
+  if (!base) return null
+  const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
+  if (!existsSync(cwd)) return null
+  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: base.mode, cwd })
+}
+
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
   const uid = crypto.randomUUID()
@@ -189,6 +208,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     rmSync(blobDir(uid), { recursive: true, force: true })
   })
   wins.set(uid, { info, win, child: null, turnDone: true, exited: null })
+  lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   const load = () =>
     process.env.ELECTRON_RENDERER_URL
       ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
@@ -813,6 +833,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.model = clean.model
   w.info.effort = clean.effort
   w.info.mode = clean.mode
+  lastAgent = { provider: w.info.provider, model: w.info.model, effort: w.info.effort, mode: w.info.mode, cwd: w.info.cwd }
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
   const instructions = getSettings().agentInstructions?.trim() ?? ''

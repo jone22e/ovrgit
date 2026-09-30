@@ -150,6 +150,16 @@ function buildMenu() {
     if (!win || win.isDestroyed()) createWindow()
     else toMain('menu', ch)
   }
+  // novo agente igual ao último (vale também com uma janela de agente em foco); sem base, abre o diálogo
+  const newAgent = () => {
+    agentChat
+      .openAgentLikeLast(BrowserWindow.getFocusedWindow(), root)
+      .then((opened) => opened || send('newAgent')())
+      .catch((e) => {
+        console.error('Novo agente pelo atalho falhou:', e)
+        send('newAgent')()
+      })
+  }
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : []),
     {
@@ -158,6 +168,8 @@ function buildMenu() {
         { label: 'Trocar projeto…', accelerator: 'CmdOrCtrl+P', click: send('switch') },
         { label: 'Abrir pasta…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'Atualizar', accelerator: 'CmdOrCtrl+R', click: send('refresh') },
+        { type: 'separator' },
+        { label: 'Novo agente', accelerator: 'CmdOrCtrl+Shift+N', click: newAgent },
         { type: 'separator' },
         { label: 'Configurações…', accelerator: 'CmdOrCtrl+,', click: send('settings') },
         { type: 'separator' },

@@ -31,7 +31,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, api, commit, hasPlan, init, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, openNewAgent, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
@@ -94,6 +94,7 @@ onMounted(() => {
   offMenu = window.ovseer.onMenu((action) => {
     if (action === 'open') openProject()
     else if (action === 'settings') state.showSettings = true
+    else if (action === 'newAgent') openNewAgent()
     else if (action === 'switch') state.repo ? (showSwitcher.value = true) : openProject()
     else if (!state.repo) return
     else if (action === 'refresh') refresh()
