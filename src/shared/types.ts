@@ -819,6 +819,8 @@ export interface OvseerApi {
   cliUpdates(force?: boolean): Promise<CliUpdates>
   /** Roda o `update` do próprio CLI; devolve a situação depois dele */
   cliUpdate(id: CliProvider): Promise<CliUpdateInfo | null>
+  /** Instala o CLI pelo instalador oficial; devolve a situação depois dele */
+  cliInstall(id: CliProvider): Promise<CliUpdateInfo | null>
   onAgentEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   onAgentWindows(cb: (sessionIds: string[]) => void): () => void
   /** A janela do agente informa a situação da conversa dela */

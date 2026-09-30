@@ -25,7 +25,7 @@ import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
 import { getUsage } from './usage'
-import { getCliUpdates, updateCli } from './cliUpdates'
+import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
 import { createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
@@ -598,6 +598,10 @@ function registerIpc() {
   ipcMain.handle('cli:update', (_e, id: CliProvider) => {
     if (id !== 'claude' && id !== 'codex' && id !== 'agy') throw new Error('CLI desconhecido.')
     return updateCli(id)
+  })
+  ipcMain.handle('cli:install', (_e, id: CliProvider) => {
+    if (id !== 'claude' && id !== 'codex' && id !== 'agy') throw new Error('CLI desconhecido.')
+    return installCli(id)
   })
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {

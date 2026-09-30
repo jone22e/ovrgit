@@ -19,6 +19,9 @@ export async function findBinary(name: string): Promise<string | null> {
         path.join(home, '.local', 'bin'),
         path.join(process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'npm'),
         path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Programs', name),
+        // onde os instaladores oficiais do Codex e do Antigravity deixam o executável
+        path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'Programs', 'OpenAI', 'Codex', 'bin'),
+        path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), 'agy', 'bin'),
         path.join(home, '.bun', 'bin')
       ]
     : [
@@ -44,6 +47,11 @@ export async function findBinary(name: string): Promise<string | null> {
   if (!found) found = await askShell(name)
   cache.set(name, found)
   return found
+}
+
+/** Esquece onde um CLI estava (ou que não estava): depois de instalar, a próxima busca acha o novo */
+export function forgetBinary(name: string) {
+  cache.delete(name)
 }
 
 function askShell(name: string): Promise<string | null> {

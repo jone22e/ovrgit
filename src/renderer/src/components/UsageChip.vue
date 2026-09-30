@@ -47,6 +47,32 @@ async function runUpdate(id: CliProvider) {
   }
 }
 
+/** CLI sendo instalado agora; instalado nesta sessão (falta entrar na conta) */
+const installing = ref<CliProvider | null>(null)
+const installed = ref<Partial<Record<CliProvider, boolean>>>({})
+async function runInstall(id: CliProvider) {
+  if (installing.value || updating.value) return
+  installing.value = id
+  delete updateError.value[id]
+  try {
+    const after = await api.cliInstall(id)
+    if (updates.value) updates.value[id] = after
+    installed.value[id] = true
+  } catch (e) {
+    updateError.value[id] = String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  } finally {
+    installing.value = null
+  }
+}
+const NAMES: Record<CliProvider, string> = { claude: 'Claude', codex: 'ChatGPT', agy: 'Antigravity' }
+/** Comando que abre o CLI para entrar na conta pela primeira vez */
+const LOGIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex login', agy: 'agy' }
+/** CLIs que não estão nesta máquina (a consulta de versões respondeu e não achou o executável), mais os
+ * instalados agora e ainda sem uso: aparecem no painel com o botão de instalar ou o aviso de login */
+const missing = computed(() =>
+  (['claude', 'codex', 'agy'] as const).filter((id) => updates.value && (updates.value[id] === null || installed.value[id]) && !rows.value.some((r) => r.id === id))
+)
+
 async function load(force = false) {
   loadUpdates(force)
   loading.value = true
@@ -68,7 +94,7 @@ const rows = computed(() => {
   if (u.agy) list.push({ id: 'agy', name: 'Antigravity', u: u.agy })
   return list
 })
-const visible = computed(() => rows.value.some((r) => r.u.week || r.u.fiveHour))
+const visible = computed(() => rows.value.some((r) => r.u.week || r.u.fiveHour) || missing.value.length > 0)
 /** Uso semanal combinado: média das assinaturas com dado (100% das duas = 100%) */
 const weekAvg = computed(() => {
   const vals = rows.value.map((r) => r.u.week?.pct).filter((p): p is number => typeof p === 'number')
@@ -165,6 +191,22 @@ onUnmounted(() => {
           </div>
         </template>
       </section>
+      <section v-for="id in missing" :key="id" class="missing">
+        <div class="who">
+          <AgentLogo :source="id" :size="14" />
+          <strong>{{ NAMES[id] }}</strong>
+          <span class="spacer" />
+          <small v-if="installed[id]" class="ok">instalado</small>
+          <button v-else class="upd" :disabled="!!installing || !!updating" :title="`Instala o CLI de ${NAMES[id]} pelo instalador oficial`" @click="runInstall(id)">
+            <span v-if="installing === id" class="spinner" />
+            <Icon v-else name="down" :size="12" />
+            {{ installing === id ? 'Instalando…' : 'Instalar' }}
+          </button>
+        </div>
+        <small v-if="installed[id]" class="faint">Para entrar na conta, rode <code>{{ LOGIN[id] }}</code> no terminal.</small>
+        <small v-else class="faint">Não instalado nesta máquina.</small>
+        <p v-if="updateError[id]" class="bad">{{ updateError[id] }}</p>
+      </section>
     </div>
   </div>
 </template>
@@ -187,7 +229,9 @@ onUnmounted(() => {
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: -2px; }
 .ver { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .ver .new { color: var(--accent); font-weight: 600; }
-.ver .ok { color: var(--add); }
+.ver .ok, .missing .ok { color: var(--add); font-size: 11px; }
+.missing > small { font-size: 11.5px; }
+.missing code { font-family: var(--mono); font-size: 11px; }
 .upd { height: 22px; padding: 0 8px; gap: 5px; font-size: 11.5px; border-radius: 6px; }
 .pct { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
 

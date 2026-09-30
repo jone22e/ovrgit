@@ -186,6 +186,7 @@ const api: OvseerApi = {
   usage: (force) => ipcRenderer.invoke('usage:get', !!force),
   cliUpdates: (force) => ipcRenderer.invoke('cli:updates', !!force),
   cliUpdate: (id) => ipcRenderer.invoke('cli:update', id),
+  cliInstall: (id) => ipcRenderer.invoke('cli:install', id),
   onAgentEvent: (cb) => {
     const h = (_e: unknown, uid: string, ev: AgentChatEvent) => cb(uid, ev)
     ipcRenderer.on('agent:event', h)
