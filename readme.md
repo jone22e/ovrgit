@@ -84,7 +84,7 @@ modelo local pelo Ollama.
 ### Aparência
 
 - Tema padrão que segue o modo claro/escuro do sistema.
-- Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark e GitHub Light.
+- Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark, Ayu Mirage e GitHub Light.
 
 ### Atualização automática
 
