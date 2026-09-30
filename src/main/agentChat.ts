@@ -30,6 +30,8 @@ interface AgentWin {
   exited: Promise<void> | null
   /** Situação da conversa, informada pela janela (só ela sabe de cartões esperando resposta) */
   status?: AgentStatus
+  /** Modo da última mensagem enviada por esta janela (ausente: nenhuma ainda) */
+  lastMode?: AgentMode
 }
 
 const wins = new Map<string, AgentWin>()
@@ -541,6 +543,20 @@ pergunta ao usuário se deseja iniciar a implementação.
 
 `
 
+/**
+ * Saída do modo plano no Codex: as instruções do Modo Plano ficam no histórico da sessão, e sem um aviso o modelo
+ * continua achando que não pode editar. Vai quando a mensagem anterior foi no Modo Plano, ou na primeira mensagem
+ * de uma conversa reaberta (não dá para saber em que modo ela parou).
+ */
+export const CODEX_PLAN_EXIT = `<collaboration_mode>
+# Modo Plano encerrado
+
+O Modo Plano foi desativado. Ignore as restrições dele que aparecem antes nesta conversa: agora você pode editar,
+criar e apagar arquivos e executar a tarefa normalmente.
+</collaboration_mode>
+
+`
+
 export function normalizeMode(m: unknown): AgentMode {
   return m === 'full' || m === 'plan' ? m : 'safe'
 }
@@ -940,7 +956,19 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
       : ''
-  const { prompt, inlineImages } = composeMessage(provider, intro + (clean.mode !== 'plan' ? '' : provider === 'codex' ? CODEX_PLAN_INSTRUCTIONS : provider === 'agy' ? `<plan_format>\n${PLAN_TITLE}\n</plan_format>\n\n` : '') + text, attachments)
+  const planExit = provider === 'codex' && clean.mode !== 'plan' && !!w.info.sessionId && (w.lastMode === 'plan' || w.lastMode === undefined)
+  w.lastMode = clean.mode
+  const modeNote =
+    clean.mode !== 'plan'
+      ? planExit
+        ? CODEX_PLAN_EXIT
+        : ''
+      : provider === 'codex'
+        ? CODEX_PLAN_INSTRUCTIONS
+        : provider === 'agy'
+          ? `<plan_format>\n${PLAN_TITLE}\n</plan_format>\n\n`
+          : ''
+  const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
   const args =
     provider === 'claude'
       ? claudeArgs({ ...clean, images: inlineImages.length, instructions })
