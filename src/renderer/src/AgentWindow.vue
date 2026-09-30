@@ -1462,12 +1462,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 /* modo Plano (roxo) e Controle total (dourado): manchas suaves de luz espalhadas pelo cabeçalho, nas cores dos chips */
 .bar.mode-plan { --mode-tint: var(--hunk); }
 /* o dourado aparece mais que o roxo: entra mais diluído */
-.bar.mode-full { --mode-tint: color-mix(in srgb, var(--mod) 60%, transparent); }
+.bar.mode-full { --mode-tint: color-mix(in srgb, var(--mod) 43%, transparent); }
 .bar.mode-plan, .bar.mode-full {
   background:
-    radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 20%, transparent), transparent 70%),
-    radial-gradient(ellipse 30% 140% at 42% 110%, color-mix(in srgb, var(--mode-tint) 11%, transparent), transparent 70%),
-    radial-gradient(ellipse 26% 120% at 78% -10%, color-mix(in srgb, var(--mode-tint) 7%, transparent), transparent 70%),
+    radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 28%, transparent), transparent 70%),
+    radial-gradient(ellipse 30% 140% at 42% 110%, color-mix(in srgb, var(--mode-tint) 16%, transparent), transparent 70%),
+    radial-gradient(ellipse 26% 120% at 78% -10%, color-mix(in srgb, var(--mode-tint) 10%, transparent), transparent 70%),
     var(--panel);
 }
 :root[data-platform='darwin'] .bar { padding-left: 90px; }
