@@ -31,7 +31,9 @@ const item = (path: string): Item => ({ path, status: changed.value.get(path) })
 
 /** Recentes: os abertos há pouco no editor (a lista fica guardada) */
 const RECENT_KEY = 'ovseer.recentFiles'
+const recentVersion = ref(0)
 const recent = computed<string[]>(() => {
+  recentVersion.value // muda quando a lista é limpa
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as string[]
     return list.filter((p) => state.sourceList.includes(p) || changed.value.has(p))
@@ -39,6 +41,15 @@ const recent = computed<string[]>(() => {
     return []
   }
 })
+function clearRecent() {
+  try {
+    localStorage.removeItem(RECENT_KEY)
+  } catch {
+    /* sem armazenamento */
+  }
+  recentVersion.value++
+  index.value = 0
+}
 type Group = { label: string; items: Item[] }
 /** Estado vazio: recentes e alterados (sem repetir) */
 const groups = computed<Group[]>(() => {
@@ -162,7 +173,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         </template>
         <template v-else-if="flat.length">
           <template v-for="g in groups" :key="g.label">
-            <h6>{{ g.label }}</h6>
+            <h6>
+              {{ g.label }}
+              <button v-if="g.label === 'Recentes'" class="ghost clear" title="Limpar os recentes" @click="clearRecent">limpar</button>
+            </h6>
             <button
               v-for="it in g.items"
               :key="it.path"
@@ -201,7 +215,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .field input:focus { box-shadow: none; }
 kbd { font-family: var(--mono); font-size: 11px; }
 .results { overflow: auto; padding: 6px; }
-h6 { margin: 8px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+h6 { margin: 8px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); display: flex; align-items: center; justify-content: space-between; }
+/* só aparece ao passar o mouse pelo grupo */
+.clear { height: 18px; padding: 0 6px; font-size: 10.5px; text-transform: none; letter-spacing: 0; color: var(--faint); opacity: 0; }
+.results:hover .clear { opacity: 1; }
+.clear:hover { color: var(--text); }
 .row { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 8px; border-radius: 8px; justify-content: flex-start; color: var(--text); font-size: 13px; text-align: left; }
 .row.cur { background: var(--accent-soft); }
 .name { flex: none; max-width: 60%; }
