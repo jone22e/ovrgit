@@ -33,7 +33,7 @@ function go(v: 'changes' | 'files' | 'history') {
 .seg button { height: 24px; padding: 0 8px; gap: 5px; border: 0; background: transparent; color: var(--muted); border-radius: 6px; font-size: 12px; }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 /* painel estreito: só os ícones */
-@container (max-width: 400px) {
+@container (max-width: 540px) {
   .lbl { display: none; }
   .seg button { width: 28px; padding: 0; }
 }

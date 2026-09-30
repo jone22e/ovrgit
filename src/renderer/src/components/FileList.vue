@@ -208,7 +208,7 @@ function split(path: string) {
   display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box;
   height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border);
 }
-.all { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; white-space: nowrap; }
+.all { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; white-space: nowrap; overflow: hidden; }
 .seg { display: flex; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 8px; }
 .seg button { height: 24px; width: 28px; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 6px; }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
@@ -235,10 +235,14 @@ function split(path: string) {
 .resolve button { height: 22px; padding: 0 8px; font-size: 11.5px; }
 .resolve .ai-fix { color: var(--accent); gap: 4px; }
 /* adapta à largura do painel (que encolhe quando o diff está aberto), não só da janela */
-@container (max-width: 560px) {
+@container (max-width: 620px) {
   .label-long { display: none; }
 }
 @container (max-width: 400px) {
   .toolbar { gap: 6px; padding: 0 10px; }
+}
+/* painel bem estreito: o atualizar fica só pelo atalho */
+@container (max-width: 340px) {
+  .reload { display: none; }
 }
 </style>
