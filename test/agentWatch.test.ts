@@ -103,4 +103,11 @@ describe('título da sessão do Codex', () => {
     const s = listAgents().find((a) => a.id === 's-agents')
     expect(s?.title).toBe('Investigue o pedido 35529601')
   })
+
+  it('com filtro, só as conversas do próprio app entram na lista', async () => {
+    startAgentWatch({ onUpdate: () => {}, onFinished: () => {}, isOwn: (id) => id === 's-agents' })
+    expect(listAgents().map((a) => a.id)).toEqual(['s-agents'])
+    startAgentWatch({ onUpdate: () => {}, onFinished: () => {}, isOwn: () => false })
+    expect(listAgents()).toEqual([])
+  })
 })

@@ -61,8 +61,7 @@ modelo local pelo Ollama.
 - Histórico de conversas por repositório ou de todos, com fixação, busca e retomada.
 - Grid para posicionar várias janelas de agente na tela.
 - Instruções personalizadas que valem para todos os agentes.
-- Acompanhamento de agentes abertos em outros apps (ChatGPT, Claude), com aviso quando terminam. Lê só os
-  registros locais; nada sai do computador.
+- Indicador dos agentes abertos pelo Ovseer que estão trabalhando, com aviso quando terminam.
 - Indicador de consumo das assinaturas.
 
 ### Tarefas (Ovseer)

@@ -38,6 +38,12 @@ const debounce = new Map<string, ReturnType<typeof setTimeout>>()
 export interface AgentHandlers {
   onUpdate: (list: AgentSession[]) => void
   onFinished: (s: AgentSession) => void
+  /**
+   * Só as sessões para as quais isto devolve true entram na lista e nos avisos (as conversas abertas pelo
+   * próprio app). As demais continuam sendo lidas, porque é delas que vêm o consumo e os modelos do Codex,
+   * mas não aparecem. Sem filtro, todas aparecem.
+   */
+  isOwn?: (sessionId: string) => boolean
 }
 let handlers: AgentHandlers | null = null
 
@@ -220,7 +226,7 @@ export function codexCatalog(): ModelInfo[] {
 }
 
 function finished(s: Tracked, live: boolean) {
-  if (live && s.completedAt && s.completedAt >= startedAt - 5000) handlers?.onFinished(publicView(s))
+  if (live && s.completedAt && s.completedAt >= startedAt - 5000 && (handlers?.isOwn?.(s.id) ?? true)) handlers?.onFinished(publicView(s))
 }
 
 function apply(s: Tracked, line: string, live: boolean) {
@@ -466,6 +472,7 @@ export function listAgents(): AgentSession[] {
   const list: AgentSession[] = []
   for (const s of tracked.values()) {
     if (!s.cwd || (!s.title && !s.customTitle)) continue
+    if (handlers?.isOwn && !handlers.isOwn(s.id)) continue
     // sem movimento há muito tempo "trabalhando": o app provavelmente foi fechado no meio
     s.stale = s.running && now - s.updatedAt > STALE_MS
     if (s.running && !s.stale) list.push(publicView(s))

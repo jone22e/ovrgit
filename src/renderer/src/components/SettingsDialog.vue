@@ -382,7 +382,7 @@ async function save() {
               <label class="switch-row">
                 <div>
                   <strong>Acompanhar agentes de IA</strong>
-                  <p>Mostra quando um agente está trabalhando e avisa quando termina, inclusive os abertos nos apps do ChatGPT e do Claude. Lê os registros que eles gravam no computador; nada sai daqui.</p>
+                  <p>Mostra quando um agente aberto pelo Ovseer está trabalhando e avisa quando termina. Conversas abertas em outros apps não aparecem.</p>
                 </div>
                 <input type="checkbox" class="switch" :checked="state.settings?.watchAgents !== false" @change="toggleAgents(($event.target as HTMLInputElement).checked)" />
               </label>

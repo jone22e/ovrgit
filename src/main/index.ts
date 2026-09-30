@@ -95,11 +95,13 @@ function toMain(channel: string, ...args: unknown[]) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
 }
 
-/** Liga o acompanhamento das tarefas do Codex e repassa para a janela. */
+/** Liga o acompanhamento dos agentes abertos pelo Ovseer e repassa para a janela. */
 function startAgents() {
   agentWatch.startAgentWatch({
     onUpdate: (list) => toMain('agents:update', list),
-    onFinished: (s) => toMain('agents:finished', s)
+    onFinished: (s) => toMain('agents:finished', s),
+    // só as conversas do próprio app: as que têm janela aberta ou estão no histórico dele
+    isOwn: (id) => agentChat.agentWindows().includes(id) || !!agentHistory.findHistory(id)
   })
 }
 
