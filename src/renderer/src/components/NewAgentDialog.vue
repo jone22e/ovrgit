@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL } from '@shared/models'
+import { MODES, PROVIDER_LABEL } from '@shared/models'
 import type { AgentEffort, AgentMode, CliProvider, KnownModels, ProviderStatus } from '@shared/types'
 import { api, beginTask, state, taskBrief, toast } from '../store'
+import { AGENT_PREFS, readAgentPrefs, type AgentPrefs } from '../agentPrefs'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import ModelPicker from './ModelPicker.vue'
@@ -10,18 +11,7 @@ import ModelPicker from './ModelPicker.vue'
 /** "Novo agente": escolhe Claude ou ChatGPT, modelo, esforço e a primeira tarefa; abre uma janela só do agente. */
 const emit = defineEmits<{ close: [] }>()
 
-const PREFS = 'ovseer.agent.prefs'
-interface Prefs { provider: CliProvider; model: Record<CliProvider, string>; effort: Record<CliProvider, AgentEffort>; mode: AgentMode }
-function readPrefs(): Prefs {
-  const base: Prefs = { provider: 'codex', model: { ...DEFAULT_MODEL }, effort: { ...DEFAULT_EFFORT }, mode: 'safe' }
-  try {
-    const saved = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>
-    return { ...base, ...saved, model: { ...base.model, ...saved.model }, effort: { ...base.effort, ...saved.effort } }
-  } catch {
-    return base
-  }
-}
-const prefs = readPrefs()
+const prefs = readAgentPrefs()
 const provider = ref<CliProvider>(prefs.provider)
 const model = ref(prefs.model[prefs.provider])
 const effort = ref<AgentEffort>(prefs.effort[prefs.provider])
@@ -71,8 +61,8 @@ async function openAgent() {
       await beginTask(task.value, detail ?? undefined)
     } else if (brief.value) firstMessage = brief.value.message
     localStorage.setItem(
-      PREFS,
-      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies Prefs)
+      AGENT_PREFS,
+      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs)
     )
     await api.agentOpen({
       provider: provider.value,

@@ -375,6 +375,8 @@ function broadcastSnapshots() {
   const all = agentSnapshots()
   const agentWins = new Set([...wins.values()].map((w) => w.win))
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && !agentWins.has(w)) w.webContents.send('agents:snapshots', all)
+  // selo no ícone do app (Dock no Mac): quantos agentes precisam de você
+  app.setBadgeCount(all.filter((a) => a.status === 'waiting' || a.status === 'error').length)
 }
 
 export function reportSnapshot(uid: string, snap: AgentSnapshot) {
