@@ -565,12 +565,18 @@ interface Payload {
 }
 const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
 
+/** "/plan" (ou /plano, /planejar) como palavra solta: depois de um espaço ou no começo de uma linha, e sem nada colado depois */
+const PLAN_CMD = /(^|\s)\/(?:plan|plano|planejar)(?=\s|$)/i
+const PLAN_CMD_ALL = new RegExp(PLAN_CMD.source, 'gi')
+
 /** Tira do campo o que foi digitado, colado e anexado; null se não há nada. */
 function takePayload(text = draft.value): Payload | null {
-  // /plan troca para o modo Plano; o que vier depois do comando segue como mensagem, já nesse modo
-  const cmd = /^\/plan(?:\s+([\s\S]*))?$/i.exec(text.trim())
+  // /plan em qualquer ponto do texto (no começo, no meio ou numa linha só dele) troca para o modo Plano;
+  // o comando sai da mensagem e o resto segue, já nesse modo
+  const cmd = PLAN_CMD.test(text)
   if (cmd) setMode('plan')
-  const typed = (cmd ? (cmd[1] ?? '') : text).trim()
+  // onde o comando estava não sobra espaço dobrado nem linha vazia a mais
+  const typed = (cmd ? text.replace(PLAN_CMD_ALL, '$1').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n') : text).trim()
   const pasted = pastes.splice(0, pastes.length).map((p) => p.text.trim()).filter(Boolean)
   const msg = [typed, ...pasted].filter(Boolean).join('\n\n')
   if (!msg && !pending.length) {
@@ -788,8 +794,9 @@ const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'plane
 const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const slashClosed = ref(false)
 const slashIndex = ref(0)
-/** O que vem depois da barra, enquanto o campo tem só o comando (sem espaço); null fora disso */
-const slashQuery = computed(() => /^\/(\S*)$/.exec(draft.value)?.[1] ?? null)
+/** O que vem depois da barra, enquanto o texto termina num comando (no começo ou depois de um espaço ou de uma quebra de linha); null fora disso */
+const SLASH_TAIL = /(^|\s)\/(\S*)$/
+const slashQuery = computed(() => SLASH_TAIL.exec(draft.value)?.[2] ?? null)
 const slashItems = computed<SlashCommand[]>(() => {
   if (slashQuery.value === null || slashClosed.value) return []
   const q = plain(slashQuery.value)
@@ -813,7 +820,8 @@ function runSlash(c: SlashCommand) {
   // /plan com o Plano já ligado desliga: volta ao modo que estava antes
   if (c.id === 'plan' && mode.value === 'plan') setMode(modeBeforePlan.value ?? 'safe')
   else setMode(c.id)
-  draft.value = ''
+  // só o comando sai do campo: o que já estava digitado antes dele fica
+  draft.value = draft.value.replace(SLASH_TAIL, '').trimEnd()
   nextTick(() => {
     autosize()
     box.value?.focus()
