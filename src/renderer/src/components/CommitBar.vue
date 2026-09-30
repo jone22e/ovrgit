@@ -337,20 +337,23 @@ textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; paddin
 .menu .item { width: 100%; justify-content: flex-start; }
 .menu .item span { flex: 1; text-align: left; }
 .menu kbd { font-family: var(--mono); font-size: 11px; }
-/* envio em andamento: o botão vira barra de progresso (a faixa colorida corre por baixo do texto) */
-.sending { position: relative; overflow: hidden; isolation: isolate; }
-.sending:disabled { opacity: 1; }
+/* envio em andamento: o botão vira barra de progresso nas cores do tema (trilho suave, faixa na cor de destaque
+   com um brilho que corre por ela) */
+.sending, .sending:disabled {
+  position: relative; overflow: hidden; isolation: isolate; opacity: 1;
+  background: var(--accent-soft); border-color: var(--accent); color: var(--text);
+}
 .sending .fill {
   position: absolute; inset: 0; z-index: -1; pointer-events: none;
   transform-origin: left; transform: scaleX(var(--p, 0));
-  background: linear-gradient(90deg, #f5a524, #f06a3c, #d946ef, #6366f1, #22c1c3, #f5a524);
-  background-size: 300% 100%;
-  animation: send-flow 1.6s linear infinite;
-  opacity: 0.85;
+  background:
+    linear-gradient(100deg, transparent 30%, color-mix(in srgb, #fff 35%, transparent) 50%, transparent 70%) 0 0 / 250% 100% no-repeat,
+    linear-gradient(90deg, var(--accent-strong), var(--accent));
+  animation: send-shine 1.4s linear infinite;
 }
-.sending.ok .fill { background: var(--add); animation: none; transition: background 0.2s; }
-.sending.fail .fill { background: var(--del); animation: none; transition: background 0.2s; }
-.sending.ok, .sending.fail { color: #fff; }
-@keyframes send-flow { to { background-position: 300% 0; } }
+.sending.ok .fill { background: var(--add); animation: none; }
+.sending.fail .fill { background: var(--del); animation: none; }
+.sending.ok, .sending.fail { color: #fff; border-color: transparent; }
+@keyframes send-shine { from { background-position: 150% 0, 0 0; } to { background-position: -150% 0, 0 0; } }
 @media (prefers-reduced-motion: reduce) { .sending .fill { animation: none; } }
 </style>
