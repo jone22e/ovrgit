@@ -196,10 +196,12 @@ export function isPartial(path: string) {
 }
 
 export function setPane(v: Pane) {
+  const from = state.pane
   state.pane = v
   writePref('ovseer.pane', v)
-  // no modo Arquivos a coluna da direita (o editor) já abre junto
+  // no modo Arquivos a coluna da direita (o editor) já abre junto; saindo dele para Alterações, ela fecha
   if (v === 'files' && !state.showDiff) setShowDiff(true)
+  else if (from === 'files' && v !== 'files' && state.showDiff) setShowDiff(false)
   if (v === 'files') loadSourceFiles()
 }
 
