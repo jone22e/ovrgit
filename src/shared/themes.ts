@@ -155,23 +155,6 @@ export const THEMES: Theme[] = [
     }
   },
   {
-    id: 'ayu-mirage',
-    name: 'Ayu Mirage',
-    dark: true,
-    colors: {
-      accent: '#ffcc66', accentStrong: '#ffad66', onAccent: '#1f2430',
-      bg: '#1a1f29', panel: '#1f2430', panel2: '#242936', hover: '#2d3444', border: '#33394a',
-      text: '#cccac2', muted: '#9ba3b2', faint: '#707a8c',
-      add: '#87d96c', del: '#f27983', mod: '#ffad66', hunk: '#73d0ff'
-    },
-    ansi: {
-      black: '#171b24', red: '#ed8274', green: '#87d96c', yellow: '#facc6e', blue: '#6dcbfa', magenta: '#dabafa',
-      cyan: '#90e1c6', white: '#c7c7c7', brightBlack: '#686868', brightRed: '#f28779', brightGreen: '#d5ff80',
-      brightYellow: '#ffd173', brightBlue: '#73d0ff', brightMagenta: '#dfbfff', brightCyan: '#95e6cb',
-      brightWhite: '#ffffff'
-    }
-  },
-  {
     id: 'github-light',
     name: 'GitHub Light',
     dark: false,
@@ -191,7 +174,7 @@ export const THEMES: Theme[] = [
   // Counter-Strike: de_dust2 ao entardecer (arenito, caixotes, portas azuis do CT)
   {
     id: 'cs-dust2',
-    name: 'DUST2',
+    name: 'Dust2',
     dark: true,
     colors: {
       accent: '#e3a545', accentStrong: '#c98a2b', onAccent: '#1f1a14',
@@ -206,22 +189,22 @@ export const THEMES: Theme[] = [
       brightWhite: '#f5ecd8'
     }
   },
-  // Counter-Strike: de_mirage ao sol (paredes de arenito claro, portas turquesa, azulejos do palácio, tapetes vermelhos)
+  // Counter-Strike: de_mirage à noite (portas e janelas turquesa, arenito, azulejos do palácio, tapetes vermelhos)
   {
     id: 'cs-mirage',
-    name: 'MIRAGE',
-    dark: false,
+    name: 'Mirage',
+    dark: true,
     colors: {
-      accent: '#14807b', accentStrong: '#0e6561', onAccent: '#ffffff',
-      bg: '#ece2cd', panel: '#f6efdf', panel2: '#efe6d2', hover: '#e4d8bf', border: '#d3c4a5',
-      text: '#33291f', muted: '#6b5b47', faint: '#8f7e66',
-      add: '#3f7d2c', del: '#b23a2a', mod: '#a3620f', hunk: '#2b66a8'
+      accent: '#3fbfb2', accentStrong: '#2a9d92', onAccent: '#0f1a1a',
+      bg: '#12181a', panel: '#182022', panel2: '#1f292b', hover: '#293537', border: '#354446',
+      text: '#e8dec8', muted: '#a9b3ac', faint: '#76827c',
+      add: '#8cc265', del: '#e2604f', mod: '#e0a458', hunk: '#5b9bd8'
     },
     ansi: {
-      black: '#33291f', red: '#b23a2a', green: '#3f7d2c', yellow: '#8a5a0b', blue: '#2b66a8', magenta: '#8a4a86',
-      cyan: '#14807b', white: '#7d6e59', brightBlack: '#6b5b47', brightRed: '#93291b', brightGreen: '#2f651f',
-      brightYellow: '#714806', brightBlue: '#1f528c', brightMagenta: '#6f3a6c', brightCyan: '#0e6561',
-      brightWhite: '#9a8a72'
+      black: '#12181a', red: '#e2604f', green: '#8cc265', yellow: '#e0a458', blue: '#5b9bd8', magenta: '#c48bbf',
+      cyan: '#3fbfb2', white: '#d6cdb8', brightBlack: '#6a7670', brightRed: '#f27d6b', brightGreen: '#a6d982',
+      brightYellow: '#f0bd76', brightBlue: '#7db4ea', brightMagenta: '#d9a5d4', brightCyan: '#66d9cd',
+      brightWhite: '#f4ecd9'
     }
   }
 ]
