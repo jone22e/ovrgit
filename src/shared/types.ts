@@ -458,7 +458,7 @@ export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 /** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
 export type AgentAsk =
   | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number }
-  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string }[] }
+  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string }[]; /** Texto do plano, em Markdown */ plan: string }
 
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {

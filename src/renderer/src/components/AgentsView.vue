@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { AgentAction, AgentSnapshot } from '@shared/types'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
 import { api, state } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
+import Modal from './Modal.vue'
 import PaneSwitch from './PaneSwitch.vue'
 
 /**
@@ -44,6 +47,19 @@ function reply(a: AgentSnapshot) {
   act(a, { type: 'reply', text })
 }
 const show = (a: AgentSnapshot) => api.agentShow(a.uid).catch(() => undefined)
+
+/** Plano aberto para leitura: o da janela `uid` (acompanha o resumo; some se o cartão deixar de esperar) */
+const planUid = ref<string | null>(null)
+const planOf = computed(() => {
+  const a = snaps.value.find((x) => x.uid === planUid.value)
+  return a?.ask?.kind === 'plan' ? { a, ask: a.ask } : null
+})
+const planHtml = computed(() => (planOf.value ? DOMPurify.sanitize(marked.parse(planOf.value.ask.plan, { async: false, gfm: true })) : ''))
+function implement(mode: AgentMode) {
+  const p = planOf.value
+  planUid.value = null
+  if (p) act(p.a, { type: 'plan', mode })
+}
 
 const arranging = ref(false)
 async function arrange() {
@@ -117,7 +133,7 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
               </template>
             </div>
             <form class="reply" @submit.prevent="reply(a)">
-              <button v-if="a.ask.kind === 'plan'" type="button" class="ghost link" @click="show(a)">Ver plano</button>
+              <button v-if="a.ask.kind === 'plan'" type="button" class="ghost link" @click="planUid = a.uid">Ver plano</button>
               <span v-if="a.ask.kind === 'plan'" class="faint">·</span>
               <input v-model="replies[a.uid]" type="text" :placeholder="a.ask.kind === 'plan' ? 'ou digite um ajuste…' : 'ou responda com as suas palavras…'" maxlength="2000" />
               <button v-if="(replies[a.uid] ?? '').trim()" type="submit" class="small primary">Enviar</button>
@@ -169,6 +185,14 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
         </div>
       </section>
     </div>
+
+    <Modal v-if="planOf" :title="planOf.a.title" :width="760" @close="planUid = null">
+      <div class="md" v-html="planHtml" />
+      <template #footer>
+        <button type="button" class="ghost" @click="planUid = null">Fechar</button>
+        <button v-if="planOf.ask.options[0]" type="button" class="primary" @click="implement(planOf.ask.options[0].mode)">{{ planOf.ask.options[0].label }}</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -231,4 +255,18 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
 .stats .del { color: var(--del); }
 .go { color: var(--faint); flex: none; }
 .item:hover .go { color: var(--text); }
+/* plano em Markdown */
+.md { user-select: text; line-height: 1.6; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.md :deep(p) { margin: 0 0 10px; }
+.md :deep(ul), .md :deep(ol) { margin: 0 0 10px; padding-left: 22px; }
+.md :deep(li) { margin: 3px 0; }
+.md :deep(h1), .md :deep(h2), .md :deep(h3) { margin: 12px 0 6px; font-size: 15px; }
+.md :deep(h1:first-child) { margin-top: 0; }
+.md :deep(code) { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+.md :deep(pre) { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); white-space: pre-wrap; }
+.md :deep(pre code) { background: transparent; padding: 0; }
+.md :deep(a) { color: var(--accent); }
+.md :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 10px; font-size: 13px; }
+.md :deep(td), .md :deep(th) { border: 1px solid var(--border); padding: 4px 8px; }
+.md :deep(blockquote) { margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
 </style>

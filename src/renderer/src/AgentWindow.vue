@@ -1103,7 +1103,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
   let ask: AgentAsk | undefined
   if (showAsk.value && question.value)
     ask = { kind: 'question', text: question.value.text, options: question.value.options.map((o) => ({ label: o.label, detail: o.detail, recommended: o.recommended })), index: qi.value, total: questions.value.length }
-  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint })) }
+  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint })), plan: planText.value }
   const cur = current()
   const tools = cur?.blocks.filter((b): b is ToolBlock => b.kind === 'tool') ?? []
   return {
