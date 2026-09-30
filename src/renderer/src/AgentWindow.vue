@@ -912,12 +912,18 @@ watch(turns, () => scrollToEnd(), { deep: true })
 // em disco pelo processo principal (histórico: dá para fechar o app e reabrir depois)
 const STORE = `ovseer.agent.${uid}`
 let saveTimer: ReturnType<typeof setTimeout> | undefined
+/** Desde quando há mudança esperando para ser guardada: com o agente escrevendo sem parar, a espera de 400 ms
+ * nunca terminava e a conversa só entrava no histórico quando a resposta acabava */
+let savePendingSince = 0
+const SAVE_MAX_WAIT = 2000
 const plainTurns = (): AgentTurn[] => turns.map((t) => ({ ...t, attachments: t.attachments.map(({ preview: _p, ...a }) => a) }))
 watch(
   [turns, sessionId],
   () => {
     clearTimeout(saveTimer)
+    savePendingSince ||= Date.now()
     saveTimer = setTimeout(() => {
+      savePendingSince = 0
       const plain = plainTurns() // prévias (blob:) não sobrevivem à recarga
       try {
         sessionStorage.setItem(STORE, JSON.stringify(plain))
@@ -925,7 +931,7 @@ watch(
         /* sem espaço: segue sem guardar */
       }
       if (sessionId.value && plain.length) api.agentSaveTranscript(uid, JSON.parse(JSON.stringify(plain))).catch(() => undefined)
-    }, 400)
+    }, Math.max(0, Math.min(400, savePendingSince + SAVE_MAX_WAIT - Date.now())))
   },
   { deep: true }
 )
