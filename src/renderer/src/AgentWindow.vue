@@ -1461,7 +1461,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 }
 /* modo Plano (roxo) e Controle total (dourado): manchas suaves de luz espalhadas pelo cabeçalho, nas cores dos chips */
 .bar.mode-plan { --mode-tint: var(--hunk); }
-.bar.mode-full { --mode-tint: var(--mod); }
+/* o dourado aparece mais que o roxo: entra mais diluído */
+.bar.mode-full { --mode-tint: color-mix(in srgb, var(--mod) 60%, transparent); }
 .bar.mode-plan, .bar.mode-full {
   background:
     radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 20%, transparent), transparent 70%),
