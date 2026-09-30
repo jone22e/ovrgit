@@ -520,7 +520,8 @@ export async function selectFile(file: FileChange | null, silent = false) {
   }
   if (!silent) state.diffLoading = true
   try {
-    const text = await api.diff({ ...file })
+    // cópia sem os objetos reativos do Vue (a contagem de linhas é um objeto dentro do arquivo): a IPC não os copia
+    const text = await api.diff({ ...file, stats: file.stats && { ...file.stats } })
     if (state.activeFile?.path === file.path) state.diff = text
   } catch (e) {
     state.diff = ''
