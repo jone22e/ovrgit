@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
-import { api, state } from '../store'
+import { api, loadTasks, openNewAgent, ovseerReady, state } from '../store'
 import { readAgentPrefs } from '../agentPrefs'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
@@ -81,6 +81,10 @@ async function dispatchTask() {
   }
 }
 
+/** Tarefas do Ovseer em andamento, as minhas primeiro: um clique abre o diálogo de agente com a tarefa */
+const tasks = computed(() => [...state.tasks].sort((a, b) => Number(!!b.assignedToMe) - Number(!!a.assignedToMe)).slice(0, 8))
+onMounted(() => ovseerReady.value && loadTasks())
+
 const arranging = ref(false)
 async function arrange() {
   arranging.value = true
@@ -124,6 +128,14 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
             <Icon v-else name="up" :size="15" />
           </button>
         </form>
+        <template v-if="tasks.length">
+          <h3 class="sec">Tarefas</h3>
+          <button v-for="t in tasks" :key="t.id" class="ghost task" :title="`Abrir um agente para ${t.key}: ${t.title}`" @click="openNewAgent(t)">
+            <span class="mono faint key">{{ t.key }}</span>
+            <span class="ellipsis ttl">{{ t.title }}</span>
+            <small class="faint">{{ t.statusLabel }}</small>
+          </button>
+        </template>
       </div>
 
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
@@ -241,6 +253,11 @@ const closeDone = () => api.agentClose(done.value.map((a) => a.uid)).catch(() =>
 .head button { height: 28px; gap: 6px; font-size: 12.5px; }
 .empty { max-width: 640px; margin: 32px auto 0; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); display: flex; flex-direction: column; gap: 14px; }
 .empty strong { font-size: 15px; }
+.empty .sec { margin: 6px 0 0; }
+.task { height: 34px; justify-content: flex-start; gap: 10px; padding: 0 6px; font-weight: 400; font-size: 13.5px; min-width: 0; }
+.task .key { font-size: 11.5px; flex: none; }
+.task .ttl { flex: 1; text-align: left; min-width: 0; }
+.task small { font-size: 12px; flex: none; }
 .dispatch { position: relative; }
 .dispatch textarea { width: 100%; box-sizing: border-box; resize: none; min-height: 56px; padding: 14px 56px 14px 14px; border-radius: 10px; font-size: 13.5px; background: var(--panel); }
 .dispatch .send { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; }
