@@ -286,11 +286,14 @@ describe('janela nova na próxima área livre do grid', () => {
 
   it('células menores que a janela mínima juntam vizinhas; a primeira área livre vence', async () => {
     const { freeGridSlot } = await import('../src/main/agentChat')
-    // 6 × 2 em 1200 × 775: célula de 200 × 387 → a janela mínima (420 × 480) ocupa 3 colunas e 2 linhas
-    const left = { x: 0, y: 25, width: 600, height: 775 }
+    // 6 × 2 em 1200 × 775: a tela só comporta 3 colunas de 360, então o grid vira 3 × 2 (células de 400 × 387)
+    const left = { x: 0, y: 25, width: 400, height: 388 }
     expect(freeGridSlot(area, { cols: 6, rows: 2 }, [])).toEqual(left)
-    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left])).toEqual({ x: 600, y: 25, width: 600, height: 775 })
-    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left, { x: 600, y: 25, width: 600, height: 775 }])).toBeNull()
+    expect(freeGridSlot(area, { cols: 6, rows: 2 }, [left])).toEqual({ x: 400, y: 25, width: 400, height: 388 })
+    const top = [left, { x: 400, y: 25, width: 400, height: 388 }, { x: 800, y: 25, width: 400, height: 388 }]
+    expect(freeGridSlot(area, { cols: 6, rows: 2 }, top)).toEqual({ x: 0, y: 413, width: 400, height: 387 })
+    // 7 × 3 numa tela de 3440 × 1415: cada janela fica numa célula só
+    expect(freeGridSlot({ x: 0, y: 25, width: 3440, height: 1415 }, { cols: 7, rows: 3 }, [])).toEqual({ x: 0, y: 25, width: 491, height: 472 })
   })
 
   it('grid muda de tamanho: as janelas mantêm a célula, e quem não cabe vai para a área livre', async () => {
@@ -307,7 +310,8 @@ describe('janela nova na próxima área livre do grid', () => {
     // janela na altura toda continua na altura toda; célula menor que a janela mínima junta vizinhas
     const tall = [{ x: 0, y: 25, width: 400, height: 1000 }]
     expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 6, rows: 4 }, tall, tiny)).toEqual(tall)
-    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 12, rows: 2 }, tall, { width: 420, height: 480 })).toEqual([{ x: 0, y: 25, width: 600, height: 1000 }])
+    // grid além do limite da tela (2400 / 420 = 5 colunas): fica em 5 × 2
+    expect(regridBounds(big, { cols: 6, rows: 2 }, { cols: 12, rows: 2 }, tall, { width: 420, height: 480 })).toEqual([{ x: 0, y: 25, width: 480, height: 1000 }])
   })
 
   it('células cobertas: a de outro agente tranca, a da própria janela só marca', async () => {
@@ -331,6 +335,15 @@ describe('janela nova na próxima área livre do grid', () => {
     expect(freeGridSlot(wide, { cols: 2, rows: 1 }, [{ x: 100, y: 0, width: 700, height: 900 }])).toEqual({ x: 960, y: 0, width: 960, height: 1055 })
     expect(normalizeGrid(undefined)).toEqual({ cols: 6, rows: 2 })
     expect(normalizeGrid({ cols: 40, rows: 0 })).toEqual({ cols: 12, rows: 1 })
+  })
+
+  it('cada tela tem seu limite de colunas × linhas', async () => {
+    const { fitGrid, gridLimitsFor } = await import('../src/shared/grid')
+    expect(gridLimitsFor({ width: 3440, height: 1415 })).toEqual({ cols: 9, rows: 4 })
+    expect(gridLimitsFor({ width: 1512, height: 950 })).toEqual({ cols: 4, rows: 2 })
+    expect(gridLimitsFor({ width: 200, height: 200 })).toEqual({ cols: 1, rows: 1 })
+    expect(fitGrid({ cols: 7, rows: 3 }, { width: 3440, height: 1415 })).toEqual({ cols: 7, rows: 3 })
+    expect(fitGrid({ cols: 7, rows: 3 }, { width: 1512, height: 950 })).toEqual({ cols: 4, rows: 2 })
   })
 })
 

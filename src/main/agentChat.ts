@@ -7,7 +7,7 @@ import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { getSettings } from './settings'
-import { normalizeGrid } from '../shared/grid'
+import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -64,7 +64,7 @@ function visibleBounds(b: WindowBounds | null): Partial<WindowBounds> {
   return inside ? b : { width: b.width, height: b.height }
 }
 
-const MIN_WIN = { width: 420, height: 480 }
+const MIN_WIN = AGENT_MIN_WIN
 
 /** A janela cobre pelo menos um quarto da célula: é o que conta como célula ocupada */
 function covers(w: WindowBounds, cell: WindowBounds): boolean {
@@ -92,12 +92,12 @@ export function coveredCells(area: WindowBounds, grid: GridSize, windows: { boun
 }
 
 /**
- * Próxima área livre do grid para uma janela nova: percorre as células em ordem de leitura e devolve a primeira
+ * Próxima área livre do grid para uma janela nova (grid encaixado no limite da tela): percorre as células em ordem de leitura e devolve a primeira
  * onde cabe uma janela do tamanho mínimo (células pequenas juntam vizinhas) sem esbarrar nas janelas já abertas.
  * Uma célula conta como ocupada quando uma janela cobre pelo menos um quarto dela. Sem espaço: null.
  */
 export function freeGridSlot(area: WindowBounds, grid: GridSize, occupied: WindowBounds[], min = MIN_WIN): WindowBounds | null {
-  const { cols, rows } = normalizeGrid(grid)
+  const { cols, rows } = fitGrid(grid, area, min)
   const cw = area.width / cols
   const ch = area.height / rows
   const colSpan = Math.min(cols, Math.max(1, Math.ceil(min.width / cw)))
@@ -267,15 +267,15 @@ export function placeAgentWindow(uid: string, p: GridPlacement): WindowBounds {
 }
 
 /**
- * Novo lugar de cada janela quando o grid muda de tamanho. Cada janela é encaixada no grid antigo (célula e
+ * Novo lugar de cada janela quando o grid muda de tamanho (os dois encaixados no limite da tela). Cada janela é encaixada no grid antigo (célula e
  * extensão mais próximas) e mantém a mesma célula e a mesma extensão no novo: com mais colunas ficam mais
  * estreitas, com menos ficam mais largas. Quem ocupava a tela toda numa direção continua ocupando.
  * A extensão cresce até caber a janela mínima; quem não cabe mais onde estava (saiu do grid ou bateria em
  * outra) vai para a primeira área livre, em ordem de leitura. Sem área livre, fica onde der, sobreposta.
  */
 export function regridBounds(area: WindowBounds, from: GridSize, to: GridSize, windows: WindowBounds[], min = MIN_WIN): WindowBounds[] {
-  const f = normalizeGrid(from)
-  const { cols, rows } = normalizeGrid(to)
+  const f = fitGrid(from, area, min)
+  const { cols, rows } = fitGrid(to, area, min)
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
   const old = windows.map((b) => {
     const col = clamp(Math.round((b.x - area.x) / (area.width / f.cols)), 0, f.cols - 1)

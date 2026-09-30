@@ -7,7 +7,7 @@ import type {
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
-import { GRID_DEFAULT, normalizeGrid } from '@shared/grid'
+import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import AgentLogo from './components/AgentLogo.vue'
 import Icon from './components/Icon.vue'
@@ -126,9 +126,14 @@ const gridRoot = ref<HTMLElement>()
 /** Colunas × linhas do grid: carregado das configurações do app ao abrir a janela; a troca é gravada lá
  * (o app também usa esse tamanho para abrir janelas novas na próxima área livre) */
 const gridSize = ref<GridSize>({ ...GRID_DEFAULT })
+/** Maior grid que cabe na tela onde a janela está: relido a cada abertura do menu (a janela pode ter mudado de tela) */
+const screenArea = () => ({ width: window.screen.availWidth, height: window.screen.availHeight })
+const gridLimits = ref<GridSize>(gridLimitsFor(screenArea()))
+/** Grid usado nesta tela: o configurado, encaixado no limite dela */
+const shownGrid = computed(() => clampGrid(gridSize.value, gridLimits.value))
 async function setGridSize(s: GridSize) {
-  const from = gridSize.value
-  const to = normalizeGrid(s)
+  const from = shownGrid.value
+  const to = fitGrid(s, screenArea())
   if (to.cols === from.cols && to.rows === from.rows) return
   gridSize.value = to
   api.saveSettings({ agentGrid: to }).catch(() => undefined)
@@ -140,7 +145,9 @@ async function setGridSize(s: GridSize) {
 /** Células já cobertas por janelas de agente: recarrega ao abrir o menu e ao mudar o tamanho do grid */
 const gridCells = ref<GridCell[]>([])
 watch([gridOpen, gridSize], async ([open]) => {
-  if (open) gridCells.value = await api.agentGridCells(uid, { ...gridSize.value }).catch(() => [])
+  if (!open) return
+  gridLimits.value = gridLimitsFor(screenArea())
+  gridCells.value = await api.agentGridCells(uid, { ...shownGrid.value }).catch(() => [])
 })
 async function placeWindow(p: GridPlacement) {
   gridOpen.value = false
@@ -1153,7 +1160,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon name="grid" :size="14" />
         </button>
         <div v-if="gridOpen" class="pop">
-          <WindowGrid :model-value="gridSize" :cells="gridCells" @update:model-value="setGridSize" @place="placeWindow" />
+          <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" @update:model-value="setGridSize" @place="placeWindow" />
         </div>
       </div>
       <button v-if="sessionId && turns.length" type="button" class="ghost icon head-btn pin" :class="{ pinned }" :title="pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click="togglePin">

@@ -13,7 +13,8 @@ import Icon from './Icon.vue'
 const size = defineModel<GridSize>({ required: true })
 const emit = defineEmits<{ place: [p: GridPlacement] }>()
 /** Células já cobertas por janelas de agente: as de outro agente ficam trancadas, as desta janela só marcadas */
-const props = withDefaults(defineProps<{ cells?: GridCell[] }>(), { cells: () => [] })
+/** `limits`: o maior grid que cabe na tela onde a janela está (células menores que a janela mínima não entram) */
+const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize }>(), { cells: () => [], limits: () => GRID_LIMITS })
 const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
 const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
 /** A área em escolha passa por cima de uma célula de outro agente */
@@ -21,10 +22,10 @@ const blocked = computed(() => Array.from({ length: size.value.cols * size.value
 
 type Size = GridSize
 function set(k: keyof Size, v: number) {
-  size.value = normalizeGrid({ ...size.value, [k]: v })
+  size.value = normalizeGrid({ ...size.value, [k]: Math.min(v, props.limits[k]) })
 }
 const canDec = (k: keyof Size) => size.value[k] > 1
-const canInc = (k: keyof Size) => size.value[k] < GRID_LIMITS[k]
+const canInc = (k: keyof Size) => size.value[k] < props.limits[k]
 
 /** O desenho segue a proporção da tela onde a janela está, para a área escolhida bater com o que se vê */
 const aspect = computed(() => `${Math.max(1, window.screen.availWidth)} / ${Math.max(1, window.screen.availHeight)}`)
@@ -103,7 +104,7 @@ const hint = computed(() => {
         <span class="lbl">{{ k === 'cols' ? 'Colunas' : 'Linhas' }}</span>
         <b class="mono">{{ size[k] }}</b>
         <span class="arrows">
-          <button type="button" class="ghost" title="Mais" :disabled="!canInc(k)" @click="set(k, size[k] + 1)"><Icon name="chevron" :size="11" class="up" /></button>
+          <button type="button" class="ghost" :title="canInc(k) ? 'Mais' : 'Limite desta tela'" :disabled="!canInc(k)" @click="set(k, size[k] + 1)"><Icon name="chevron" :size="11" class="up" /></button>
           <button type="button" class="ghost" title="Menos" :disabled="!canDec(k)" @click="set(k, size[k] - 1)"><Icon name="chevron" :size="11" class="down" /></button>
         </span>
       </span>

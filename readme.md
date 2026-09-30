@@ -59,7 +59,7 @@ modelo local pelo Ollama.
 - Anexos: arquivos, imagens e conteúdo colado.
 - Enviar uma mensagem com o agente trabalhando, para redirecionar no meio da tarefa.
 - Histórico de conversas por repositório ou de todos, com fixação, busca e retomada.
-- Grid para posicionar várias janelas de agente na tela.
+- Grid para posicionar várias janelas de agente na tela, com limite de colunas × linhas por monitor (nenhuma célula fica menor que a janela mínima).
 - Instruções personalizadas que valem para todos os agentes.
 - Aviso quando um agente aberto pelo Ovseer termina a tarefa.
 - Indicador de consumo das assinaturas.
