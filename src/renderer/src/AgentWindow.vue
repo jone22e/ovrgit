@@ -1459,11 +1459,15 @@ onUnmounted(() => offs.forEach((f) => f()))
   height: var(--titlebar); display: flex; align-items: center; gap: 8px; padding: 0 14px; flex: none;
   border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
 }
-/* modo Plano (roxo) e Controle total (dourado): um degradê discreto na parte esquerda do cabeçalho, nas cores dos chips */
+/* modo Plano (roxo) e Controle total (dourado): manchas suaves de luz espalhadas pelo cabeçalho, nas cores dos chips */
 .bar.mode-plan { --mode-tint: var(--hunk); }
 .bar.mode-full { --mode-tint: var(--mod); }
 .bar.mode-plan, .bar.mode-full {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--mode-tint) 16%, transparent), color-mix(in srgb, var(--mode-tint) 5%, transparent) 40%, transparent 65%), var(--panel);
+  background:
+    radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 20%, transparent), transparent 70%),
+    radial-gradient(ellipse 30% 140% at 42% 110%, color-mix(in srgb, var(--mode-tint) 11%, transparent), transparent 70%),
+    radial-gradient(ellipse 26% 120% at 78% -10%, color-mix(in srgb, var(--mode-tint) 7%, transparent), transparent 70%),
+    var(--panel);
 }
 :root[data-platform='darwin'] .bar { padding-left: 90px; }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
