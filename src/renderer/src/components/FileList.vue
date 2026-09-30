@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { FileChange } from '@shared/types'
 import {
-  discardFiles, hasPlan, isPartial, openPlan, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
+  discardFiles, hasPlan, isPartial, openPlan, refresh, resolveWithAi, resolveConflict, selectFile, setViewMode, state, toggleAll,
   toggleCollapsed, toggleFile, toggleFiles
 } from '../store'
 import Icon from './Icon.vue'
@@ -112,6 +112,9 @@ function split(path: string) {
           <Icon name="list" :size="14" />
         </button>
       </div>
+      <button class="ghost icon small reload" title="Atualizar (Ctrl/⌘+R)" :disabled="state.busy === 'load'" @click="refresh()">
+        <Icon name="refresh" :size="14" />
+      </button>
 
       <button
         v-if="hasPlan && state.busy !== 'analyze'"
@@ -220,7 +223,7 @@ function split(path: string) {
 .row:hover .row-act { opacity: 1; }
 .row-act:hover, .discard-sel:hover { color: var(--del); background: var(--del-bg) !important; }
 .row.dir .row-act + .n { margin-left: 0; }
-.discard-sel { width: 28px; height: 28px; color: var(--muted); }
+.discard-sel, .reload { width: 28px; height: 28px; color: var(--muted); }
 .dir .chev { color: var(--faint); transition: transform 0.12s; margin: 0 -3px; }
 .dir .chev.open { transform: rotate(90deg); }
 .dirname { font-weight: 600; font-size: 12.5px; }

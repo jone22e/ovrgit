@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import logo from '../assets/logo.png'
-import { api, myDoingCount, openNewAgent, refresh, refreshOvseer, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
+import { api, myDoingCount, openNewAgent, refreshOvseer, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
@@ -100,7 +100,6 @@ defineEmits<{ settings: [] }>()
           <Icon name="panelBottom" />
         </button>
       </span>
-      <button class="ghost icon nodrag" title="Atualizar (Ctrl/⌘+R)" @click="refresh"><Icon name="refresh" /></button>
     </template>
     <div ref="userRoot" class="user nodrag">
       <button class="avatar" :class="{ on: userOpen, anon: !me }" :title="me ? `${me.name}${me.email ? ` · ${me.email}` : ''}` : 'Conta e configurações'" @click="userOpen = !userOpen">
