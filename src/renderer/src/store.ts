@@ -600,7 +600,9 @@ export async function commitPlan() {
     const r = await api.commitGroups(groups)
     state.messageEdited = false
     await linkToTasks(r, (i) => taskIds[i] ?? null)
-    await afterOperation(`${groups.length} commit${groups.length === 1 ? '' : 's'}`, r)
+    // deu certo: só um aviso curto (a lista de versões já mostra cada commit); a caixa fica para erros
+    await afterOperation(`${groups.length} commit${groups.length === 1 ? '' : 's'}`, r, true)
+    if (r.ok) toast(`${groups.length} ${groups.length === 1 ? 'versão salva' : 'versões salvas'} no seu computador. Use Enviar para mandar ao servidor.`)
   })
 }
 

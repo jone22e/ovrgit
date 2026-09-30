@@ -5,7 +5,7 @@ import PrStatus from './PrStatus.vue'
 import TaskPicker from './TaskPicker.vue'
 import Icon from './Icon.vue'
 
-defineEmits<{ feature: []; pull: []; publish: [] }>()
+const emit = defineEmits<{ feature: []; pull: []; publish: [] }>()
 
 /** send: branch já publicada · publishBranch: há remote, mas a branch não existe nele · publishRepo: sem remote */
 const sendMode = computed(() =>
@@ -41,6 +41,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 function saveOnly() {
   menuOpen.value = false
   commit()
+}
+/** "Criar Feature" mora no menu da setinha do botão de enviar (com ou sem arquivos marcados) */
+const canFeature = computed(() => !state.busy && !!state.repo?.branch && !state.repo?.operation)
+function feature() {
+  menuOpen.value = false
+  emit('feature')
 }
 
 // análise detalhada: cronômetro na dica enquanto roda; clique cancela
@@ -130,11 +136,6 @@ function onKey(e: KeyboardEvent) {
       </template>
       <span class="gap" />
       <PrStatus />
-      <button :disabled="!!state.busy || !state.repo?.branch || !!state.repo?.operation" title="Separa o seu trabalho numa linha própria (branch), atualizada com a versão mais nova do servidor, e envia. Ideal para abrir um Pull Request." @click="$emit('feature')">
-        <span v-if="state.busy === 'feature'" class="spinner" />
-        <Icon v-else name="feature" />
-        Criar Feature
-      </button>
       <button
         :disabled="!!state.busy || !!state.repo?.operation || !state.repo?.published"
         :title="state.repo?.published ? 'Traz para o seu computador o que outras pessoas enviaram ao servidor (pull)' : 'Esta linha de trabalho ainda não existe no servidor: envie primeiro'"
@@ -155,21 +156,22 @@ function onKey(e: KeyboardEvent) {
           <Icon v-else name="up" />
           {{ sendMode === 'send' ? 'Salvar e enviar' : 'Salvar e publicar' }}<span class="n">{{ nSelected }}</span>
         </button>
-        <button
-          class="primary icon more"
-          :disabled="!canCommit"
-          title="Outras opções"
-          @click="menuOpen = !menuOpen"
-        >
+        <button class="primary icon more" :disabled="!!state.busy" title="Outras opções" @click="menuOpen = !menuOpen">
           <Icon name="chevron" :size="14" class="caret" />
         </button>
         <div v-if="menuOpen" class="menu">
-          <button class="ghost item" @click="saveOnly">
+          <button class="ghost item" :disabled="!canCommit" @click="saveOnly">
             <Icon name="commit" :size="14" />
             <span>Apenas salvar</span>
             <kbd class="faint">{{ mod }}+Enter</kbd>
           </button>
           <p class="faint hint">Guarda a versão só no seu computador, sem enviar.</p>
+          <button class="ghost item" :disabled="!canFeature" @click="feature">
+            <Icon name="feature" :size="14" />
+            <span>Criar Feature…</span>
+            <kbd class="faint">{{ mod }}+⇧F</kbd>
+          </button>
+          <p class="faint hint">Separa o seu trabalho numa linha própria (branch), atualizada com o servidor, e envia. Ideal para abrir um Pull Request.</p>
         </div>
       </div>
       <button
@@ -184,16 +186,29 @@ function onKey(e: KeyboardEvent) {
         Salvar versão<span class="n">{{ nSelected }}</span>
       </button>
       <template v-if="!saveAndSend">
-      <button
-        v-if="sendMode === 'send'"
-        :disabled="!!state.busy || !!state.repo?.operation"
-        title="Manda as versões salvas no seu computador para o servidor, onde a equipe vê (push)"
-        @click="push"
-      >
-        <span v-if="state.busy === 'push'" class="spinner" />
-        <Icon v-else name="up" />
-        Enviar<span v-if="state.repo?.ahead" class="n">{{ state.repo.ahead }}</span>
-      </button>
+      <div v-if="sendMode === 'send'" ref="split" class="split">
+        <button
+          class="main"
+          :disabled="!!state.busy || !!state.repo?.operation"
+          title="Manda as versões salvas no seu computador para o servidor, onde a equipe vê (push)"
+          @click="push"
+        >
+          <span v-if="state.busy === 'push'" class="spinner" />
+          <Icon v-else name="up" />
+          Enviar<span v-if="state.repo?.ahead" class="n">{{ state.repo.ahead }}</span>
+        </button>
+        <button class="icon more plain" :disabled="!!state.busy" title="Outras opções" @click="menuOpen = !menuOpen">
+          <Icon name="chevron" :size="14" class="caret" />
+        </button>
+        <div v-if="menuOpen" class="menu">
+          <button class="ghost item" :disabled="!canFeature" @click="feature">
+            <Icon name="feature" :size="14" />
+            <span>Criar Feature…</span>
+            <kbd class="faint">{{ mod }}+⇧F</kbd>
+          </button>
+          <p class="faint hint">Separa o seu trabalho numa linha própria (branch), atualizada com o servidor, e envia. Ideal para abrir um Pull Request.</p>
+        </div>
+      </div>
       <button
         v-else
         class="publish"
@@ -254,7 +269,9 @@ textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; paddin
   width: 28px; border-top-left-radius: 0; border-bottom-left-radius: 0;
   border-left-color: color-mix(in srgb, var(--on-accent) 35%, var(--accent));
 }
+.split .more.plain { border-left-color: var(--border); }
 .caret { transform: rotate(-90deg); }
+.menu .item:disabled { opacity: 0.5; }
 .menu {
   position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 60; width: 260px; padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
