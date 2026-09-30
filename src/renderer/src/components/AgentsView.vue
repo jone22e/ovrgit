@@ -3,8 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
-import { api, loadTasks, openNewAgent, ovseerReady, selectFile, setPane, state, toast } from '../store'
-import { readAgentPrefs } from '../agentPrefs'
+import { api, openNewAgent, selectFile, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import AskCard from './AskCard.vue'
 import Icon from './Icon.vue'
@@ -169,29 +168,6 @@ function implement(mode: AgentMode) {
   if (p) act(p.a, { type: 'plan', mode })
 }
 
-/** Sem agente aberto: despacha uma tarefa direto, num agente novo neste projeto, com a última escolha do diálogo
- * "Novo agente" (IA, modelo, esforço, modo) */
-const task = ref('')
-const dispatching = ref(false)
-async function dispatchTask() {
-  const text = task.value.trim()
-  if (!text || !state.repo || dispatching.value) return
-  const p = readAgentPrefs()
-  dispatching.value = true
-  try {
-    await api.agentOpen({ provider: p.provider, model: p.model[p.provider], effort: p.effort[p.provider], mode: p.mode === 'plan' ? 'safe' : p.mode, cwd: state.repo.root, firstMessage: text })
-    task.value = ''
-  } catch (e) {
-    state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-  } finally {
-    dispatching.value = false
-  }
-}
-
-/** Tarefas do Ovseer em andamento, as minhas primeiro: um clique abre o diálogo de agente com a tarefa */
-const tasks = computed(() => [...state.tasks].sort((a, b) => Number(!!b.assignedToMe) - Number(!!a.assignedToMe)).slice(0, 8))
-onMounted(() => ovseerReady.value && loadTasks())
-
 const arranging = ref(false)
 async function arrange() {
   arranging.value = true
@@ -228,27 +204,8 @@ async function arrange() {
       </header>
 
       <div v-if="!snaps.length" class="empty">
-        <strong>Nenhum agente aberto</strong>
-        <form class="dispatch" @submit.prevent="dispatchTask">
-          <textarea
-            v-model="task"
-            rows="2"
-            :placeholder="`Descreva uma tarefa para ${state.repo?.name ?? 'este projeto'}${state.repo?.branch ? ` · ${state.repo.branch}` : ''}…`"
-            @keydown.enter.exact.prevent="dispatchTask"
-          />
-          <button type="submit" class="primary icon send" :disabled="!task.trim() || dispatching" title="Abre um agente novo com esta tarefa (Enter)">
-            <span v-if="dispatching" class="spinner" />
-            <Icon v-else name="up" :size="15" />
-          </button>
-        </form>
-        <template v-if="tasks.length">
-          <h3 class="sec">Tarefas</h3>
-          <button v-for="t in tasks" :key="t.id" class="ghost task" :title="`Abrir um agente para ${t.key}: ${t.title}`" @click="openNewAgent(t)">
-            <span class="mono faint key">{{ t.key }}</span>
-            <span class="ellipsis ttl">{{ t.title }}</span>
-            <small class="faint">{{ t.statusLabel }}</small>
-          </button>
-        </template>
+        <p class="faint">Nenhum agente aberto.</p>
+        <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       </div>
 
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
@@ -391,16 +348,9 @@ async function arrange() {
 .count { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .gap { flex: 1; }
 .head button { height: 28px; gap: 6px; font-size: 12.5px; }
-.empty { max-width: 640px; margin: 32px auto 0; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); display: flex; flex-direction: column; gap: 14px; }
-.empty strong { font-size: 15px; }
-.empty .sec { margin: 6px 0 0; }
-.task { height: 34px; justify-content: flex-start; gap: 10px; padding: 0 6px; font-weight: 400; font-size: 13.5px; min-width: 0; }
-.task .key { font-size: 11.5px; flex: none; }
-.task .ttl { flex: 1; text-align: left; min-width: 0; }
-.task small { font-size: 12px; flex: none; }
-.dispatch { position: relative; }
-.dispatch textarea { width: 100%; box-sizing: border-box; resize: none; min-height: 56px; padding: 14px 56px 14px 14px; border-radius: 10px; font-size: 13.5px; background: var(--panel); }
-.dispatch .send { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; border-radius: 50%; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 48px 0 0; }
+.empty p { margin: 0; font-size: 13px; }
+.empty button { gap: 6px; }
 
 .sec { display: flex; align-items: baseline; justify-content: space-between; margin: 18px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .sec small { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; }
