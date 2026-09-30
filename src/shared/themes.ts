@@ -187,6 +187,42 @@ export const THEMES: Theme[] = [
       brightYellow: '#633c01', brightBlue: '#218bff', brightMagenta: '#a475f9', brightCyan: '#3192aa',
       brightWhite: '#8c959f'
     }
+  },
+  // Counter-Strike: de_dust2 ao entardecer (arenito, caixotes, portas azuis do CT)
+  {
+    id: 'cs-dust2',
+    name: 'DUST2',
+    dark: true,
+    colors: {
+      accent: '#e3a545', accentStrong: '#c98a2b', onAccent: '#1f1a14',
+      bg: '#1a150f', panel: '#221c15', panel2: '#2b241b', hover: '#372e22', border: '#463b2c',
+      text: '#eadfc6', muted: '#b9aa8c', faint: '#8a7c63',
+      add: '#9bbf5a', del: '#e0664d', mod: '#e08a3c', hunk: '#6fa8dc'
+    },
+    ansi: {
+      black: '#1a150f', red: '#e0664d', green: '#9bbf5a', yellow: '#e3a545', blue: '#6fa8dc', magenta: '#c08fb8',
+      cyan: '#7fbfae', white: '#d8ccb2', brightBlack: '#7d705a', brightRed: '#f08268', brightGreen: '#b4d673',
+      brightYellow: '#f2bd62', brightBlue: '#8fc0ee', brightMagenta: '#d6a8cf', brightCyan: '#9ad6c5',
+      brightWhite: '#f5ecd8'
+    }
+  },
+  // Counter-Strike: de_mirage ao sol (paredes de arenito claro, portas turquesa, azulejos do palácio, tapetes vermelhos)
+  {
+    id: 'cs-mirage',
+    name: 'MIRAGE',
+    dark: false,
+    colors: {
+      accent: '#14807b', accentStrong: '#0e6561', onAccent: '#ffffff',
+      bg: '#ece2cd', panel: '#f6efdf', panel2: '#efe6d2', hover: '#e4d8bf', border: '#d3c4a5',
+      text: '#33291f', muted: '#6b5b47', faint: '#8f7e66',
+      add: '#3f7d2c', del: '#b23a2a', mod: '#a3620f', hunk: '#2b66a8'
+    },
+    ansi: {
+      black: '#33291f', red: '#b23a2a', green: '#3f7d2c', yellow: '#8a5a0b', blue: '#2b66a8', magenta: '#8a4a86',
+      cyan: '#14807b', white: '#7d6e59', brightBlack: '#6b5b47', brightRed: '#93291b', brightGreen: '#2f651f',
+      brightYellow: '#714806', brightBlue: '#1f528c', brightMagenta: '#6f3a6c', brightCyan: '#0e6561',
+      brightWhite: '#9a8a72'
+    }
   }
 ]
 
