@@ -1119,7 +1119,8 @@ export function resolveWithAgent() {
     files.map((f) => `- ${f}`).join('\n') +
     `\n\nResolva os conflitos editando esses arquivos: remova as marcações <<<<<<<, ======= e >>>>>>> e mantenha a intenção das duas versões (use git log e git diff para entender o que cada lado mudou). ` +
     `Depois rode os testes ou o typecheck dos arquivos afetados para garantir que ficou coerente.\n\n` +
-    `Não faça commit, não rode "git ${op} --continue" nem "git add": eu concluo o ${op} pelo app. Ao terminar, resuma como resolveu cada arquivo.`
+    `Quando um arquivo estiver resolvido e validado, marque-o como resolvido com "git add <arquivo>" (só os arquivos desta lista): sem isso o Git continua mostrando o conflito. ` +
+    `Não faça commit nem rode "git ${op} --continue": eu concluo o ${op} pelo app. Ao terminar, resuma como resolveu cada arquivo.`
   openNewAgent(null, { label: `Resolver ${files.length} conflito${files.length === 1 ? '' : 's'} do ${op}`, message })
 }
 
