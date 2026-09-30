@@ -453,12 +453,13 @@ function applyRepo(repo: RepoStatus | null, saved: Analysis | null = null) {
     state.sourceConflicts = {}
     restoreTabs(repo.root)
     if (state.sourcePath) revealSource(state.sourcePath)
-    if (state.pane === 'files') loadSourceFiles()
     state.message = ''
     state.messageEdited = false
   }
   const prevFiles = changedRepo ? repo.files : (state.repo?.files ?? [])
   state.repo = repo
+  // depois de state.repo: a lista de arquivos é do projeto que acabou de abrir
+  if (changedRepo && state.pane === 'files') loadSourceFiles()
   reconcile(repo.files, prevFiles)
   if (!state.messageEdited) state.message = suggestedMessage.value
   if (state.tab === 'history' || changedRepo) loadHistory()

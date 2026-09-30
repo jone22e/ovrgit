@@ -8,6 +8,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { HighlightStyle, StreamLanguage, indentUnit, syntaxHighlighting, type StreamParser } from '@codemirror/language'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
+import { showMinimap } from '@replit/codemirror-minimap'
 import { tags as t } from '@lezer/highlight'
 import { closeSource, fileMap, openSource, pinSource, revealSource, saveSource, setShowDiff, state } from '../store'
 import FileIcon from './FileIcon.vue'
@@ -329,6 +330,13 @@ async function saveNow(p: string | null) {
   saving.value = false
 }
 
+/** Miniatura do arquivo na direita do editor, como no VS Code: mostra onde se está e rola ao clicar ou arrastar */
+const minimap = showMinimap.compute(['doc'], () => ({
+  create: () => ({ dom: document.createElement('div') }),
+  displayText: 'blocks',
+  showOverlay: 'always'
+}))
+
 function extensions(lang: Extension, eol: string, indent: string): Extension[] {
   return [
     basicSetup,
@@ -340,6 +348,7 @@ function extensions(lang: Extension, eol: string, indent: string): Extension[] {
     chrome,
     syntaxHighlighting(syntax),
     guides,
+    minimap,
     EditorView.domEventHandlers({ blur: () => void saveNow(path.value) }),
     EditorView.updateListener.of((u) => {
       const p = path.value
@@ -660,6 +669,10 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 .body { flex: 1; min-height: 0; display: flex; }
 .cm-host { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .body.split > .cm-host { border-right: 1px solid var(--border); }
+/* miniatura: separada do código por uma linha, com a área visível marcada (por cima do estilo da extensão) */
+.cm-host :deep(.cm-minimap-gutter) { background: var(--panel); border-left: 1px solid var(--border); }
+.cm-host :deep(.cm-minimap-overlay-container .cm-minimap-overlay) { background: var(--text); opacity: 0.08; }
+.cm-host :deep(.cm-minimap-overlay-container:hover .cm-minimap-overlay) { opacity: 0.14; }
 .layouts { display: flex; align-self: center; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 7px; flex: none; margin-left: 6px; }
 .layouts button { width: 26px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 5px; }
 .layouts button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }

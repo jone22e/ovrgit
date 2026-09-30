@@ -42,6 +42,7 @@
     "@fontsource/source-code-pro": "^5.3.0",
     "@lezer/highlight": "^1.2.5",
     "@replit/codemirror-indentation-markers": "^6.5.3",
+    "@replit/codemirror-minimap": "^0.5.2",
     "@types/node": "^26.6.2",
     "@vitejs/plugin-vue": "^6.0.9",
     "@xterm/addon-fit": "^0.11.0",
