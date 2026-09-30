@@ -10,7 +10,7 @@ import { HighlightStyle, StreamLanguage, indentUnit, syntaxHighlighting, type St
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { showMinimap } from '@replit/codemirror-minimap'
 import { tags as t } from '@lezer/highlight'
-import { closeSource, fileMap, openSource, pinSource, revealSource, saveSource, setShowDiff, state } from '../store'
+import { closeSource, fileMap, openSource, pinSource, revealSource, saveSource, setHideTree, setShowDiff, state } from '../store'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 
@@ -629,6 +629,14 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 <template>
   <div class="editor">
     <div class="tabs-bar">
+      <button
+        class="ghost icon tree-btn"
+        :class="{ on: !state.hideTree }"
+        :title="state.hideTree ? 'Mostrar a coluna de arquivos' : 'Ocultar a coluna de arquivos'"
+        @click="setHideTree(!state.hideTree)"
+      >
+        <Icon name="panelLeft" :size="14" />
+      </button>
       <div ref="tabsEl" class="tabs" @wheel.passive="onTabsWheel">
         <div
           v-for="t in tabs"
@@ -713,6 +721,8 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 .editor { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--panel); position: relative; }
 
 .tabs-bar { display: flex; align-items: stretch; flex: none; height: var(--pane-header); border-bottom: 1px solid var(--border); }
+.tree-btn { flex: none; align-self: center; width: 28px; height: 28px; margin: 0 2px 0 6px; color: var(--muted); }
+.tree-btn.on { color: var(--text); }
 .tabs { flex: 1; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {

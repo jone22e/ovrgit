@@ -64,6 +64,8 @@ async function doPull(stash = false) {
 }
 
 const leftWidth = ref(Number(localStorage.getItem('ovseer.left') ?? 440))
+/** Coluna de arquivos oculta: só com o editor aberto (a lista de alterações nunca some) */
+const treeHidden = computed(() => state.hideTree && state.pane === 'files' && state.showDiff)
 function startResize(e: MouseEvent) {
   const startX = e.clientX
   const start = leftWidth.value
@@ -156,12 +158,12 @@ onUnmounted(() => {
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
-          <aside :class="{ full: !state.showDiff }" :style="state.showDiff ? { width: `${leftWidth}px` } : undefined">
+          <aside v-show="!treeHidden" :class="{ full: !state.showDiff }" :style="state.showDiff ? { width: `${leftWidth}px` } : undefined">
             <SourceTree v-if="state.pane === 'files'" />
             <FileList v-else />
           </aside>
           <template v-if="state.showDiff">
-            <div class="resizer" @mousedown.prevent="startResize" />
+            <div v-show="!treeHidden" class="resizer" @mousedown.prevent="startResize" />
             <section class="right"><SourceEditor v-if="state.pane === 'files'" /><DiffView v-else /></section>
           </template>
         </main>

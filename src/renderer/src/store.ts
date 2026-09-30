@@ -44,6 +44,8 @@ export const state = reactive({
   /** Atualização do app (versão nova disponível, baixando, pronta para instalar) */
   update: null as UpdateState | null,
   showDiff: readPref('ovseer.diff') === '1',
+  /** Árvore de arquivos oculta enquanto o editor está aberto: o editor ocupa a largura toda */
+  hideTree: readPref('ovseer.hideTree') === '1',
   showTerminal: readPref('ovseer.terminal') === '1',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */
   terminalMax: readPref('ovseer.terminalMax') === '1',
@@ -144,6 +146,11 @@ function writePref(key: string, value: string) {
 export function setShowDiff(v: boolean) {
   state.showDiff = v
   writePref('ovseer.diff', v ? '1' : '0')
+}
+
+export function setHideTree(v: boolean) {
+  state.hideTree = v
+  writePref('ovseer.hideTree', v ? '1' : '0')
 }
 
 export function setShowTerminal(v: boolean) {
