@@ -42,21 +42,29 @@ interface Shown extends AgentAttachment {
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
 const pending = reactive<Shown[]>([])
-/** Arrasto de arquivos sobre a janela. `dragleave` dispara ao passar para um elemento filho, então o estado
- * é um contador de entradas e saídas; se ele ficar preso (o arrasto foi cancelado fora da janela),
- * o próximo movimento do mouse sem botão pressionado limpa. */
+/**
+ * Arrasto de arquivos sobre a janela. O aviso liga a cada `dragenter` e `dragover` (com o arquivo por cima, o
+ * navegador manda `dragover` sem parar, mesmo com o ponteiro parado) e só desliga quando o arrasto sai da janela,
+ * termina ou para de dar sinal. Não conta entradas e saídas dos elementos: a contagem se perdia quando algo a
+ * zerava no meio do arrasto, e daí em diante cada troca de elemento apagava o aviso.
+ */
 const dragging = ref(false)
-let dragDepth = 0
-function onDragEnter() {
-  dragDepth++
+let dragTimer: ReturnType<typeof setTimeout> | undefined
+const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+function onDragMove(e: DragEvent) {
+  if (!hasFiles(e)) return
   dragging.value = true
+  // arrasto cancelado sem avisar (Esc, solto fora): sem `dragover` por um tempo, o aviso sai sozinho
+  clearTimeout(dragTimer)
+  dragTimer = setTimeout(dragReset, 1200)
 }
-function onDragLeave() {
-  dragDepth = Math.max(0, dragDepth - 1)
-  if (!dragDepth) dragging.value = false
+function onDragLeave(e: DragEvent) {
+  // saiu da janela: não há elemento de destino, ou o ponteiro está fora dela
+  const out = e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight
+  if (!e.relatedTarget && out) dragReset()
 }
 function dragReset() {
-  dragDepth = 0
+  clearTimeout(dragTimer)
   dragging.value = false
 }
 const attachError = ref<string | null>(null)
@@ -1093,11 +1101,10 @@ onUnmounted(() => offs.forEach((f) => f()))
   <div
     class="agent"
     :style="fontStyle"
-    @dragenter.prevent="onDragEnter"
-    @dragover.prevent
+    @dragenter.prevent="onDragMove"
+    @dragover.prevent="onDragMove"
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
-    @mousemove="dragging && dragReset()"
   >
     <header class="bar">
       <AgentLogo v-if="info" :source="provider" :size="16" />
