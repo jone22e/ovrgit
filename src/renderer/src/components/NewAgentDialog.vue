@@ -25,7 +25,9 @@ const prefs = readPrefs()
 const provider = ref<CliProvider>(prefs.provider)
 const model = ref(prefs.model[prefs.provider])
 const effort = ref<AgentEffort>(prefs.effort[prefs.provider])
-const mode = ref<AgentMode>(prefs.mode)
+// o agente nunca começa no modo Plano: ele é ligado dentro da janela (/plan), quando preciso
+const START_MODES = MODES.filter((m) => m.id !== 'plan')
+const mode = ref<AgentMode>(prefs.mode === 'plan' ? 'safe' : prefs.mode)
 
 const known = ref<KnownModels | null>(null)
 const detected = ref<ProviderStatus | null>(null)
@@ -131,7 +133,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <div>
       <div class="lbl">Permissões</div>
       <div class="modes">
-        <button v-for="m in MODES" :key="m.id" type="button" class="mode" :class="{ active: mode === m.id }" @click="mode = m.id">
+        <button v-for="m in START_MODES" :key="m.id" type="button" class="mode" :class="{ active: mode === m.id }" @click="mode = m.id">
           <span class="name"><Icon :name="m.icon" :size="13" /> {{ m.label }}</span>
           <span class="hint">{{ m.hint }}</span>
         </button>
@@ -157,7 +159,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .task .key { color: var(--accent); font-size: 11px; font-weight: 800; margin-right: 4px; }
 .task .icon.small { width: 24px; height: 24px; flex: none; }
 .lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.modes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
 .mode { height: auto; padding: 10px 12px; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; white-space: normal; }
 .mode.active { border-color: var(--accent); background: var(--accent-soft); }
 .mode .name { display: flex; align-items: center; gap: 6px; font-weight: 600; }

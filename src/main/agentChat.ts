@@ -143,6 +143,8 @@ export async function openAgentLikeLast(focused: BrowserWindow | null, projectRo
 
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
+  // nunca começa no modo Plano (nem repetindo o último agente, nem reabrindo uma conversa que estava nele)
+  if (opts.mode === 'plan') opts = { ...opts, mode: 'safe' }
   const uid = crypto.randomUUID()
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
