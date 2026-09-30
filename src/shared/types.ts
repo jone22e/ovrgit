@@ -457,8 +457,8 @@ export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 
 /** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
 export type AgentAsk =
-  | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number }
-  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string; tag?: 'risky' | 'recommended' }[]; /** Texto do plano, em Markdown */ plan: string }
+  | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number; /** Opção já escolhida nesta pergunta */ current?: string | null }
+  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string; /** Selo ao lado da opção ("Padrão", "Modo anterior") */ pill?: string }[]; /** Texto do plano, em Markdown */ plan: string }
 
 /** Verificações vistas nos comandos da última resposta do agente (ausente: não rodou) */
 export interface AgentChecks {
@@ -508,7 +508,10 @@ export interface AgentSnapshot {
 export type AgentAction =
   | { type: 'decide'; choice: string | null }
   | { type: 'plan'; mode: AgentMode }
-  | { type: 'keepPlanning' }
+  /** Fecha o cartão (continuar planejando / responder pelo campo) */
+  | { type: 'dismiss' }
+  /** Mostra outra pergunta do cartão */
+  | { type: 'nav'; index: number }
   | { type: 'reply'; text: string }
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */

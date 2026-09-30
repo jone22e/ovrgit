@@ -5,6 +5,8 @@ import { marked } from 'marked'
 import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
 import { api, loadTasks, openNewAgent, ovseerReady, selectFile, setPane, state, toast } from '../store'
 import { readAgentPrefs } from '../agentPrefs'
+import { PROVIDER_LABEL } from '@shared/models'
+import AskCard from './AskCard.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 import PaneSwitch from './PaneSwitch.vue'
@@ -269,36 +271,19 @@ async function arrange() {
             <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
           </div>
 
-          <template v-if="a.ask">
-            <p class="q">
-              {{ a.ask.kind === 'plan' ? 'Deseja iniciar a implementação do plano?' : a.ask.text }}
-              <small v-if="a.ask.kind === 'question' && a.ask.total > 1" class="faint">{{ a.ask.index + 1 }} de {{ a.ask.total }}</small>
-            </p>
-            <div class="opts">
-              <template v-if="a.ask.kind === 'plan'">
-                <button v-for="(o, i) in a.ask.options" :key="o.mode" class="opt" @click="act(a, { type: 'plan', mode: o.mode })">
-                  <span class="num">{{ i + 1 }}</span><span class="lbl">{{ o.label }}</span><small class="faint ellipsis">{{ o.detail }}</small>
-                  <span v-if="o.tag" class="tag" :class="o.tag">{{ o.tag === 'risky' ? 'arriscado' : 'recomendado' }}</span>
-                </button>
-                <button class="opt" @click="act(a, { type: 'keepPlanning' })">
-                  <span class="num">{{ a.ask.options.length + 1 }}</span><span class="lbl">Continuar planejando</span><small class="faint">mantém no modo Plano</small>
-                </button>
-              </template>
-              <template v-else>
-                <button v-for="(o, i) in a.ask.options" :key="o.label" class="opt" @click="act(a, { type: 'decide', choice: o.label })">
-                  <span class="num">{{ i + 1 }}</span><span class="lbl">{{ o.label }}</span><small v-if="o.detail" class="faint ellipsis">{{ o.detail }}</small>
-                  <span v-if="o.recommended" class="tag recommended">recomendado</span>
-                </button>
-              </template>
-            </div>
-            <form class="reply" @submit.prevent="reply(a)">
-              <button v-if="a.ask.kind === 'plan'" type="button" class="ghost link" @click="planUid = a.uid">Ver plano</button>
-              <span v-if="a.ask.kind === 'plan'" class="faint">·</span>
-              <input v-model="replies[a.uid]" type="text" :placeholder="a.ask.kind === 'plan' ? 'ou digite um ajuste…' : 'ou responda com as suas palavras…'" maxlength="2000" />
-              <button v-if="(replies[a.uid] ?? '').trim()" type="submit" class="small primary">Enviar</button>
-              <button v-else-if="a.ask.kind === 'question'" type="button" class="ghost small" @click="act(a, { type: 'decide', choice: null })">Pular</button>
-            </form>
-          </template>
+          <AskCard
+            v-if="a.ask"
+            class="ask-in"
+            :ask="a.ask"
+            :agent="PROVIDER_LABEL[a.provider]"
+            :current="a.ask.kind === 'question' ? a.ask.current : null"
+            @decide="(choice) => act(a, { type: 'decide', choice })"
+            @plan="(mode) => act(a, { type: 'plan', mode })"
+            @adjust="(text) => act(a, { type: 'reply', text })"
+            @see-plan="planUid = a.uid"
+            @close="act(a, { type: 'dismiss' })"
+            @nav="(index) => act(a, { type: 'nav', index })"
+          />
         </article>
       </section>
 
@@ -443,19 +428,9 @@ async function arrange() {
 .wait { color: var(--mod); font-size: 12px; white-space: nowrap; }
 .retry { height: 26px; }
 
-.q { margin: 0; font-size: 13.5px; }
-.q small { margin-left: 6px; font-size: 11.5px; }
-.opts { display: flex; flex-direction: column; gap: 6px; }
-.opt { height: auto; min-height: 36px; justify-content: flex-start; gap: 10px; padding: 6px 10px; border-radius: 8px; text-align: left; white-space: normal; }
-.opt .tag { margin-left: auto; flex: none; font-size: 11px; padding: 1px 7px; border-radius: 5px; font-weight: 600; }
-.tag.risky { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
-.tag.recommended { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
-.opt .num { flex: none; width: 20px; height: 20px; border-radius: 5px; background: var(--panel-2); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
-.opt .lbl { font-weight: 600; font-size: 13px; flex: none; }
 .opt small { font-size: 12px; min-width: 0; }
-.reply { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-.reply input { flex: 1; border: 0; background: transparent; padding: 4px 0; font-size: 12.5px; }
-.reply input:focus { box-shadow: none; }
+/* o cartão do agente, sem a moldura dele: a moldura é a do cartão do gerenciador */
+.card .ask-in { width: 100%; max-width: none; box-sizing: border-box; padding: 0; border: 0; background: transparent; }
 .link { height: auto; padding: 0; color: var(--muted); font-size: 12.5px; }
 .link:hover:not(:disabled) { background: transparent; color: var(--accent); }
 

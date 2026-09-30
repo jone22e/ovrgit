@@ -11,6 +11,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelL
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import AgentLogo from './components/AgentLogo.vue'
+import AskCard from './components/AskCard.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
@@ -254,13 +255,11 @@ const decided = reactive<(string | null | undefined)[]>([])
 /** Pergunta em exibição (as setas navegam entre elas) */
 const qi = ref(0)
 const askOpen = ref(true)
-const otherText = ref('')
 const questionTurn = computed(() => turns[turns.length - 1]?.id)
 watch(questionTurn, () => {
   decided.splice(0)
   qi.value = 0
   askOpen.value = true
-  otherText.value = ''
 })
 const question = computed(() => questions.value[qi.value])
 const showAsk = computed(() => askOpen.value && !!question.value)
@@ -297,6 +296,30 @@ async function copyPlan() {
 const approveMode = computed<AgentMode>(() => modeBeforePlan.value ?? 'full')
 /** Modos que executam: cada um vira uma opção do cartão, com o da aprovação em primeiro */
 const PLAN_STARTS = computed(() => MODES.filter((m) => m.id !== 'plan').sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
+/** O cartão aberto (pergunta ou aprovação do plano), no formato do AskCard: o mesmo vai para o gerenciador de agentes */
+const askModel = computed<AgentAsk | null>(() => {
+  if (showAsk.value && question.value)
+    return {
+      kind: 'question',
+      text: question.value.text,
+      options: question.value.options.map((o) => ({ label: o.label, detail: o.detail, recommended: o.recommended })),
+      index: qi.value,
+      total: questions.value.length,
+      current: decided[qi.value] ?? null
+    }
+  if (showPlanAsk.value)
+    return {
+      kind: 'plan',
+      options: PLAN_STARTS.value.map((m) => ({
+        mode: m.id,
+        label: `Sim, implementar em "${m.label}"`,
+        detail: m.hint,
+        pill: m.id === approveMode.value ? (modeBeforePlan.value ? 'Modo anterior' : 'Padrão') : undefined
+      })),
+      plan: planText.value
+    }
+  return null
+})
 /** Implementa o plano: troca o modo e pede na mesma sessão (o agente lembra o plano que acabou de escrever) */
 async function startPlan(m: AgentMode) {
   planOpen.value = false
@@ -305,10 +328,9 @@ async function startPlan(m: AgentMode) {
   await dispatch({ id: crypto.randomUUID(), body: 'Implemente o plano acima.', attachments: [] })
 }
 /** Ajuste ao plano: continua em modo plano com o que o usuário escreveu */
-async function adjustPlan() {
-  const text = otherText.value.trim()
+async function adjustPlan(raw: string) {
+  const text = raw.trim()
   if (!text) return
-  otherText.value = ''
   askOpen.value = false
   await dispatch({ id: crypto.randomUUID(), body: text, attachments: [] })
 }
@@ -317,7 +339,6 @@ async function decide(choice: string | null) {
   const qs = questions.value
   if (!qs.length) return
   decided[qi.value] = choice === null ? null : choice.trim() || null
-  otherText.value = ''
   const next = qs.findIndex((_, j) => decided[j] === undefined)
   if (next >= 0) {
     qi.value = next
@@ -1138,10 +1159,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     paths.push(...b.paths)
     for (const st of Object.values(b.stats ?? {})) if (st) (files.add += st.add), (files.del += st.del)
   }
-  let ask: AgentAsk | undefined
-  if (showAsk.value && question.value)
-    ask = { kind: 'question', text: question.value.text, options: question.value.options.map((o) => ({ label: o.label, detail: o.detail, recommended: o.recommended })), index: qi.value, total: questions.value.length }
-  else if (showPlanAsk.value) ask = { kind: 'plan', options: PLAN_STARTS.value.map((m) => ({ mode: m.id, label: `Implementar em "${m.label}"`, detail: m.hint, tag: m.id === 'full' ? 'risky' : m.id === 'safe' ? 'recommended' : undefined })), plan: planText.value }
+  const ask = askModel.value ?? undefined
   const cur = current()
   const tools = cur?.blocks.filter((b): b is ToolBlock => b.kind === 'tool') ?? []
   const lastToolBlock = [...(cur ?? last)?.blocks ?? []].reverse().find((b): b is ToolBlock => b.kind === 'tool')
@@ -1186,7 +1204,8 @@ async function retryLast() {
 function onAct(a: AgentAction) {
   if (a.type === 'decide') decide(a.choice)
   else if (a.type === 'plan') startPlan(a.mode)
-  else if (a.type === 'keepPlanning') askOpen.value = false
+  else if (a.type === 'dismiss') askOpen.value = false
+  else if (a.type === 'nav') qi.value = Math.max(0, Math.min(questions.value.length - 1, a.index))
   else if (a.type === 'retry') retryLast()
   else if (a.type === 'nudge') {
     const cur = current()
@@ -1196,10 +1215,8 @@ function onAct(a: AgentAction) {
     const text = a.text.trim()
     if (!text) return
     if (showAsk.value) decide(text)
-    else if (showPlanAsk.value) {
-      otherText.value = text
-      adjustPlan()
-    } else {
+    else if (showPlanAsk.value) adjustPlan(text)
+    else {
       // mensagem nova, sem mexer no que estiver sendo escrito no campo desta janela
       const p: Payload = { id: crypto.randomUUID(), body: text, attachments: [] }
       if (running.value) queue.push(p)
@@ -1417,60 +1434,18 @@ onUnmounted(() => offs.forEach((f) => f()))
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
             <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
           </p>
-          <div v-if="t.id === questionTurn && showAsk && question" class="ask">
-            <div class="ask-head">
-              <p class="ask-q">{{ question.text }}</p>
-              <span v-if="questions.length > 1" class="ask-nav">
-                <button type="button" class="ghost nav" title="Pergunta anterior" :disabled="qi === 0" @click="qi--"><Icon name="chevron" :size="13" class="prev" /></button>
-                <span class="ask-count">{{ qi + 1 }} de {{ questions.length }}</span>
-                <button type="button" class="ghost nav" title="Próxima pergunta" :disabled="qi === questions.length - 1" @click="qi++"><Icon name="chevron" :size="13" /></button>
-              </span>
-              <button type="button" class="ghost nav" title="Fechar: responda pelo campo de mensagem" @click="askOpen = false"><Icon name="x" :size="13" /></button>
-            </div>
-            <div class="ask-opts">
-              <button v-for="(o, i) in question.options" :key="o.label" type="button" class="ghost ask-opt" :class="{ cur: decided[qi] === o.label }" @click="decide(o.label)">
-                <span class="num">{{ i + 1 }}</span>
-                <span class="opt-body">
-                  <span class="opt-label">{{ o.label }}<span v-if="o.recommended" class="pill">Recomendado</span></span>
-                  <span v-if="o.detail" class="opt-detail">{{ o.detail }}</span>
-                </span>
-              </button>
-            </div>
-            <form class="ask-other" @submit.prevent="otherText.trim() && decide(otherText)">
-              <Icon name="pencil" :size="13" class="pen" />
-              <input v-model="otherText" type="text" :placeholder="`Não, e diga ao ${providerName} o que fazer diferente`" maxlength="2000" />
-              <button v-if="otherText.trim()" type="submit" class="small primary">Responder</button>
-              <button v-else type="button" class="small skip" @click="decide(null)">Pular</button>
-            </form>
-          </div>
-          <div v-else-if="t.id === questionTurn && showPlanAsk" class="ask">
-            <div class="ask-head">
-              <p class="ask-q">Deseja iniciar a implementação do plano?</p>
-              <button type="button" class="ghost small see-plan" title="Abrir o plano para leitura" @click="planOpen = true"><Icon name="clipboard" :size="12" /> Ver plano</button>
-              <button type="button" class="ghost nav" title="Fechar: continue pelo campo de mensagem" @click="askOpen = false"><Icon name="x" :size="13" /></button>
-            </div>
-            <div class="ask-opts">
-              <button v-for="(m, i) in PLAN_STARTS" :key="m.id" type="button" class="ghost ask-opt" @click="startPlan(m.id)">
-                <span class="num">{{ i + 1 }}</span>
-                <span class="opt-body">
-                  <span class="opt-label">Sim, implementar em "{{ m.label }}"<span v-if="m.id === approveMode" class="pill">{{ modeBeforePlan ? 'Modo anterior' : 'Padrão' }}</span></span>
-                  <span class="opt-detail">{{ m.hint }}</span>
-                </span>
-              </button>
-              <button type="button" class="ghost ask-opt" @click="askOpen = false">
-                <span class="num">{{ PLAN_STARTS.length + 1 }}</span>
-                <span class="opt-body">
-                  <span class="opt-label">Não, continuar planejando</span>
-                  <span class="opt-detail">Fecha este cartão; a conversa segue no modo Plano.</span>
-                </span>
-              </button>
-            </div>
-            <form class="ask-other" @submit.prevent="adjustPlan()">
-              <Icon name="pencil" :size="13" class="pen" />
-              <input v-model="otherText" type="text" :placeholder="`Não, e diga ao ${providerName} o que ajustar no plano`" maxlength="2000" />
-              <button v-if="otherText.trim()" type="submit" class="small primary">Enviar</button>
-            </form>
-          </div>
+          <AskCard
+            v-if="t.id === questionTurn && askModel"
+            :ask="askModel"
+            :agent="providerName"
+            :current="askModel.kind === 'question' ? askModel.current : null"
+            @decide="decide"
+            @plan="startPlan"
+            @adjust="adjustPlan"
+            @see-plan="planOpen = true"
+            @close="askOpen = false"
+            @nav="(i) => (qi = i)"
+          />
         </div>
       </article>
     </main>
@@ -1786,33 +1761,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
 .meta { margin: 0; font-size: 11px; }
 /* cartão de pergunta do agente */
-.ask { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); max-width: 640px; }
-.ask-head { display: flex; align-items: flex-start; gap: 8px; }
-.see-plan { flex: none; gap: 5px; color: var(--accent); }
 .plan-read { max-height: min(64vh, 720px); overflow: auto; padding-right: 6px; }
-.ask-q { margin: 0; flex: 1; min-width: 0; font-size: calc(var(--agent-size, 14px) + 0.5px); font-weight: 600; line-height: 1.45; user-select: text; }
-.ask-nav { display: inline-flex; align-items: center; gap: 2px; flex: none; color: var(--muted); }
-.ask-count { font-size: 11.5px; padding: 0 4px; font-variant-numeric: tabular-nums; }
-.nav { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--muted); flex: none; }
-.nav:hover:not(:disabled) { color: var(--text); }
-.nav:disabled { opacity: 0.3; }
-.nav .prev { transform: rotate(180deg); }
-.ask-opts { display: flex; flex-direction: column; gap: 2px; }
-.ask-opt { height: auto; padding: 7px 8px; border-radius: 10px; justify-content: flex-start; align-items: flex-start; gap: 12px; text-align: left; white-space: normal; color: var(--text); }
-.ask-opt.cur { background: var(--accent-soft); }
-.ask-opt .num { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); margin-top: 1px; }
-.ask-opt:hover .num, .ask-opt.cur .num { color: var(--text); border-color: var(--accent); }
-.opt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.opt-label { font-size: var(--agent-size, 14px); font-weight: 600; line-height: 1.45; }
-.opt-detail { font-size: calc(var(--agent-size, 14px) - 1px); line-height: 1.45; color: var(--muted); font-weight: 400; }
-.pill { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); vertical-align: 1px; }
-.ask-other { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); }
-.ask-other:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
-.ask-other .pen { color: var(--faint); flex: none; }
-.ask-other input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; padding: 0; font-size: calc(var(--agent-size, 14px) - 0.5px); }
-.ask-other input:focus { box-shadow: none; }
-.ask-other .small { height: 26px; border-radius: 999px; flex: none; }
-.ask-other .skip { background: var(--panel); }
 
 .composer {
   position: relative; flex: none; margin: 0 16px 16px; padding: 10px 10px 8px; border-radius: 18px;
