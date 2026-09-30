@@ -26,6 +26,7 @@ import PublishDialog from './components/PublishDialog.vue'
 import TerminalPanel from './components/TerminalPanel.vue'
 import Icon from './components/Icon.vue'
 import PullDialog from './components/PullDialog.vue'
+import QuickOpen from './components/QuickOpen.vue'
 import ResultDialog from './components/ResultDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TopBar from './components/TopBar.vue'
@@ -39,6 +40,21 @@ const showPull = ref(false)
 const showSwitcher = ref(false)
 const showPublish = ref(false)
 const updateDismissed = ref(false)
+// Shift Shift (de qualquer lugar): buscador de arquivos. Duas batidas no Shift em menos de 400 ms, sem outra tecla no meio
+const showQuickOpen = ref(false)
+let lastShift = 0
+function onShiftKey(e: KeyboardEvent) {
+  if (e.key !== 'Shift') {
+    lastShift = 0
+    return
+  }
+  if (e.repeat) return
+  const now = Date.now()
+  if (now - lastShift < 400) {
+    lastShift = 0
+    if (state.repo) showQuickOpen.value = !showQuickOpen.value
+  } else lastShift = now
+}
 // terminal maximizado só vale com o painel aberto
 const termMaximized = computed(() => state.showTerminal && state.terminalMax)
 
@@ -91,6 +107,7 @@ let offMenu: (() => void) | undefined
 onMounted(() => {
   init()
   window.addEventListener('focus', onFocus)
+  window.addEventListener('keydown', onShiftKey)
   offMenu = window.ovseer.onMenu((action) => {
     if (action === 'open') openProject()
     else if (action === 'settings') state.showSettings = true
@@ -109,6 +126,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('focus', onFocus)
+  window.removeEventListener('keydown', onShiftKey)
   offMenu?.()
 })
 </script>
@@ -165,6 +183,7 @@ onUnmounted(() => {
       </template>
     </template>
 
+    <QuickOpen v-if="showQuickOpen" @close="showQuickOpen = false" />
     <SettingsDialog v-if="state.showSettings" @close="state.showSettings = false" />
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
