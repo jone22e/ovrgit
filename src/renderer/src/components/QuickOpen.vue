@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { loadSourceFiles, openNewAgent, openSource, setPane, state } from '../store'
+import { loadProject, loadProjectIcon, loadSourceFiles, openNewAgent, openSource, projectIcons, setPane, state } from '../store'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 
 /**
- * Buscador de arquivos (Shift Shift, de qualquer lugar do app). Sem digitar: os abertos há pouco e os alterados;
- * digitando: todos os arquivos do projeto, os que batem melhor primeiro. Enter abre no editor.
- * Sem resultado, oferece perguntar ao agente.
+ * Buscador (Shift Shift, de qualquer lugar do app): arquivos do projeto e repositórios recentes, na mesma lista.
+ * Sem digitar: os arquivos abertos há pouco, os alterados e os outros repositórios; digitando: os que batem melhor
+ * primeiro. Enter abre o arquivo no editor ou troca de repositório. Sem resultado, oferece perguntar ao agente.
  */
 const emit = defineEmits<{ close: [] }>()
 const query = ref('')
@@ -19,7 +19,12 @@ interface Item {
   path: string
   /** Rótulo da situação no git (M, A…) */
   status?: string
+  /** Repositório (pasta de projeto), não arquivo */
+  repo?: boolean
 }
+/** Outros repositórios abertos antes (o atual fica de fora) */
+const repos = computed(() => (state.settings?.recentProjects ?? []).filter((p) => p !== state.repo?.root))
+const repoItem = (path: string): Item => ({ path, repo: true })
 const KIND_LETTER: Record<string, string> = { added: 'A', untracked: 'A', modified: 'M', deleted: 'D', renamed: 'R', conflict: '!', typechange: 'T' }
 const changed = computed(() => new Map((state.repo?.files ?? []).map((f) => [f.path, KIND_LETTER[f.kind] ?? 'M'])))
 const item = (path: string): Item => ({ path, status: changed.value.get(path) })
@@ -38,18 +43,27 @@ type Group = { label: string; items: Item[] }
 /** Estado vazio: recentes e alterados (sem repetir) */
 const groups = computed<Group[]>(() => {
   const q = query.value.trim()
-  if (q) return [{ label: 'Arquivos', items: search(q) }]
+  if (q) {
+    const files = search(q)
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+    // repositórios: pelo nome da pasta (o caminho inteiro faria "flexi" bater com tudo dentro de ~/Flexi)
+    const rs = repos.value.filter((p) => words.every((w) => base(p).toLowerCase().includes(w))).slice(0, 6).map(repoItem)
+    return [...(files.length ? [{ label: 'Arquivos', items: files }] : []), ...(rs.length ? [{ label: 'Repositórios', items: rs }] : [])]
+  }
   const seen = new Set<string>()
   const take = (paths: string[], max: number) => paths.filter((p) => !seen.has(p) && seen.add(p)).slice(0, max).map(item)
   const rec = take(recent.value, 6)
   const alt = take([...changed.value.keys()].sort(), 8)
+  const rs = repos.value.slice(0, 6).map(repoItem)
   return [
     ...(rec.length ? [{ label: 'Recentes', items: rec }] : []),
-    ...(alt.length ? [{ label: 'Alterados', items: alt }] : [])
+    ...(alt.length ? [{ label: 'Alterados', items: alt }] : []),
+    ...(rs.length ? [{ label: 'Repositórios', items: rs }] : [])
   ]
 })
 const flat = computed(() => groups.value.flatMap((g) => g.items))
 const noResult = computed(() => !!query.value.trim() && !flat.value.length)
+const placeholder = computed(() => (state.repo ? 'Buscar arquivo ou repositório' : 'Buscar repositório'))
 
 const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
@@ -92,10 +106,16 @@ function ask() {
   emit('close')
   openNewAgent(null, { label: `Perguntar: ${q}`, message: q })
 }
+async function switchRepo(path: string) {
+  emit('close')
+  await loadProject(path)
+}
 function choose() {
   if (noResult.value) return ask()
   const it = flat.value[index.value]
-  if (it) open(it.path)
+  if (!it) return
+  if (it.repo) switchRepo(it.path)
+  else open(it.path)
 }
 
 function onKey(e: KeyboardEvent) {
@@ -115,7 +135,8 @@ function onKey(e: KeyboardEvent) {
 }
 watch(query, () => (index.value = 0))
 onMounted(() => {
-  if (!state.sourceList.length) loadSourceFiles()
+  if (state.repo && !state.sourceList.length) loadSourceFiles()
+  repos.value.forEach(loadProjectIcon)
   input.value?.focus()
   window.addEventListener('keydown', onKey)
 })
@@ -127,7 +148,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     <div class="palette" role="dialog" aria-modal="true">
       <label class="field">
         <Icon name="search" :size="15" class="faint" />
-        <input ref="input" v-model="query" type="text" placeholder="Buscar arquivo" spellcheck="false" autocomplete="off" />
+        <input ref="input" v-model="query" type="text" :placeholder="placeholder" spellcheck="false" autocomplete="off" />
         <kbd class="faint">esc</kbd>
       </label>
       <div ref="listEl" class="results">
@@ -149,16 +170,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               :class="{ cur: flat[index]?.path === it.path }"
               :title="it.path"
               @mouseenter="index = flat.indexOf(it)"
-              @click="open(it.path)"
+              @click="it.repo ? switchRepo(it.path) : open(it.path)"
             >
-              <FileIcon :path="it.path" :size="15" />
+              <template v-if="it.repo">
+                <img v-if="projectIcons.get(it.path)" :src="projectIcons.get(it.path)!" class="fav" alt="" />
+                <Icon v-else name="folder" :size="15" class="faint" />
+              </template>
+              <FileIcon v-else :path="it.path" :size="15" />
               <span class="name ellipsis">{{ base(it.path) }}</span>
               <span v-if="dir(it.path)" class="dir faint ellipsis">{{ dir(it.path) }}</span>
               <span v-if="it.status" class="status" :class="{ add: it.status === 'A', del: it.status === 'D' || it.status === '!' }">{{ it.status }}</span>
             </button>
           </template>
         </template>
-        <p v-else class="faint none">{{ state.sourceLoading ? 'Carregando a lista de arquivos…' : 'Digite o nome de um arquivo do projeto.' }}</p>
+        <p v-else class="faint none">{{ state.sourceLoading ? 'Carregando a lista de arquivos…' : 'Digite o nome de um arquivo ou de um repositório.' }}</p>
       </div>
     </div>
   </div>
@@ -186,4 +211,5 @@ h6 { margin: 8px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-s
 .status.del { color: var(--del); }
 .accent { color: var(--accent); }
 .none { margin: 10px 8px; font-size: 12.5px; }
+.fav { width: 15px; height: 15px; border-radius: 3px; flex: none; }
 </style>

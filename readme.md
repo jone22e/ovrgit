@@ -109,7 +109,7 @@ modelo local pelo Ollama.
 | Abrir pasta | `Cmd/Ctrl + O` |
 | Atualizar | `Cmd/Ctrl + R` |
 | Configurações | `Cmd/Ctrl + ,` |
-| Buscar arquivo | `Shift Shift` |
+| Buscar arquivo ou repositório | `Shift Shift` |
 | Novo agente igual ao último | `Cmd/Ctrl + Shift + N` |
 | Analisar com IA | `Cmd/Ctrl + I` |
 | Commit | `Cmd/Ctrl + Enter` |

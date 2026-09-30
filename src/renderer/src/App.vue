@@ -52,7 +52,7 @@ function onShiftKey(e: KeyboardEvent) {
   const now = Date.now()
   if (now - lastShift < 400) {
     lastShift = 0
-    if (state.repo) showQuickOpen.value = !showQuickOpen.value
+    showQuickOpen.value = !showQuickOpen.value
   } else lastShift = now
 }
 // terminal maximizado só vale com o painel aberto
