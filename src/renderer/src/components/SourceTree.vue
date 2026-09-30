@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { fileMap, loadSourceFiles, openSource, state, toggleSourceDir } from '../store'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
@@ -83,6 +83,27 @@ function onMenu(e: MouseEvent, dirPath: string, target?: string) {
   menu.value = { x: e.clientX, y: e.clientY, dir: dirPath, target }
 }
 
+// o arquivo aberto no editor fica à vista na árvore (as pastas até ele já abrem ao abrir o arquivo). Se a linha
+// ainda não existe (a lista de arquivos não chegou), tenta de novo quando a árvore mudar; abrir e fechar pastas
+// depois disso não mexe na rolagem
+const scroller = ref<HTMLElement>()
+let pending = false
+async function reveal() {
+  await nextTick()
+  const el = scroller.value?.querySelector<HTMLElement>('.row.file.active')
+  el?.scrollIntoView({ block: 'nearest' })
+  pending = !el
+}
+watch(
+  () => state.sourcePath,
+  (p) => p && reveal(),
+  { immediate: true }
+)
+watch(
+  () => rows.value.length,
+  () => pending && reveal()
+)
+
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') filter.value = ''
   else if (e.key === 'Enter' && matches.value?.length) openSource(matches.value[0])
@@ -108,7 +129,7 @@ function onKey(e: KeyboardEvent) {
       {{ matches ? 'Nenhum arquivo com esse nome.' : 'Nenhum arquivo no projeto.' }}
     </div>
 
-    <div class="scroll" @contextmenu.prevent="onMenu($event, '')">
+    <div ref="scroller" class="scroll" @contextmenu.prevent="onMenu($event, '')">
       <template v-for="r in rows" :key="r.key">
         <div v-if="r.kind === 'dir'" class="row dir" :style="{ paddingLeft: `${6 + r.depth * 16}px` }" @click="toggleSourceDir(r.path)" @contextmenu.prevent.stop="onMenu($event, r.path)">
           <Icon name="chevron" :size="12" class="chev" :class="{ open: state.sourceOpen.has(r.path) }" />
