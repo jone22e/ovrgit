@@ -61,7 +61,7 @@ modelo local pelo Ollama.
 - Histórico de conversas por repositório ou de todos, com fixação, busca e retomada.
 - Grid para posicionar várias janelas de agente na tela.
 - Instruções personalizadas que valem para todos os agentes.
-- Indicador dos agentes abertos pelo Ovseer que estão trabalhando, com aviso quando terminam.
+- Aviso quando um agente aberto pelo Ovseer termina a tarefa.
 - Indicador de consumo das assinaturas.
 
 ### Tarefas (Ovseer)

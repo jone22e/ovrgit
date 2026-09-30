@@ -4,7 +4,6 @@ import logo from '../assets/logo.png'
 import { api, myDoingCount, openNewAgent, refresh, refreshOvseer, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
-import AgentsIndicator from './AgentsIndicator.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
 import UsageChip from './UsageChip.vue'
@@ -70,7 +69,6 @@ defineEmits<{ settings: [] }>()
 
     <span class="spacer" />
     <UsageChip />
-    <AgentsIndicator />
 
     <template v-if="state.repo">
       <nav class="tabs nodrag">

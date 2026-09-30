@@ -381,8 +381,8 @@ async function save() {
             <div class="block">
               <label class="switch-row">
                 <div>
-                  <strong>Acompanhar agentes de IA</strong>
-                  <p>Mostra quando um agente aberto pelo Ovseer está trabalhando e avisa quando termina. Conversas abertas em outros apps não aparecem.</p>
+                  <strong>Avisar quando um agente termina</strong>
+                  <p>Mostra um aviso quando um agente aberto pelo Ovseer termina a tarefa e atualiza a lista de alterações do projeto.</p>
                 </div>
                 <input type="checkbox" class="switch" :checked="state.settings?.watchAgents !== false" @change="toggleAgents(($event.target as HTMLInputElement).checked)" />
               </label>

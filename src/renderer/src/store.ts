@@ -971,7 +971,9 @@ function listenAgents() {
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`
-    const body = s.title || s.lastMessage?.slice(0, 120) || 'Tarefa concluída'
+    // o aviso do Acelerar é um pedido do app, não do usuário: não serve de título
+    const asked = /^(Interrompi sua resposta porque temos pressa|Aviso do usuário: temos pressa)/.test(s.title ?? '') ? '' : s.title
+    const body = asked || s.lastMessage?.slice(0, 120) || 'Tarefa concluída'
     toast(`${title}: ${body}`)
     if (!document.hasFocus() && 'Notification' in window) {
       try {
