@@ -216,6 +216,8 @@ export interface ServiceState {
   exitCode?: number | null
   /** Última linha de saída, para a lista */
   lastLine?: string
+  /** Portas TCP em escuta pelo processo do serviço (e filhos), detectadas enquanto roda */
+  ports?: number[]
 }
 
 export interface Snippet {

@@ -139,6 +139,12 @@ onUnmounted(() => offs.forEach((f) => f()))
           </div>
           <small class="mono faint ellipsis" :title="s.command">{{ stateOf(s.id)?.lastLine || firstLine(s.command) }}</small>
         </div>
+        <!-- portas detectadas: em destaque; as de HTTP abrem no navegador -->
+        <span v-if="stateOf(s.id)?.ports?.length" class="ports">
+          <button v-for="p in stateOf(s.id)!.ports" :key="p" type="button" class="port" :title="`Porta ${p} em escuta · abrir http://localhost:${p}`" @click="api.openExternal(`http://localhost:${p}`)">
+            :{{ p }}
+          </button>
+        </span>
         <span class="acts">
           <button v-if="stateOf(s.id)?.status === 'running'" type="button" class="ghost icon" title="Parar" :disabled="busy === s.id" @click="stop(s)"><Icon name="stop" :size="14" /></button>
           <button v-else type="button" class="ghost icon play" title="Iniciar" :disabled="busy === s.id" @click="start(s)"><Icon name="play" :size="14" /></button>
@@ -181,6 +187,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 .text small { font-size: 12px; }
 .ok { color: var(--add); }
 .bad { color: var(--del); }
+.ports { display: inline-flex; gap: 4px; flex: none; }
+.port {
+  height: 24px; padding: 0 9px; border-radius: 999px; font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); border: 1px solid color-mix(in srgb, var(--add) 40%, transparent);
+}
+.port:hover { background: color-mix(in srgb, var(--add) 24%, transparent); }
 .acts { display: inline-flex; gap: 2px; flex: none; }
 .acts .icon { width: 28px; height: 28px; color: var(--muted); }
 .acts .icon:hover { color: var(--text); }

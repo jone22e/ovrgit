@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -19,6 +20,9 @@ interface Running {
   buffer: string
   /** Janelas acompanhando a saída ao vivo */
   viewers: Set<WebContents>
+  /** Portas em escuta (processo e filhos), atualizadas pelo poller */
+  ports: number[]
+  poll?: ReturnType<typeof setTimeout>
 }
 
 const BUFFER_MAX = 400_000
@@ -38,7 +42,7 @@ const find = (id: string): Service | undefined => getSettings().services.find((s
 export function serviceStates(): ServiceState[] {
   return getSettings().services.map((s) => {
     const r = running.get(s.id)
-    if (r) return { id: s.id, status: 'running', pid: r.pty.pid, startedAt: r.startedAt, lastLine: lastLines.get(s.id) }
+    if (r) return { id: s.id, status: 'running', pid: r.pty.pid, startedAt: r.startedAt, lastLine: lastLines.get(s.id), ports: r.ports }
     if (exits.has(s.id)) return { id: s.id, status: 'exited', exitCode: exits.get(s.id), lastLine: lastLines.get(s.id) }
     return { id: s.id, status: 'stopped' }
   })
@@ -80,8 +84,9 @@ export async function startService(id: string): Promise<void> {
     cwd,
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer', FORCE_COLOR: '1' } as Record<string, string>
   })
-  const r: Running = { pty, startedAt: Date.now(), buffer: '', viewers: new Set() }
+  const r: Running = { pty, startedAt: Date.now(), buffer: '', viewers: new Set(), ports: [] }
   running.set(id, r)
+  pollPorts(id, r)
   exits.delete(id)
   lastLines.delete(id)
   pty.onData((data) => {
@@ -95,6 +100,7 @@ export async function startService(id: string): Promise<void> {
     for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, data)
   })
   pty.onExit(({ exitCode }) => {
+    clearTimeout(r.poll)
     running.delete(id)
     exits.set(id, exitCode)
     const bye = `\r\n\x1b[2m[processo encerrado${exitCode === null ? '' : ` com código ${exitCode}`}]\x1b[0m\r\n`
@@ -102,6 +108,81 @@ export async function startService(id: string): Promise<void> {
     broadcast()
   })
   broadcast()
+}
+
+// ---------- portas em escuta ----------
+
+const sh = (cmd: string, args: string[]) =>
+  new Promise<string>((resolve) => execFile(cmd, args, { timeout: 8000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (_e, out) => resolve(String(out ?? ''))))
+
+/** Processo do serviço e todos os descendentes (o comando roda dentro do shell de login) */
+async function processTree(root: number): Promise<number[]> {
+  if (process.platform === 'win32') {
+    const out = await sh('wmic', ['process', 'get', 'ProcessId,ParentProcessId'])
+    const kids = new Map<number, number[]>()
+    for (const line of out.split(/\r?\n/)) {
+      const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+      if (m) (kids.get(Number(m[1])) ?? kids.set(Number(m[1]), []).get(Number(m[1]))!).push(Number(m[2]))
+    }
+    const all = [root]
+    for (let i = 0; i < all.length; i++) all.push(...(kids.get(all[i]) ?? []))
+    return all
+  }
+  const out = await sh('ps', ['-axo', 'pid=,ppid='])
+  const kids = new Map<number, number[]>()
+  for (const line of out.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)/.exec(line)
+    if (m) (kids.get(Number(m[2])) ?? kids.set(Number(m[2]), []).get(Number(m[2]))!).push(Number(m[1]))
+  }
+  const all = [root]
+  for (let i = 0; i < all.length; i++) all.push(...(kids.get(all[i]) ?? []))
+  return all
+}
+
+/** Portas TCP em escuta pelos processos dados */
+async function listeningPorts(pids: number[]): Promise<number[]> {
+  if (!pids.length) return []
+  const set = new Set<number>()
+  if (process.platform === 'win32') {
+    const out = await sh('netstat', ['-ano', '-p', 'TCP'])
+    const want = new Set(pids.map(String))
+    for (const line of out.split(/\r?\n/)) {
+      const m = /^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/.exec(line)
+      if (m && want.has(m[2])) set.add(Number(m[1]))
+    }
+  } else if (process.platform === 'linux') {
+    const out = await sh('ss', ['-ltnpH'])
+    for (const line of out.split('\n')) {
+      const port = /:(\d+)\s/.exec(line)?.[1]
+      const pid = /pid=(\d+)/.exec(line)?.[1]
+      if (port && pid && pids.includes(Number(pid))) set.add(Number(port))
+    }
+  } else {
+    const out = await sh('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-a', '-p', pids.join(','), '-Fn'])
+    for (const line of out.split('\n')) {
+      const m = /^n.*:(\d+)$/.exec(line.trim())
+      if (m) set.add(Number(m[1]))
+    }
+  }
+  return [...set].sort((a, b) => a - b)
+}
+
+/** Enquanto o serviço roda: procura portas a cada 2 s até achar alguma, depois a cada 15 s (podem mudar) */
+function pollPorts(id: string, r: Running) {
+  const tick = async () => {
+    if (running.get(id) !== r) return
+    try {
+      const ports = await listeningPorts(await processTree(r.pty.pid))
+      if (ports.join() !== r.ports.join()) {
+        r.ports = ports
+        broadcast()
+      }
+    } catch {
+      /* sem lsof/ss: fica sem portas */
+    }
+    if (running.get(id) === r) r.poll = setTimeout(tick, r.ports.length ? 15_000 : 2_000)
+  }
+  r.poll = setTimeout(tick, 1500)
 }
 
 let pending: ReturnType<typeof setTimeout> | undefined
