@@ -440,15 +440,19 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .item.sel, .card.sel { box-shadow: 0 0 0 1px var(--accent); }
 .item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
 .warn { color: var(--mod); }
-/* anel de andamento estimado: discreto, sem animação; só a parte preenchida cresce com o tempo */
+/* anel de andamento estimado: gira devagar enquanto há sinal do agente; a parte preenchida cresce com o tempo */
 .ring {
   width: 14px; height: 14px; border-radius: 50%; flex: none;
   background: conic-gradient(var(--accent) var(--pct), color-mix(in srgb, var(--faint) 30%, transparent) 0);
   -webkit-mask: radial-gradient(circle, transparent 4px, #000 4.5px);
   mask: radial-gradient(circle, transparent 4px, #000 4.5px);
   transition: --pct 1s linear;
+  animation: spin 2.4s linear infinite;
 }
-.ring.stalled { background: conic-gradient(var(--mod) var(--pct), color-mix(in srgb, var(--mod) 25%, transparent) 0); }
+/* sem saída: para de girar e fica âmbar */
+.ring.stalled { background: conic-gradient(var(--mod) var(--pct), color-mix(in srgb, var(--mod) 25%, transparent) 0); animation: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
 .nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
 .slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .bars { display: inline-flex; gap: 3px; }
