@@ -22,6 +22,7 @@ const command = ref('')
 const cwd = ref('')
 const nameEl = ref<HTMLInputElement>()
 const canSave = computed(() => !!name.value.trim() && !!command.value.trim())
+const plain = (list: Service[]): Service[] => JSON.parse(JSON.stringify(list))
 
 function openNew() {
   editing.value = { id: '', name: '', command: '', cwd: state.repo?.root ?? '' }
@@ -45,13 +46,14 @@ async function save() {
   if (!editing.value || !canSave.value) return
   const item: Service = { id: editing.value.id || crypto.randomUUID(), name: name.value.trim(), command: command.value.trim(), cwd: cwd.value.trim() }
   const list = services.value.some((s) => s.id === item.id) ? services.value.map((s) => (s.id === item.id ? item : s)) : [...services.value, item]
-  await saveSettings({ services: list })
+  // cópia simples: os itens vindos do estado são proxies reativos, que a IPC não consegue clonar
+  await saveSettings({ services: plain(list) })
   editing.value = null
   await load()
 }
 async function remove(s: Service) {
   if (stateOf(s.id)?.status === 'running') await api.serviceStop(s.id)
-  await saveSettings({ services: services.value.filter((x) => x.id !== s.id) })
+  await saveSettings({ services: plain(services.value.filter((x) => x.id !== s.id)) })
   await load()
 }
 
