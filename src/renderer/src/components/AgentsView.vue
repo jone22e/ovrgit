@@ -19,11 +19,14 @@ import WindowGrid from './WindowGrid.vue'
  */
 const snaps = computed(() => state.agentSnaps)
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
+/** Dentro de cada situação, as conversas fixadas vêm primeiro; o resto segue a ordem dada */
+const pinnedFirst = (list: AgentSnapshot[], by: (a: AgentSnapshot, b: AgentSnapshot) => number = () => 0) =>
+  [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || by(a, b))
 /** Precisa de você: esperando resposta primeiro (a mais antiga no topo), depois as que falharam */
-const needYou = computed(() => [...byStatus('waiting').sort((a, b) => a.since - b.since), ...byStatus('error').sort((a, b) => b.since - a.since)])
-const running = computed(() => byStatus('live').sort((a, b) => a.since - b.since))
-const done = computed(() => byStatus('done').sort((a, b) => b.since - a.since))
-const idle = computed(() => byStatus('idle'))
+const needYou = computed(() => [...pinnedFirst(byStatus('waiting'), (a, b) => a.since - b.since), ...pinnedFirst(byStatus('error'), (a, b) => b.since - a.since)])
+const running = computed(() => pinnedFirst(byStatus('live'), (a, b) => a.since - b.since))
+const done = computed(() => pinnedFirst(byStatus('done'), (a, b) => b.since - a.since))
+const idle = computed(() => pinnedFirst(byStatus('idle')))
 
 // relógio para os "há 3 min" andarem sozinhos
 const now = ref(Date.now())
