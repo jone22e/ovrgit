@@ -289,7 +289,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 
       <section v-if="running.length">
         <h3 class="sec live">Rodando</h3>
-        <div v-for="a in running" :key="a.uid" :data-uid="a.uid" class="item run" :class="{ stalled: stalled(a), sel: selUid === a.uid }" @click="show(a)">
+        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid }" @click="show(a)">
           <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
             <span class="line">
@@ -450,11 +450,18 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
   -webkit-mask: radial-gradient(circle, transparent 4px, #000 4.5px);
   mask: radial-gradient(circle, transparent 4px, #000 4.5px);
   transition: --pct 1s linear;
-  animation: spin 2.4s linear infinite;
+  /* giro com embalo: acelera, desacelera, acelera de novo; cada linha numa fase diferente */
+  animation: spin 2.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  animation-delay: calc(var(--i, 0) * -0.55s);
 }
 /* sem saída: para de girar e fica âmbar */
 .ring.stalled { background: conic-gradient(var(--mod) var(--pct), color-mix(in srgb, var(--mod) 25%, transparent) 0); animation: none; }
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  0% { transform: rotate(0deg) scale(1); }
+  40% { transform: rotate(250deg) scale(1.12); }
+  60% { transform: rotate(290deg) scale(1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
 @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
 .nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
 .slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
