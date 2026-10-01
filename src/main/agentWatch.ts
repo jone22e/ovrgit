@@ -461,6 +461,55 @@ function scanAll(live: boolean) {
   for (const f of claudeFiles()) readNew(f, live, 'claude')
 }
 
+/**
+ * Consumo do Codex sem sessão recente: o CLI só grava os limites nos registros das sessões, então sem uso nas
+ * últimas horas o painel ficava sem o ChatGPT. Lê o fim da sessão mais nova dos últimos 14 dias e aproveita o
+ * último registro de limites que houver (o painel mostra de quando ele é).
+ */
+function seedCodexLimits() {
+  if (codexLimits) return
+  const root = sessionsDir()
+  const files: { file: string; mtime: number }[] = []
+  for (let d = 0; d < 14; d++) {
+    const dt = new Date(Date.now() - d * 86400_000)
+    const dir = path.join(root, String(dt.getFullYear()), String(dt.getMonth() + 1).padStart(2, '0'), String(dt.getDate()).padStart(2, '0'))
+    try {
+      for (const f of readdirSync(dir)) {
+        if (!f.endsWith('.jsonl')) continue
+        const full = path.join(dir, f)
+        files.push({ file: full, mtime: statSync(full).mtimeMs })
+      }
+    } catch {
+      /* dia sem sessões */
+    }
+  }
+  // da mais nova para a mais antiga: a primeira que tiver limites vale (uma sessão pode ter morrido antes de gravar)
+  for (const { file, mtime } of files.sort((a, b) => b.mtime - a.mtime).slice(0, 30)) {
+    try {
+      const size = statSync(file).size
+      const fd = openSync(file, 'r')
+      const len = Math.min(size, 512 * 1024)
+      const buf = Buffer.alloc(len)
+      readSync(fd, buf, 0, len, size - len)
+      closeSync(fd)
+      for (const line of buf.toString('utf8').split('\n').reverse()) {
+        if (!line.includes('rate_limits')) continue
+        try {
+          const o = JSON.parse(line) as { timestamp?: string; payload?: { type?: string; rate_limits?: unknown } }
+          if (o.payload?.type === 'token_count' && o.payload.rate_limits) {
+            sawCodexLimits(o.payload.rate_limits, Date.parse(String(o.timestamp ?? '')) || mtime)
+            return
+          }
+        } catch {
+          /* linha cortada */
+        }
+      }
+    } catch {
+      /* sem leitura: tenta a próxima */
+    }
+  }
+}
+
 function publicView(s: Tracked): AgentSession {
   const { file: _f, offset: _o, partial: _p, customTitle, ...rest } = s
   const title = (s.source === 'codex' ? threadName(s.id) : customTitle) || s.title
@@ -515,6 +564,7 @@ export function startAgentWatch(h: AgentHandlers) {
   handlers = h
   startedAt = Date.now()
   scanAll(false)
+  seedCodexLimits()
   emit()
   watchDir(sessionsDir(), 'codex', () => true)
   // Claude: só <projeto>/<sessão>.jsonl (subagentes ficam em subpastas e não contam)

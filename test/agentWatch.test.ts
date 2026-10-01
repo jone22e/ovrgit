@@ -7,7 +7,7 @@ import type { AgentSession } from '../src/shared/types'
 const root = mkdtempSync(path.join(os.tmpdir(), 'ovseer-codex-'))
 process.env.OVSEER_CODEX_DIR = root
 process.env.OVSEER_CLAUDE_DIR = path.join(root, 'sem-claude')
-const { startAgentWatch, stopAgentWatch, listAgents } = await import('../src/main/agentWatch')
+const { startAgentWatch, stopAgentWatch, listAgents, codexUsage } = await import('../src/main/agentWatch')
 afterAll(() => {
   stopAgentWatch()
   rmSync(root, { recursive: true, force: true })
@@ -109,5 +109,27 @@ describe('título da sessão do Codex', () => {
     expect(listAgents().map((a) => a.id)).toEqual(['s-agents'])
     startAgentWatch({ onUpdate: () => {}, onFinished: () => {}, isOwn: () => false })
     expect(listAgents()).toEqual([])
+  })
+})
+
+describe('consumo do Codex sem sessão recente', () => {
+  it('aproveita os limites da sessão mais nova, mesmo antiga', async () => {
+    const { utimesSync } = await import('node:fs')
+    // sessão de 3 dias atrás, fora da janela de 12 horas do acompanhamento
+    const old = new Date(Date.now() - 3 * 86400_000)
+    const oldDir = path.join(root, String(old.getFullYear()), String(old.getMonth() + 1).padStart(2, '0'), String(old.getDate()).padStart(2, '0'))
+    mkdirSync(oldDir, { recursive: true })
+    const f = path.join(oldDir, 'rollout-antigo.jsonl')
+    writeFileSync(
+      f,
+      line({ type: 'session_meta', payload: { id: 's-old', cwd: '/x', git: { branch: 'main' } } }) +
+        line({ timestamp: old.toISOString(), type: 'event_msg', payload: { type: 'token_count', rate_limits: { primary: { used_percent: 37, window_minutes: 300, resets_in_seconds: 100 }, secondary: { used_percent: 12, window_minutes: 10080, resets_in_seconds: 1000 }, plan_type: 'plus' } } })
+    )
+    utimesSync(f, old, old)
+    // só vale como "mais nova" se as sessões de hoje (dos outros testes) não tiverem limites
+    stopAgentWatch()
+    startAgentWatch({ onUpdate: () => {}, onFinished: () => {} })
+    const u = codexUsage()
+    expect([u?.fiveHour?.pct, u?.week?.pct, u?.plan]).toEqual([37, 12, 'plus'])
   })
 })
