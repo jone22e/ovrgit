@@ -69,8 +69,8 @@ defineEmits<{ settings: [] }>()
     </template>
 
     <span class="spacer" />
-    <ServicesMenu />
     <UsageChip />
+    <ServicesMenu />
 
     <template v-if="state.repo">
       <span class="layout">
