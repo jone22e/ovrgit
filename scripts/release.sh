@@ -18,8 +18,9 @@ command -v gh >/dev/null || fail "GitHub CLI não encontrado (brew install gh)."
 gh auth status >/dev/null 2>&1 || fail "GitHub CLI sem login (gh auth login)."
 security find-identity -v -p codesigning | grep -q "Developer ID Application" \
   || fail "Certificado Developer ID Application não encontrado no keychain."
-xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
-  || fail "Credencial de notarização \"$PROFILE\" não encontrada (ver RELEASE.md)."
+NOTARY_CHECK="$(xcrun notarytool history --keychain-profile "$PROFILE" 2>&1 >/dev/null)" \
+  || fail "Notarização indisponível (credencial \"$PROFILE\", Mac bloqueado ou acordo pendente na Apple; ver RELEASE.md):
+$NOTARY_CHECK"
 [ "$(git branch --show-current)" = "main" ] || fail "Publique a partir da branch main."
 [ -z "$(git status --porcelain)" ] || fail "Há alterações não commitadas. Faça o commit antes de publicar."
 git fetch --quiet origin main

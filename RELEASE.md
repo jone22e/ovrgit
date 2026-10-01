@@ -100,6 +100,7 @@ gh release edit v0.1.1 --notes "Texto novo"
 | `Credencial de notarização "ovseer-notary" não encontrada` | O passo 2 da preparação não foi feito nesta máquina |
 | O app não acha a versão nova | O release ainda está em rascunho, ou o número não é maior que o instalado |
 | "Disponível só no app instalado" nas Configurações | O app está rodando em modo de desenvolvimento (`npm run dev`) |
+| `HTTP status code: 403. A required agreement is missing or has expired` | A Apple publicou um contrato novo que o titular da conta precisa aceitar em developer.apple.com (Agreements, Tax, and Banking). Até lá a notarização não funciona |
 | `No Keychain password item found for profile` no meio da publicação | O Mac bloqueou a tela ou dormiu: a credencial de notarização só pode ser lida com a sessão desbloqueada. Desbloqueie e rode de novo; o rascunho do release é reaproveitado |
 | A notarização falha | Veja o motivo com `xcrun notarytool log <id> --keychain-profile ovseer-notary` |
 
