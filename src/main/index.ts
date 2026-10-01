@@ -37,6 +37,7 @@ import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, wri
 import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
+import * as services from './services'
 
 let win: BrowserWindow | null = null
 let root: string | null = null
@@ -635,6 +636,14 @@ function registerIpc() {
       if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('settings:changed', next)
     return next
   })
+  // serviços em segundo plano (menu do usuário → Serviços)
+  ipcMain.handle('services:states', () => services.serviceStates())
+  ipcMain.handle('services:start', (_e, id: string) => services.startService(String(id)))
+  ipcMain.handle('services:stop', (_e, id: string) => services.stopService(String(id)))
+  ipcMain.handle('services:openWindow', (_e, id: string) => services.openServiceWindow(String(id)))
+  ipcMain.handle('services:attach', (e, id: string, cols: number, rows: number) => services.attachService(e.sender, String(id), Number(cols) || 0, Number(rows) || 0))
+  ipcMain.on('services:write', (_e, id: string, data: string) => services.writeService(String(id), String(data)))
+  ipcMain.on('services:resize', (_e, id: string, cols: number, rows: number) => services.resizeService(String(id), Number(cols) || 0, Number(rows) || 0))
   // AWS: instalação do CLI, login por SSO e sessão (Configurações → AWS)
   ipcMain.handle('aws:status', () => aws.awsStatus())
   ipcMain.handle('aws:install', (e) => aws.awsInstall((p) => !e.sender.isDestroyed() && e.sender.send('aws:installProgress', p)))
@@ -688,6 +697,7 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   agentChat.setupAgentWindows({ icon, background: initialBackground })
+  services.setupServices({ icon, background: initialBackground })
   createWindow()
   if (getSettings().watchAgents) startAgents()
   updater.setupUpdater((s) => toMain('update:changed', s))
@@ -707,6 +717,7 @@ app.on('before-quit', () => {
   aws.stopAws()
   agentChat.shutdownAgents()
   killAllTerminals()
+  services.stopAllServices()
 })
 
 app.on('window-all-closed', () => {

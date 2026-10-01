@@ -198,6 +198,26 @@ export interface SshImportCandidate {
 }
 
 /** Comando salvo do terminal (geral ou só de uma conexão) */
+/** Serviço: um comando que fica rodando em segundo plano (porta encaminhada, servidor de desenvolvimento…) */
+export interface Service {
+  id: string
+  name: string
+  /** Comando de shell (pode ter várias linhas) */
+  command: string
+  /** Pasta onde roda (vazio: a pasta do usuário) */
+  cwd: string
+}
+export interface ServiceState {
+  id: string
+  status: 'stopped' | 'running' | 'exited'
+  pid?: number
+  startedAt?: number
+  /** Código de saída da última execução (null: morto por sinal) */
+  exitCode?: number | null
+  /** Última linha de saída, para a lista */
+  lastLine?: string
+}
+
 export interface Snippet {
   id: string
   name: string
@@ -269,6 +289,8 @@ export interface Settings {
   agentGrid: GridSize
   /** Checar e baixar versões novas do app sozinho */
   autoUpdate: boolean
+  /** Serviços em segundo plano (menu do usuário → Serviços) */
+  services: Service[]
   /** Perfil do AWS CLI usado em "Entrar na AWS" (vazio: o padrão) */
   awsProfile: string
   /** Acompanha a sessão da AWS e avisa quando ela cai ou está para expirar */
@@ -851,6 +873,18 @@ export interface OvseerApi {
   ovseerLogin(): Promise<OvseerStatus>
   ovseerCancelLogin(): Promise<void>
   ovseerLogout(): Promise<OvseerStatus>
+  /** Serviços em segundo plano */
+  servicesStates(): Promise<ServiceState[]>
+  serviceStart(id: string): Promise<void>
+  serviceStop(id: string): Promise<void>
+  /** Abre (ou traz à frente) a janela com o terminal do serviço */
+  serviceOpenWindow(id: string): Promise<void>
+  onServicesChanged(cb: (states: ServiceState[]) => void): () => void
+  /** Na janela do serviço: saída acumulada e ao vivo, entrada e tamanho do terminal */
+  serviceAttach(id: string, cols: number, rows: number): Promise<{ service: Service | null; state: ServiceState | null; buffer: string }>
+  serviceWrite(id: string, data: string): void
+  serviceResize(id: string, cols: number, rows: number): void
+  onServiceData(cb: (id: string, data: string) => void): () => void
   /** AWS: instalação do CLI, perfis e sessão (Configurações → AWS) */
   awsStatus(): Promise<AwsStatus>
   awsInstall(): Promise<void>

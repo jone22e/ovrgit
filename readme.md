@@ -86,6 +86,12 @@ modelo local pelo Ollama.
 - Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark e GitHub Light.
 - Temas com nome de mapa do Counter-Strike: Dust2 (tons de arenito) e Mirage (paleta do Ayu Mirage), os dois escuros.
 
+### Serviços
+
+- Comandos que ficam rodando em segundo plano enquanto o app está aberto (túnel para o banco pelo AWS SSM,
+  `npm run dev` numa pasta, um watcher), com nome, pasta, play/stop e última linha de saída na lista.
+- Terminal do serviço numa janela própria, aberta só quando pedida, com a saída acumulada e entrada para prompts.
+
 ### AWS
 
 - Instala o AWS CLI e o plugin do Session Manager pelos instaladores oficiais (o sistema pede a senha de administrador).

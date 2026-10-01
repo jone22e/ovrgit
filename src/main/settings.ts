@@ -27,6 +27,7 @@ const DEFAULTS: Settings = {
   agentFontSize: 14,
   agentGrid: GRID_DEFAULT,
   autoUpdate: true,
+  services: [],
   awsProfile: '',
   awsWatch: true,
   recentProjects: [],

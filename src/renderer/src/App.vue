@@ -30,6 +30,7 @@ import PullDialog from './components/PullDialog.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import ResultDialog from './components/ResultDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import ServicesDialog from './components/ServicesDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
@@ -201,6 +202,7 @@ onUnmounted(() => {
 
     <QuickOpen v-if="showQuickOpen" @close="showQuickOpen = false" />
     <SettingsDialog v-if="state.showSettings" @close="state.showSettings = false" />
+    <ServicesDialog v-if="state.showServices" @close="state.showServices = false" />
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
     <PlanDialog />

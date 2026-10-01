@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, Settings, UpdateState } from '../shared/types'
+import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, ServiceState, Settings, UpdateState } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -112,6 +112,23 @@ const api: OvseerApi = {
   ovseerLogin: () => ipcRenderer.invoke('ovseer:login'),
   ovseerCancelLogin: () => ipcRenderer.invoke('ovseer:cancelLogin'),
   ovseerLogout: () => ipcRenderer.invoke('ovseer:logout'),
+  servicesStates: () => ipcRenderer.invoke('services:states'),
+  serviceStart: (id) => ipcRenderer.invoke('services:start', id),
+  serviceStop: (id) => ipcRenderer.invoke('services:stop', id),
+  serviceOpenWindow: (id) => ipcRenderer.invoke('services:openWindow', id),
+  onServicesChanged: (cb) => {
+    const h = (_e: unknown, states: ServiceState[]) => cb(states)
+    ipcRenderer.on('services:changed', h)
+    return () => ipcRenderer.off('services:changed', h)
+  },
+  serviceAttach: (id, cols, rows) => ipcRenderer.invoke('services:attach', id, cols, rows),
+  serviceWrite: (id, data) => ipcRenderer.send('services:write', id, data),
+  serviceResize: (id, cols, rows) => ipcRenderer.send('services:resize', id, cols, rows),
+  onServiceData: (cb) => {
+    const h = (_e: unknown, id: string, data: string) => cb(id, data)
+    ipcRenderer.on('services:data', h)
+    return () => ipcRenderer.off('services:data', h)
+  },
   awsStatus: () => ipcRenderer.invoke('aws:status'),
   awsInstall: () => ipcRenderer.invoke('aws:install'),
   onAwsInstallProgress: (cb) => {
