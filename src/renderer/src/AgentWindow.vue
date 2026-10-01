@@ -12,6 +12,7 @@ import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
 import { summaryOf } from '@shared/summary'
+import { nowLabel } from '@shared/activity'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
 import Icon from './components/Icon.vue'
@@ -204,10 +205,10 @@ function groupSummary(items: ToolBlock[]): string {
 }
 const groupBusy = (items: ToolBlock[]) => items.some((i) => i.ok === null)
 const groupFailed = (items: ToolBlock[]) => items.some((i) => i.ok === false)
-/** Enquanto roda, mostra o que está fazendo agora */
+/** Enquanto roda, mostra o que está fazendo agora, em português claro (comandos traduzidos para o que fazem) */
 const groupNow = (items: ToolBlock[]) => {
   const cur = items.find((i) => i.ok === null) ?? items[items.length - 1]
-  return cur ? `${cur.title}${cur.detail ? ` ${cur.detail}` : ''}` : ''
+  return cur ? nowLabel(cur) : ''
 }
 function toggleGroup(key: string) {
   if (openGroups.has(key)) openGroups.delete(key)
@@ -1068,7 +1069,14 @@ const elapsed = (t: Turn) => {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 const ACTIVITY = { thinking: 'Pensando…', tools: 'Executando ferramentas…', writing: 'Escrevendo…' }
-const activityLabel = (t: Turn) => ACTIVITY[t.activity ?? 'thinking']
+/** Rodando ferramentas: diz qual, em português ("Rodando os testes", "Lendo App.vue"); senão, a fase */
+const activityLabel = (t: Turn) => {
+  if (t.activity === 'tools') {
+    const tools = t.blocks.filter((b): b is ToolBlock => b.kind === 'tool')
+    if (tools.length) return `${groupNow(tools)}…`
+  }
+  return ACTIVITY[t.activity ?? 'thinking']
+}
 
 const toolIcon = (name: string) =>
   name === 'Bash' ? 'terminal' : /Edit|Write/.test(name) ? 'pencil' : /Read|Grep|Glob|Search|Fetch/.test(name) ? 'search' : /Agent|Task/.test(name) ? 'bot' : 'zap'
@@ -1150,7 +1158,6 @@ const snapshot = computed<AgentSnapshot | null>(() => {
   }
   const ask = askModel.value ?? undefined
   const cur = current()
-  const tools = cur?.blocks.filter((b): b is ToolBlock => b.kind === 'tool') ?? []
   const lastToolBlock = [...(cur ?? last)?.blocks ?? []].reverse().find((b): b is ToolBlock => b.kind === 'tool')
   return {
     uid,
@@ -1165,7 +1172,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     since: statusSince.value,
     lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
     error: last?.error,
-    activity: cur ? (tools.length && cur.activity === 'tools' ? groupNow(tools) : activityLabel(cur)) : undefined,
+    activity: cur ? activityLabel(cur).replace(/…$/, '') : undefined,
     summary: last && !last.running ? firstLine(last) : undefined,
     files,
     paths: [...new Set(paths)].slice(0, 200),
