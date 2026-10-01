@@ -28,7 +28,7 @@ const idle = computed(() => byStatus('idle'))
 // relógio para os "há 3 min" andarem sozinhos
 const now = ref(Date.now())
 let tick: ReturnType<typeof setInterval>
-onMounted(() => (tick = setInterval(() => (now.value = Date.now()), 15_000)))
+onMounted(() => (tick = setInterval(() => (now.value = Date.now()), 5_000)))
 onUnmounted(() => clearInterval(tick))
 function ago(ms: number) {
   const s = Math.max(0, Math.round((now.value - ms) / 1000))
@@ -42,6 +42,18 @@ function ago(ms: number) {
 /** Rodando sem nenhum sinal do agente há este tempo: fica âmbar e ganha o "Cutucar" */
 const STALL_MS = 6 * 60_000
 const stalled = (a: AgentSnapshot) => a.status === 'live' && !!a.lastEventAt && now.value - a.lastEventAt >= STALL_MS
+/**
+ * Andamento estimado de uma resposta: o CLI não diz quanto falta, então a base é quanto as respostas anteriores
+ * desta conversa levaram (ou 6 min, sem histórico). O anel enche devagar e nunca fecha: 63% no tempo típico,
+ * 86% no dobro. É só uma noção de "está demorando mais que o normal?", não uma porcentagem real.
+ */
+const TYPICAL_FALLBACK_MS = 6 * 60 * 1000
+const elapsedOf = (a: AgentSnapshot) => Math.max(0, now.value - (a.startedAt ?? a.since))
+const progress = (a: AgentSnapshot) => Math.round((1 - Math.exp(-elapsedOf(a) / (a.typicalMs ?? TYPICAL_FALLBACK_MS))) * 100)
+function progressTitle(a: AgentSnapshot) {
+  const base = a.typicalMs ? `as respostas anteriores desta conversa levaram cerca de ${ago(now.value - a.typicalMs)}` : 'sem respostas anteriores para comparar'
+  return `Trabalhando há ${ago(a.startedAt ?? a.since)}; ${base}.`
+}
 /** Agentes ativos (rodando, esperando ou com falha) sobre o total de janelas */
 const active = computed(() => snaps.value.filter((a) => a.status === 'live' || a.status === 'waiting' || a.status === 'error').length)
 
@@ -288,6 +300,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
             </span>
           </span>
+          <span class="ring" :class="{ stalled: stalled(a) }" :style="{ '--pct': `${progress(a)}%` }" :title="progressTitle(a)" />
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
           <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
           <Icon name="external" :size="13" class="go" />
@@ -431,6 +444,15 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .item.sel, .card.sel { box-shadow: 0 0 0 1px var(--accent); }
 .item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
 .warn { color: var(--mod); }
+/* anel de andamento estimado: discreto, sem animação; só a parte preenchida cresce com o tempo */
+.ring {
+  width: 14px; height: 14px; border-radius: 50%; flex: none;
+  background: conic-gradient(var(--accent) var(--pct), color-mix(in srgb, var(--faint) 30%, transparent) 0);
+  -webkit-mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+  mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+  transition: --pct 1s linear;
+}
+.ring.stalled { background: conic-gradient(var(--mod) var(--pct), color-mix(in srgb, var(--mod) 25%, transparent) 0); }
 .nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
 .slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .bars { display: inline-flex; gap: 3px; }

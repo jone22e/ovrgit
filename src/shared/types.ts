@@ -520,6 +520,8 @@ export interface AgentSnapshot {
   lastEventAt?: number
   /** Último comando ou ferramenta usada */
   lastTool?: string
+  /** Quanto as respostas anteriores desta conversa costumam levar (mediana, ms): base do andamento estimado */
+  typicalMs?: number
   checks?: AgentChecks
   ask?: AgentAsk
 }
