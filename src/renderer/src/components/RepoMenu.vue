@@ -23,6 +23,20 @@ const api = window.ovseer
 
 const open = ref(false)
 const root = ref<HTMLElement>()
+const popEl = ref<HTMLElement>()
+/** A lista vai para o body (a janela do agente rola e cortava o menu); a posição sai do chip */
+const popStyle = ref<Record<string, string>>({})
+function place() {
+  const r = root.value?.getBoundingClientRect()
+  if (!r) return
+  const top = r.bottom + 6
+  popStyle.value = {
+    top: `${top}px`,
+    left: props.center ? `${r.left + r.width / 2}px` : `${r.left}px`,
+    transform: props.center ? 'translateX(-50%)' : '',
+    maxHeight: `${Math.max(160, window.innerHeight - top - 12)}px`
+  }
+}
 const projects = ref<string[]>([])
 const icons = reactive(new Map<string, string | null>())
 const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
@@ -32,6 +46,7 @@ async function toggle() {
   if (!props.switchable) return
   open.value = !open.value
   if (!open.value) return
+  place()
   projects.value = await api.agentProjects().catch(() => [])
   for (const p of projects.value) {
     if (icons.has(p)) continue
@@ -48,8 +63,10 @@ function pick() {
   emit('pick')
 }
 const onDoc = (e: MouseEvent) => {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) open.value = false
+  const t = e.target as Node
+  if (open.value && root.value && !root.value.contains(t) && !popEl.value?.contains(t)) open.value = false
 }
+const onResize = () => open.value && place()
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && open.value) open.value = false
 }
@@ -57,10 +74,12 @@ watch(() => props.switchable, (s) => !s && (open.value = false))
 onMounted(() => {
   document.addEventListener('mousedown', onDoc)
   window.addEventListener('keydown', onKey)
+  window.addEventListener('resize', onResize)
 })
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDoc)
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', onResize)
 })
 </script>
 
@@ -78,7 +97,8 @@ onUnmounted(() => {
       <span class="ellipsis">{{ project }}</span>
       <Icon v-if="switchable" name="chevron" :size="big ? 12 : 10" class="chev" />
     </button>
-    <div v-if="open" class="pop" role="menu">
+    <Teleport to="body">
+      <div v-if="open" ref="popEl" class="pop" :class="{ big }" role="menu" :style="popStyle">
       <h6>Trabalhar no repositório</h6>
       <div class="list">
         <button v-for="p in projects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd }" :title="p" @click="choose(p)">
@@ -94,7 +114,8 @@ onUnmounted(() => {
       </div>
       <hr class="sep" />
       <button type="button" class="ghost opt" @click="pick"><Icon name="plus" :size="14" class="faint" /><strong>Outra pasta…</strong></button>
-    </div>
+      </div>
+    </Teleport>
   </span>
 </template>
 
@@ -113,15 +134,15 @@ onUnmounted(() => {
 /* o nome não encolhe antes do resto do subtítulo (só corta em nomes muito longos) */
 .repo .ellipsis { flex: none; max-width: 220px; }
 .big .repo { height: 30px; padding: 0 10px 0 8px; gap: 6px; margin: 0; border-radius: 9px; font-size: 17px; font-weight: 700; }
+/* a lista vive no body (Teleport), com posição fixa calculada a partir do chip */
 .pop {
-  position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: 300px; padding: 6px;
+  position: fixed; z-index: 60; width: 300px; padding: 6px; box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
   display: flex; flex-direction: column; gap: 2px; text-align: left; font-size: 13px; font-weight: 400; line-height: 1.3; animation: drop 0.12s ease-out;
 }
-.center .pop { left: 50%; transform: translateX(-50%); }
 @keyframes drop { from { opacity: 0; } }
-h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
-.list { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); flex: none; }
+.list { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .opt { justify-content: flex-start; gap: 10px; height: auto; padding: 7px 10px; width: 100%; text-align: left; color: var(--text); }
 .opt.cur { background: var(--accent-soft); }
 .opt-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
