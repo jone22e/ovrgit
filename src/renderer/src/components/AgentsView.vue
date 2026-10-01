@@ -107,7 +107,7 @@ function goToChanges(list: AgentSnapshot[], openFirst = false) {
 const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
 const archiveReviewed = () => api.agentClose(reviewed.value.map((a) => a.uid)).catch(() => undefined)
 
-// ---------- seleção e teclado: J/K navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
+// ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
 const order = computed(() => [...needYou.value, ...running.value, ...done.value, ...idle.value])
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
@@ -138,10 +138,10 @@ function onKey(e: KeyboardEvent) {
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return
   const i = order.value.findIndex((a) => a.uid === selUid.value)
-  if (e.key === 'j' || e.key === 'ArrowDown') {
+  if (e.key === 'ArrowDown') {
     e.preventDefault()
     select(order.value[Math.min(order.value.length - 1, i + 1)])
-  } else if (e.key === 'k' || e.key === 'ArrowUp') {
+  } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     select(order.value[Math.max(0, i - 1)])
   } else if (e.key === 'Enter' && sel.value) {
@@ -219,8 +219,6 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
   <div ref="root" class="agents">
     <div class="toolbar">
       <PaneSwitch />
-      <span class="gap" />
-      <small class="keys faint mono" title="Atalhos desta tela">J/K navegar · ↵ abrir · ⌘1–9 focar</small>
     </div>
 
     <div class="scroll">
@@ -385,8 +383,6 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
 .toolbar { gap: 10px; }
-.keys { font-size: 11px; white-space: nowrap; }
-@container (max-width: 640px) { .keys { display: none; } }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
