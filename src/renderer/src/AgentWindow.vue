@@ -16,6 +16,7 @@ import AskCard from './components/AskCard.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
+import RepoMenu from './components/RepoMenu.vue'
 import WindowGrid from './components/WindowGrid.vue'
 import { applyTheme } from './theme'
 
@@ -797,6 +798,22 @@ async function newChat() {
 }
 /** Dá para voltar à conversa anterior enquanto a nova ainda não recebeu a primeira mensagem */
 const canGoBack = computed(() => !!info.value?.previousSessionId && !turns.length && !queue.length)
+/** O repositório só troca antes da primeira mensagem: a sessão do CLI nasce presa à pasta */
+const canSwitchRepo = computed(() => !!info.value && !sessionId.value && !turns.length && !queue.length && !running.value)
+async function switchRepo(cwd: string) {
+  if (!info.value || !canSwitchRepo.value) return
+  try {
+    const i = await api.agentSetCwd(uid, cwd)
+    info.value = { ...info.value, cwd: i.cwd, project: i.project, branch: i.branch }
+  } catch (e) {
+    attachError.value = clean(e)
+  }
+  box.value?.focus()
+}
+async function pickRepo() {
+  const p = await api.agentPickCwd(uid).catch(() => null)
+  if (p) await switchRepo(p)
+}
 async function backToPrevious() {
   if (!(await api.agentBack(uid).catch(() => false))) return
   sessionStorage.removeItem(STORE)
@@ -1307,9 +1324,10 @@ onUnmounted(() => offs.forEach((f) => f()))
           <span class="ellipsis">{{ chatTitle || `Nova conversa com ${providerName}` }}</span>
           <Icon name="pencil" :size="11" class="pen" />
         </span>
-        <span class="sub ellipsis" :title="info.cwd">
-          {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }}
-          · <Icon name="folder" :size="11" /> {{ info.project }}<template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
+        <span class="sub ellipsis">
+          {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }} ·
+          <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" />
+          <template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
         </span>
       </div>
       <span class="spacer" />
@@ -1343,7 +1361,14 @@ onUnmounted(() => offs.forEach((f) => f()))
       <p v-if="fatal" class="fatal">{{ fatal }}</p>
       <div v-else-if="!turns.length" class="empty">
         <AgentLogo v-if="info" :source="provider" :size="36" />
-        <h2>O que você quer fazer em {{ info?.project ?? 'este projeto' }}?</h2>
+        <h2 class="ask">
+          O que você quer fazer em
+          <span class="ask-repo">
+            <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" big center @choose="switchRepo" @pick="pickRepo" />
+            <template v-else>este projeto</template>?
+          </span>
+        </h2>
+        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar antes de começar.</p>
         <p class="faint">
           O agente trabalha direto na pasta do projeto, como no app do {{ providerName }}. Enter envia; Shift+Enter quebra a linha.
         </p>
@@ -1641,6 +1666,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 .fatal { color: var(--del); }
 .empty { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .empty h2 { margin: 6px 0 0; font-size: 18px; font-weight: 700; }
+.empty .ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
+.empty .ask-repo { display: inline-flex; align-items: center; gap: 2px; }
+.hint-repo { font-size: 11.5px !important; margin-top: -4px !important; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 

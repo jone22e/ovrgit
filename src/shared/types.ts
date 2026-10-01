@@ -880,6 +880,12 @@ export interface OvseerApi {
   agentPin(sessionId: string, pinned: boolean): Promise<void>
   /** Renomeia a conversa (vazio volta ao título automático) */
   agentSetTitle(uid: string, title: string): Promise<string>
+  /** Troca a pasta da conversa (só antes da primeira mensagem); devolve a informação atualizada */
+  agentSetCwd(uid: string, cwd: string): Promise<AgentWindowInfo>
+  /** Repositórios recentes, para a janela do agente trocar de pasta */
+  agentProjects(): Promise<string[]>
+  /** Diálogo para escolher outra pasta; null se cancelado */
+  agentPickCwd(uid: string): Promise<string | null>
   /** Traz para frente a janela da conversa; false se ela não foi aberta pelo Ovseer */
   agentFocus(sessionId: string): Promise<boolean>
   /** Ids das sessões com janela aberta no Ovseer */

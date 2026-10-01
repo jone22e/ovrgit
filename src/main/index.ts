@@ -582,6 +582,19 @@ function registerIpc() {
   ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
   ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
+  ipcMain.handle('agent:setCwd', (_e, uid: string, cwd: string) => agentChat.setCwd(String(uid), String(cwd ?? '')))
+  // repositórios recentes (os do seletor de projeto) para a janela do agente trocar de pasta antes de começar
+  ipcMain.handle('agent:projects', () => getSettings().recentProjects.filter((p) => existsSync(p)))
+  ipcMain.handle('agent:pickCwd', async (e, uid: string) => {
+    const owner = BrowserWindow.fromWebContents(e.sender)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Escolher o repositório do agente',
+      defaultPath: agentChat.agentInfo(String(uid))?.cwd,
+      properties: ['openDirectory']
+    }
+    const res = owner ? await dialog.showOpenDialog(owner, opts) : await dialog.showOpenDialog(opts)
+    return res.canceled ? null : (res.filePaths[0] ?? null)
+  })
   ipcMain.handle('agent:focus', (_e, sessionId: string) => agentChat.focusAgentWindow(String(sessionId)))
   ipcMain.handle('agent:windows', () => agentChat.agentWindows())
   ipcMain.on('agent:status', (_e, uid: string, status: AgentStatus) => agentChat.reportStatus(String(uid), status))

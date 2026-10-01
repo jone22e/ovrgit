@@ -1367,6 +1367,24 @@ export async function newChat(uid: string) {
   broadcastWindows()
 }
 
+/**
+ * Troca a pasta (repositório) da conversa. Só antes da primeira mensagem: a sessão do CLI nasce presa à pasta.
+ * Devolve a informação da janela já atualizada (nome do projeto e branch).
+ */
+export async function setCwd(uid: string, cwd: string): Promise<AgentWindowInfo> {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  if (w.info.sessionId || w.child) throw new Error('A conversa já começou: abra um agente novo para trabalhar em outro repositório.')
+  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('Pasta não encontrada.')
+  w.info.cwd = cwd
+  w.info.project = path.basename(cwd)
+  w.info.branch = await currentBranch(cwd)
+  if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+  if (lastAgent) lastAgent = { ...lastAgent, cwd }
+  broadcastWindows()
+  return w.info
+}
+
 /** Desfaz "Nova conversa": a janela volta à anterior. Só enquanto a nova ainda não começou. */
 export function backToPreviousChat(uid: string): boolean {
   const w = wins.get(uid)
