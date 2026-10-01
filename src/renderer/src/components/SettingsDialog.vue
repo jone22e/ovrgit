@@ -111,8 +111,7 @@ const OPTIONS: { id: AiProvider; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude', hint: 'Usa sua assinatura Claude via Claude Code' },
   { id: 'codex', label: 'ChatGPT', hint: 'Usa sua assinatura ChatGPT via Codex CLI' },
   { id: 'agy', label: 'Antigravity', hint: 'Usa sua conta Google via Antigravity CLI' },
-  { id: 'ollama', label: 'Ollama', hint: 'Modelo local, nada sai da máquina' },
-  { id: 'none', label: 'Sem IA', hint: 'Agrupa por pasta' }
+  { id: 'ollama', label: 'Ollama', hint: 'Modelo local, nada sai da máquina' }
 ]
 
 async function loadModels() {
@@ -268,12 +267,19 @@ async function save() {
                 <button v-for="o in OPTIONS" :key="o.id" type="button" class="provider" :class="{ active: provider === o.id }" @click="provider = o.id">
                   <span class="name">
                     {{ o.label }}
-                    <span v-if="available(o.id) === true && o.id !== 'none'" class="dot ok" title="Encontrado" />
+                    <span v-if="available(o.id) === true" class="dot ok" title="Encontrado" />
                     <span v-else-if="available(o.id) === false" class="dot off" title="Não encontrado" />
                   </span>
                   <span class="hint">{{ o.hint }}</span>
                 </button>
               </div>
+              <p class="tip">
+                <Icon name="zap" :size="14" />
+                <span>
+                  Aqui um modelo rápido e barato costuma bastar: agrupar arquivos e escrever mensagens de commit não pede muito
+                  raciocínio, e a resposta chega em segundos. Guarde os modelos mais fortes para os agentes.
+                </span>
+              </p>
             </div>
 
             <div v-if="provider === 'claude'" class="block">
@@ -520,7 +526,12 @@ textarea { font-size: 12.5px; line-height: 1.45; max-width: 640px; }
 .half .pill { background: #a974f8; }
 .theme-name { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.providers { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.providers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tip {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 12px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--text); font-size: 12.5px; line-height: 1.45;
+}
+.tip svg { flex: none; color: var(--accent); margin-top: 2px; }
 .provider { height: auto; padding: 10px 12px; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; white-space: normal; }
 .provider.active { border-color: var(--accent); background: var(--accent-soft); }
 .provider .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
@@ -544,6 +555,6 @@ textarea { font-size: 12.5px; line-height: 1.45; max-width: 640px; }
   .nav { width: 56px; padding: 12px 6px; }
   .nav-title, .nav-item span { display: none; }
   .nav-item { justify-content: center; padding: 0; font-size: 0; }
-  .providers { grid-template-columns: 1fr 1fr 1fr; }
+  .providers { grid-template-columns: 1fr 1fr; }
 }
 </style>

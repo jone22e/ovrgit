@@ -99,7 +99,6 @@ modelo local pelo Ollama.
 | ChatGPT | Sua assinatura, pelo Codex CLI |
 | Antigravity | Sua conta Google, pelo Antigravity CLI |
 | Ollama | Modelo local; nada sai da máquina |
-| Sem IA | Agrupa as alterações por pasta |
 
 ## Atalhos
 
