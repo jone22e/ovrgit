@@ -411,7 +411,9 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 /* o título tem prioridade: fica inteiro até 70% da linha; o que o agente está fazendo usa o resto */
 .line { display: grid; grid-template-columns: fit-content(70%) minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; }
-.line > * { min-width: 0; justify-self: start; }
+.line > * { min-width: 0; }
+/* a etiqueta "novo" não estica na célula (os textos esticam, para o ellipsis valer) */
+.line > .new { justify-self: start; }
 .line > :only-child { grid-column: 1 / -1; }
 .line strong, .item strong { font-size: 13.5px; }
 .text small { font-size: 12px; }
