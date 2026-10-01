@@ -33,7 +33,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, api, commit, hasPlan, init, openNewAgent, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
@@ -67,6 +67,12 @@ async function doPull(stash = false) {
 const leftWidth = ref(Number(localStorage.getItem('ovseer.left') ?? 440))
 /** Coluna de arquivos oculta: só com o editor aberto (a lista de alterações nunca some) */
 const treeHidden = computed(() => state.hideTree && state.pane === 'files' && state.showDiff)
+/** Janela estreita: o diff ocupa a área toda e a coluna de arquivos vira um painel flutuante (botão no cabeçalho) */
+const narrow = ref(narrowQuery.matches)
+const onNarrow = (e: MediaQueryListEvent) => ((narrow.value = e.matches), (state.listOverlay = false))
+onMounted(() => narrowQuery.addEventListener('change', onNarrow))
+onUnmounted(() => narrowQuery.removeEventListener('change', onNarrow))
+const overlayMode = computed(() => narrow.value && state.showDiff)
 function startResize(e: MouseEvent) {
   const startX = e.clientX
   const start = leftWidth.value
@@ -159,7 +165,12 @@ onUnmounted(() => {
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
-          <aside v-show="!treeHidden" :class="{ full: !state.showDiff }" :style="state.showDiff ? { width: `${leftWidth}px` } : undefined">
+          <div v-if="overlayMode && state.listOverlay" class="overlay-backdrop" @mousedown="state.listOverlay = false" />
+          <aside
+            v-show="overlayMode ? state.listOverlay : !treeHidden"
+            :class="{ full: !state.showDiff, overlay: overlayMode }"
+            :style="state.showDiff && !overlayMode ? { width: `${leftWidth}px` } : undefined"
+          >
             <SourceTree v-if="state.pane === 'files'" />
             <FileList v-else />
           </aside>
@@ -228,10 +239,17 @@ onUnmounted(() => {
 aside { flex: none; min-width: 0; background: var(--panel); }
 aside.full { flex: 1; }
 .right { flex: 1; min-width: 0; }
-/* janela estreita: o diff ocupa a área toda em vez de dividir */
+/* janela estreita: o diff ocupa a área toda; a coluna de arquivos flutua por cima quando aberta pelo botão */
+.split { position: relative; }
 @media (max-width: 760px) {
-  .split.diff-open aside, .split.diff-open .resizer { display: none; }
+  .split.diff-open .resizer { display: none; }
 }
+aside.overlay {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: min(360px, 85%);
+  border-right: 1px solid var(--border); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out;
+}
+@keyframes slide { from { transform: translateX(-12px); opacity: 0; } }
+.overlay-backdrop { position: absolute; inset: 0; z-index: 19; background: rgba(0, 0, 0, 0.25); }
 .resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; }
 .resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }

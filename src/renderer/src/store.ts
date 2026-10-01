@@ -47,6 +47,8 @@ export const state = reactive({
   showDiff: readPref('ovseer.diff') === '1' || readPref('ovseer.pane') === 'files',
   /** Árvore de arquivos oculta enquanto o editor está aberto: o editor ocupa a largura toda */
   hideTree: readPref('ovseer.hideTree') === '1',
+  /** Janela estreita com o diff/editor aberto: a coluna de arquivos vira um painel flutuante, aberto por este sinal */
+  listOverlay: false,
   showTerminal: readPref('ovseer.terminal') === '1',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */
   terminalMax: readPref('ovseer.terminalMax') === '1',
@@ -157,6 +159,11 @@ export function setHideTree(v: boolean) {
   state.hideTree = v
   writePref('ovseer.hideTree', v ? '1' : '0')
 }
+/** Janela estreita (o diff ocupa a área toda): a coluna de arquivos abre e fecha como painel flutuante */
+export const narrowQuery = window.matchMedia('(max-width: 760px)')
+export function toggleListOverlay() {
+  state.listOverlay = !state.listOverlay
+}
 
 export function setShowTerminal(v: boolean) {
   state.showTerminal = v
@@ -230,6 +237,7 @@ export async function loadSourceFiles() {
  * substitui; `pin` (duplo clique) abre numa aba fixa, ou fixa a temporária.
  */
 export function openSource(path: string, pin = false) {
+  state.listOverlay = false
   if (state.sourceTabs.includes(path)) {
     if (pin && state.sourcePreview === path) state.sourcePreview = null
   } else {
@@ -529,6 +537,7 @@ export async function loadHistory() {
 
 export async function selectFile(file: FileChange | null, silent = false) {
   state.activeFile = file
+  if (file && !silent) state.listOverlay = false
   if (file && !silent) setShowDiff(true)
   if (!file) {
     state.diff = ''

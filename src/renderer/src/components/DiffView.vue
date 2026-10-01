@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { isPartial, openSource, setDiffMode, setPane, setShowDiff, state, toggleHunk } from '../store'
+import { isPartial, openSource, setDiffMode, setPane, setShowDiff, state, toggleHunk, toggleListOverlay } from '../store'
 import Icon from './Icon.vue'
 
 /** Abre o arquivo do diff no editor, numa aba fixa, para editar */
@@ -161,6 +161,8 @@ const stats = computed(() => {
     </div>
     <template v-else>
       <header>
+        <!-- janela estreita: a lista de alterações abre como painel flutuante -->
+        <button class="ghost icon small list-btn" :class="{ on: state.listOverlay }" title="Lista de alterações" @click="toggleListOverlay"><Icon name="panelLeft" :size="14" /></button>
         <span class="mono ellipsis path">
           <template v-if="file.origPath"><span class="faint">{{ file.origPath }} → </span></template>{{ file.path }}
         </span>
@@ -261,4 +263,8 @@ tr.del .sign { color: var(--del); }
 .hl { border-radius: 3px; }
 tr.add .hl, .txt.add .hl { background: color-mix(in srgb, var(--add) 32%, transparent); }
 tr.del .hl, .txt.del .hl { background: color-mix(in srgb, var(--del) 32%, transparent); }
+/* o botão da lista só existe quando a janela é estreita (a lista some do lado) */
+.list-btn { display: none; flex: none; }
+@media (max-width: 760px) { .list-btn { display: inline-flex; } }
+.list-btn.on { color: var(--accent); background: var(--accent-soft); }
 </style>

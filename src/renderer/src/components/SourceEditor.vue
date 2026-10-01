@@ -10,7 +10,7 @@ import { HighlightStyle, StreamLanguage, indentUnit, syntaxHighlighting, type St
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import { showMinimap } from '@replit/codemirror-minimap'
 import { tags as t } from '@lezer/highlight'
-import { closeSource, fileMap, openSource, pinSource, revealSource, saveSource, setHideTree, setShowDiff, state } from '../store'
+import { closeSource, fileMap, narrowQuery, openSource, pinSource, revealSource, saveSource, setHideTree, setShowDiff, state, toggleListOverlay } from '../store'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 
@@ -631,9 +631,9 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
     <div class="tabs-bar">
       <button
         class="ghost icon tree-btn"
-        :class="{ on: !state.hideTree }"
+        :class="{ on: narrowQuery.matches ? state.listOverlay : !state.hideTree }"
         :title="state.hideTree ? 'Mostrar a coluna de arquivos' : 'Ocultar a coluna de arquivos'"
-        @click="setHideTree(!state.hideTree)"
+        @click="narrowQuery.matches ? toggleListOverlay() : setHideTree(!state.hideTree)"
       >
         <Icon name="panelLeft" :size="14" />
       </button>
