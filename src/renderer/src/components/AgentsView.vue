@@ -231,7 +231,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
         <span class="gap" />
         <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
-          <span class="bars"><span v-for="i in Math.min(snaps.length, 12)" :key="i" :class="{ on: i <= active }" /></span>
+          <span class="bars"><span v-for="a in order.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
         </span>
         <span ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
           <button class="arrange-main" :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
@@ -453,7 +453,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .bars { display: inline-flex; gap: 3px; }
 .bars span { width: 12px; height: 4px; border-radius: 2px; background: var(--panel-2); }
-.bars span.on { background: var(--accent); }
+/* um traço por agente, na cor da situação dele (mesma ordem da lista) */
+.bars span.waiting { background: var(--mod); }
+.bars span.error { background: var(--del); }
+.bars span.live { background: var(--accent); }
+.bars span.done { background: var(--add); }
+.bars span.idle { background: color-mix(in srgb, var(--faint) 45%, var(--panel-2)); }
 .sec-actions { display: inline-flex; gap: 14px; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .link.accent { color: var(--accent); }
 .new { flex: none; font-size: 10.5px; padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
