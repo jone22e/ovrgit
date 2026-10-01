@@ -522,6 +522,9 @@ export interface AgentSnapshot {
   lastTool?: string
   checks?: AgentChecks
   ask?: AgentAsk
+  /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
+  canPin?: boolean
+  pinned?: boolean
 }
 
 /** Ação feita no gerenciador de agentes e executada pela janela do agente */
@@ -537,6 +540,8 @@ export type AgentAction =
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
   | { type: 'nudge' }
+  /** Fixa/solta a conversa no topo da lista (o mesmo alfinete do cabeçalho da janela) */
+  | { type: 'pin' }
 
 export interface AgentHistoryItem {
   sessionId: string

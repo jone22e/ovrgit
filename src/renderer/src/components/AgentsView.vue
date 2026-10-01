@@ -257,6 +257,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </span>
             <small v-if="a.status === 'waiting'" class="wait">esperando há {{ ago(a.since) }}</small>
             <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click="act(a, { type: 'retry' })">Retomar</button>
+            <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
             <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
           </div>
 
@@ -290,6 +291,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <span class="ring" :class="{ stalled: stalled(a) }" :title="elapsedTitle(a)" />
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
           <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
+          <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
@@ -314,6 +316,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
                 <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
               </span>
               <small class="faint when">{{ ago(a.since) }}</small>
+              <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
               <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
             </div>
             <p v-if="a.summary" class="result">{{ a.summary }}</p>
@@ -341,6 +344,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
             </span>
             <small class="faint when">{{ ago(a.since) }}</small>
+            <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
             <button class="ghost icon small go-btn" title="Abrir a janela" @click.stop="show(a)"><Icon name="external" :size="13" /></button>
           </div>
         </template>
@@ -354,6 +358,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <strong class="ellipsis">{{ a.title }}</strong>
             <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
           </span>
+          <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
@@ -414,7 +419,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 /* o título tem prioridade: fica inteiro até 70% da linha; o que o agente está fazendo usa o resto */
 .line { display: grid; grid-template-columns: fit-content(70%) minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; }
-.line > * { min-width: 0; }
+.line > * { min-width: 0; justify-self: start; }
 .line > :only-child { grid-column: 1 / -1; }
 .line strong, .item strong { font-size: 13.5px; }
 .text small { font-size: 12px; }
@@ -474,6 +479,10 @@ strong.light { font-weight: 500; }
 .stats { display: flex; gap: 8px; font-size: 12px; }
 .stats .add { color: var(--add); }
 .stats .del { color: var(--del); }
+/* alfinete: só aparece ao passar o mouse, ou sempre quando a conversa está fixada */
+.pin { opacity: 0; color: var(--faint); flex: none; }
+.item:hover .pin, .row:hover .pin, .pin.pinned { opacity: 1; }
+.pin.pinned { color: var(--accent); }
 .go { color: var(--faint); flex: none; }
 .item:hover .go { color: var(--text); }
 /* plano em Markdown */

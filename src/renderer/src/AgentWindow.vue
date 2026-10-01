@@ -1175,7 +1175,9 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     lastEventAt: cur ? lastEventAt.value : undefined,
     lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,
     checks: last && !last.running ? checksOf(last.blocks, paths) : undefined,
-    ask
+    ask,
+    canPin: !!sessionId.value && turns.length > 0,
+    pinned: pinned.value
   }
 })
 let snapTimer: ReturnType<typeof setTimeout> | undefined
@@ -1229,6 +1231,7 @@ function onAct(a: AgentAction) {
   else if (a.type === 'dismiss') askOpen.value = false
   else if (a.type === 'nav') qi.value = Math.max(0, Math.min(questions.value.length - 1, a.index))
   else if (a.type === 'retry') retryLast()
+  else if (a.type === 'pin') togglePin()
   else if (a.type === 'nudge') {
     const cur = current()
     if (cur) hurry(cur)
