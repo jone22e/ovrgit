@@ -6,6 +6,7 @@ import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
+import ServicesMenu from './ServicesMenu.vue'
 import UsageChip from './UsageChip.vue'
 
 const switcherOpen = defineModel<boolean>('switcher', { default: false })
@@ -32,14 +33,6 @@ const initials = (name: string) =>
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('')
 const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
-/** Serviços rodando: contador no item do menu */
-const runningServices = ref(0)
-let offServices: (() => void) | undefined
-onMounted(async () => {
-  runningServices.value = (await api.servicesStates().catch(() => [])).filter((s) => s.status === 'running').length
-  offServices = api.onServicesChanged((s) => (runningServices.value = s.filter((x) => x.status === 'running').length))
-})
-onUnmounted(() => offServices?.())
 
 defineEmits<{ settings: [] }>()
 </script>
@@ -76,6 +69,7 @@ defineEmits<{ settings: [] }>()
     </template>
 
     <span class="spacer" />
+    <ServicesMenu />
     <UsageChip />
 
     <template v-if="state.repo">
@@ -114,8 +108,7 @@ defineEmits<{ settings: [] }>()
           <Icon name="settings" :size="14" /> Configurações <span class="kbd">{{ mod }},</span>
         </button>
         <button class="ghost item" @click="(userOpen = false), (state.showServices = true)">
-          <Icon name="play" :size="14" /> Serviços
-          <span v-if="runningServices" class="kbd running">{{ runningServices }} rodando</span>
+          <Icon name="server" :size="14" /> Serviços
         </button>
         <button v-if="state.ovseer?.connected" class="ghost item" @click="(userOpen = false), api.openExternal(ovseerHome)">
           <Icon name="external" :size="14" /> Abrir Ovseer
@@ -168,7 +161,6 @@ defineEmits<{ settings: [] }>()
 .who small { font-size: 11.5px; }
 .item { justify-content: flex-start; gap: 10px; height: 32px; padding: 0 10px; font-weight: 500; color: var(--text); }
 .kbd { margin-left: auto; font-size: 11px; color: var(--faint); font-family: var(--mono); }
-.kbd.running { color: var(--add); font-family: inherit; }
 .spacer { flex: 1; min-width: 4px; }
 .task-btns { display: flex; gap: 2px; margin-right: 4px; -webkit-app-region: no-drag; }
 .task-btns button { position: relative; }
