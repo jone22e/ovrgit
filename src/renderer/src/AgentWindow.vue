@@ -11,6 +11,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelL
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
+import { summaryOf } from '@shared/summary'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
 import Icon from './components/Icon.vue'
@@ -1129,12 +1130,10 @@ watch(running, (r) => r && (lastEventAt.value = Date.now()))
 watch(statusKind, () => (statusSince.value = Date.now()))
 /** Primeira linha de texto da última resposta, sem marcas de Markdown */
 /** Resultado da última resposta: o primeiro parágrafo de verdade do último texto (pula títulos), sem Markdown */
+/** Resumo da resposta para o gerenciador (ver `summaryOf`) */
 function firstLine(t: Turn | undefined): string {
   const texts = (t?.blocks ?? []).flatMap((b) => (b.kind === 'text' ? [splitQuestions(b.text).text.trim()] : [])).filter(Boolean)
-  const paras = (texts[texts.length - 1] ?? '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
-  const para = paras.find((p) => !/^#{1,6}\s/.test(p)) ?? paras[0] ?? ''
-  const line = para.replace(/^#{1,6}\s+/gm, '').replace(/^[>*\-\s]+/gm, '').replace(/[*`_]/g, '').replace(/\s+/g, ' ').trim()
-  return line.length > 240 ? `${line.slice(0, 237)}…` : line
+  return summaryOf(texts[texts.length - 1] ?? '')
 }
 const snapshot = computed<AgentSnapshot | null>(() => {
   if (!info.value) return null
