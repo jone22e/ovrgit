@@ -363,10 +363,8 @@ function split(path: string) {
 .resolve { display: flex; gap: 4px; margin-left: auto; flex: none; }
 .resolve button { height: 22px; padding: 0 8px; font-size: 11.5px; }
 .resolve .ai-fix { color: var(--accent); gap: 4px; }
-/* adapta à largura do painel (que encolhe quando o diff está aberto), não só da janela */
-@container (max-width: 700px) {
-  .bar { display: none; }
-}
+/* adapta à largura do painel (que encolhe quando o diff está aberto), não só da janela; os números e os
+   quadradinhos de +/− ficam em qualquer largura */
 @container (max-width: 520px) {
   .label-long { display: none; }
   .filters .fn { display: none; }
