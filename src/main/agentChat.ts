@@ -319,10 +319,16 @@ export function regridBounds(area: WindowBounds, from: GridSize, to: GridSize, w
 }
 
 /** O grid mudou de tamanho: as janelas de agente da tela onde a janela `uid` está vão para o lugar delas no novo. */
-export function regridAgentWindows(uid: string, from: GridSize, to: GridSize) {
+/** Tela de referência: a da janela do agente `uid`, ou a da janela `fallback` (a principal, no gerenciador) */
+function displayFor(uid: string, fallback?: BrowserWindow | null): Electron.Display | null {
   const me = wins.get(uid)
-  if (!me || me.win.isDestroyed()) return
-  const display = screen.getDisplayMatching(me.win.getBounds())
+  const win = me && !me.win.isDestroyed() ? me.win : fallback && !fallback.isDestroyed() ? fallback : null
+  return win ? screen.getDisplayMatching(win.getBounds()) : null
+}
+
+export function regridAgentWindows(uid: string, from: GridSize, to: GridSize, fallback?: BrowserWindow | null) {
+  const display = displayFor(uid, fallback)
+  if (!display) return
   const open = [...wins.values()].filter(
     (w) => !w.win.isDestroyed() && !w.win.isMinimized() && !w.win.isFullScreen() && screen.getDisplayMatching(w.win.getBounds()).id === display.id
   )
@@ -333,11 +339,11 @@ export function regridAgentWindows(uid: string, from: GridSize, to: GridSize) {
   })
 }
 
-/** Células do grid cobertas por janelas de agente, na tela onde a janela `uid` está. */
-export function agentGridCells(uid: string, grid: GridSize): GridCell[] {
+/** Células do grid cobertas por janelas de agente, na tela onde a janela `uid` está (ou a `fallback`). */
+export function agentGridCells(uid: string, grid: GridSize, fallback?: BrowserWindow | null): GridCell[] {
+  const display = displayFor(uid, fallback)
+  if (!display) return []
   const me = wins.get(uid)
-  if (!me || me.win.isDestroyed()) return []
-  const display = screen.getDisplayMatching(me.win.getBounds())
   const open = [...wins.values()]
     .filter((w) => !w.win.isDestroyed() && !w.win.isMinimized() && screen.getDisplayMatching(w.win.getBounds()).id === display.id)
     .map((w) => ({ bounds: w.win.getBounds(), own: w === me, title: w.info.title || w.info.project }))

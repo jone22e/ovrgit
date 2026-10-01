@@ -14,7 +14,8 @@ const size = defineModel<GridSize>({ required: true })
 const emit = defineEmits<{ place: [p: GridPlacement] }>()
 /** Células já cobertas por janelas de agente: as de outro agente ficam trancadas, as desta janela só marcadas */
 /** `limits`: o maior grid que cabe na tela onde a janela está (células menores que a janela mínima não entram) */
-const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize }>(), { cells: () => [], limits: () => GRID_LIMITS })
+/** `manage`: pelo gerenciador de agentes, só colunas × linhas e as células ocupadas (sem arrastar para posicionar) */
+const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean }>(), { cells: () => [], limits: () => GRID_LIMITS })
 const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
 const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
 /** A área em escolha passa por cima de uma célula de outro agente */
@@ -48,7 +49,7 @@ function cellAt(e: PointerEvent): Cell {
   }
 }
 function down(e: PointerEvent) {
-  if (e.button !== 0) return
+  if (e.button !== 0 || props.manage) return
   grid.value?.setPointerCapture(e.pointerId)
   anchor.value = cursor.value = cellAt(e)
 }
@@ -85,6 +86,7 @@ function selected(i: number): boolean {
 const hint = computed(() => {
   const a = anchor.value
   const b = cursor.value
+  if (props.manage) return 'Janelas novas abrem na próxima área livre; Organizar encaixa as abertas, uma por área.'
   if (!a || !b) return 'Arraste pelas células para escolher a área. Solte para aplicar.'
   const w = Math.abs(a.col - b.col) + 1
   const h = Math.abs(a.row - b.row) + 1
@@ -96,8 +98,8 @@ const hint = computed(() => {
 <template>
   <div class="wgrid">
     <div class="wgrid-head">
-      <strong>Posição da janela</strong>
-      <span class="faint">na tela onde ela está</span>
+      <strong>{{ manage ? 'Grid das janelas' : 'Posição da janela' }}</strong>
+      <span class="faint">{{ manage ? 'nesta tela' : 'na tela onde ela está' }}</span>
     </div>
     <div class="wgrid-size">
       <span v-for="k in (['cols', 'rows'] as const)" :key="k" class="stepper">
@@ -113,6 +115,7 @@ const hint = computed(() => {
     <div
       ref="grid"
       class="cells"
+      :class="{ manage }"
       :style="{ aspectRatio: aspect, gridTemplateColumns: `repeat(${size.cols}, 1fr)`, gridTemplateRows: `repeat(${size.rows}, 1fr)` }"
       @pointerdown="down"
       @pointermove="move"
@@ -124,6 +127,7 @@ const hint = computed(() => {
         :key="i"
         class="cell"
         :class="{ sel: selected(i - 1), locked: locked(i - 1), own: cellAtIndex(i - 1)?.own, bad: blocked && selected(i - 1) }"
+        :title="manage ? cellAtIndex(i - 1)?.title : undefined"
       >
         <Icon v-if="locked(i - 1)" name="lock" :size="11" />
       </span>
@@ -149,6 +153,8 @@ const hint = computed(() => {
 .wgrid-hint { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.4; min-height: 16px; }
 .wgrid-hint.live { color: var(--accent); }
 .cells { display: grid; gap: 4px; width: 100%; cursor: crosshair; touch-action: none; }
+.cells.manage { cursor: default; }
+.cells.manage .cell { pointer-events: auto; }
 .cell { border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); pointer-events: none; transition: background 0.06s; }
 .cell { display: grid; place-items: center; color: var(--faint); }
 /* esta janela: contorno; outro agente: cadeado */

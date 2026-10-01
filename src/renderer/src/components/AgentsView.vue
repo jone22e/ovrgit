@@ -2,14 +2,16 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import type { AgentAction, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
-import { api, openNewAgent, selectFile, setPane, state, toast } from '../store'
+import type { AgentAction, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
+import { api, openNewAgent, saveSettings, selectFile, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
+import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import AskCard from './AskCard.vue'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import Modal from './Modal.vue'
 import PaneSwitch from './PaneSwitch.vue'
+import WindowGrid from './WindowGrid.vue'
 
 /**
  * Gerenciador de agentes: todas as janelas de agente abertas (de qualquer projeto), agrupadas pelo que precisam.
@@ -169,7 +171,36 @@ async function arrange() {
   arranging.value = true
   await api.agentArrange().catch(() => undefined)
   arranging.value = false
+  if (gridOpen.value) gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
 }
+
+// ---------- grid das janelas (colunas × linhas), no dropdown do Organizar ----------
+const gridOpen = ref(false)
+const gridRoot = ref<HTMLElement>()
+const gridSize = computed(() => normalizeGrid(state.settings?.agentGrid))
+const screenArea = () => ({ width: window.screen.availWidth, height: window.screen.availHeight })
+const gridLimits = ref<GridSize>(gridLimitsFor(screenArea()))
+const shownGrid = computed(() => clampGrid(gridSize.value, gridLimits.value))
+const gridCells = ref<GridCell[]>([])
+watch(gridOpen, async (open) => {
+  if (!open) return
+  gridLimits.value = gridLimitsFor(screenArea())
+  gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
+})
+async function setGridSize(s: GridSize) {
+  const from = shownGrid.value
+  const to = fitGrid(s, screenArea())
+  if (to.cols === from.cols && to.rows === from.rows) return
+  await saveSettings({ agentGrid: to })
+  // as janelas desta tela acompanham o grid novo
+  await api.agentRegrid('', { ...from }, { ...to }).catch(() => undefined)
+  gridCells.value = await api.agentGridCells('', { ...to }).catch(() => [])
+}
+const onDocGrid = (e: MouseEvent) => {
+  if (gridOpen.value && gridRoot.value && !gridRoot.value.contains(e.target as Node)) gridOpen.value = false
+}
+onMounted(() => document.addEventListener('mousedown', onDocGrid))
+onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 </script>
 
 <template>
@@ -192,11 +223,17 @@ async function arrange() {
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
           <span class="bars"><span v-for="i in Math.min(snaps.length, 12)" :key="i" :class="{ on: i <= active }" /></span>
         </span>
-        <button :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
-          <span v-if="arranging" class="spinner" />
-          <Icon v-else name="grid" :size="13" />
-          Organizar
-        </button>
+        <span ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
+          <button class="arrange-main" :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
+            <span v-if="arranging" class="spinner" />
+            <Icon v-else name="grid" :size="13" />
+            Organizar
+          </button>
+          <button class="arrange-more" title="Colunas × linhas do grid" @click="gridOpen = !gridOpen"><Icon name="chevron" :size="11" class="chev" /></button>
+          <div v-if="gridOpen" class="pop">
+            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" manage @update:model-value="setGridSize" />
+          </div>
+        </span>
       </header>
 
       <div v-if="!snaps.length" class="empty">
@@ -344,6 +381,16 @@ async function arrange() {
 .count { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .gap { flex: 1; }
 .head button { height: 28px; gap: 6px; font-size: 12.5px; }
+/* Organizar dividido: a ação à esquerda, a seta abre o grid */
+.arrange { position: relative; display: inline-flex; flex: none; }
+.arrange-main { border-radius: var(--radius) 0 0 var(--radius); }
+.arrange-more { width: 24px; padding: 0; border-radius: 0 var(--radius) var(--radius) 0; border-left: 0; }
+.arrange.on .arrange-more { background: var(--hover); }
+.arrange .chev { transform: rotate(90deg); }
+.arrange .pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
 .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 48px 0 0; }
 .empty p { margin: 0; font-size: 13px; }
 .empty button { gap: 6px; }

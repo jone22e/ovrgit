@@ -898,6 +898,7 @@ export interface OvseerApi {
   /** Move e redimensiona a janela do agente para a área do grid, na tela onde ela está */
   agentPlace(uid: string, p: GridPlacement): Promise<WindowBounds>
   /** O grid mudou de tamanho: reencaixa no novo as janelas de agente da tela onde esta janela está */
+  /** uid vazio: a tela da janela que chama (gerenciador) */
   agentRegrid(uid: string, from: GridSize, to: GridSize): Promise<void>
   /** Células do grid já cobertas por janelas de agente, na tela onde esta janela está */
   agentGridCells(uid: string, grid: GridSize): Promise<GridCell[]>
