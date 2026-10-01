@@ -294,8 +294,8 @@ async function copyPlan() {
     /* sem acesso à área de transferência */
   }
 }
-/** Modo da aprovação: o que estava em uso antes do Plano; sem anterior conhecido, "Controle Total" */
-const approveMode = computed<AgentMode>(() => modeBeforePlan.value ?? 'full')
+/** Modo recomendado para implementar o plano: sempre "Controle Total" (o plano já foi lido e aprovado) */
+const approveMode = computed<AgentMode>(() => 'full')
 /** Modos que executam: cada um vira uma opção do cartão, com o da aprovação em primeiro */
 const PLAN_STARTS = computed(() => MODES.filter((m) => m.id !== 'plan').sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
 /** O cartão aberto (pergunta ou aprovação do plano), no formato do AskCard: o mesmo vai para o gerenciador de agentes */
@@ -316,7 +316,7 @@ const askModel = computed<AgentAsk | null>(() => {
         mode: m.id,
         label: `Sim, implementar em "${m.label}"`,
         detail: m.hint,
-        pill: m.id === approveMode.value ? (modeBeforePlan.value ? 'Modo anterior' : 'Padrão') : undefined
+        pill: m.id === approveMode.value ? 'Recomendado' : undefined
       })),
       plan: planText.value
     }
