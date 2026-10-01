@@ -9,18 +9,20 @@ import AccountPanel from './AccountPanel.vue'
 import Icon from './Icon.vue'
 import ModelPicker from './ModelPicker.vue'
 import OvseerPanel from './OvseerPanel.vue'
+import AwsPanel from './AwsPanel.vue'
 
 /** Configurações: menu lateral com seções, conteúdo largo. Aparência e terminal aplicam na hora; o resto no Salvar. */
 const emit = defineEmits<{ close: [] }>()
 const s = state.settings!
 
-type Section = 'general' | 'commits' | 'agents' | 'terminal' | 'tasks'
-const SECTIONS: { id: Section; label: string; icon: 'settings' | 'sparkles' | 'bot' | 'terminal' | 'task' }[] = [
+type Section = 'general' | 'commits' | 'agents' | 'terminal' | 'tasks' | 'aws'
+const SECTIONS: { id: Section; label: string; icon: 'settings' | 'sparkles' | 'bot' | 'terminal' | 'task' | 'cloud' }[] = [
   { id: 'general', label: 'Geral', icon: 'settings' },
   { id: 'commits', label: 'IA dos commits', icon: 'sparkles' },
   { id: 'agents', label: 'Agentes', icon: 'bot' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'tasks', label: 'Tarefas', icon: 'task' }
+  { id: 'tasks', label: 'Tarefas', icon: 'task' },
+  { id: 'aws', label: 'AWS', icon: 'cloud' }
 ]
 const section = ref<Section>((localStorage.getItem('ovseer.settings.section') as Section) || 'general')
 function go(id: Section) {
@@ -448,6 +450,12 @@ async function save() {
               </div>
               <p class="faint">Aplica na hora em todas as abas do terminal.</p>
             </div>
+          </template>
+
+          <!-- AWS -->
+          <template v-else-if="section === 'aws'">
+            <h2>AWS</h2>
+            <div class="block"><AwsPanel /></div>
           </template>
 
           <!-- Tarefas -->

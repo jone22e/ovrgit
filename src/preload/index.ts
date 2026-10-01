@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, OvseerApi, Settings, UpdateState } from '../shared/types'
+import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, Settings, UpdateState } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -112,6 +112,31 @@ const api: OvseerApi = {
   ovseerLogin: () => ipcRenderer.invoke('ovseer:login'),
   ovseerCancelLogin: () => ipcRenderer.invoke('ovseer:cancelLogin'),
   ovseerLogout: () => ipcRenderer.invoke('ovseer:logout'),
+  awsStatus: () => ipcRenderer.invoke('aws:status'),
+  awsInstall: () => ipcRenderer.invoke('aws:install'),
+  onAwsInstallProgress: (cb) => {
+    const h = (_e: unknown, p: AwsInstallProgress) => cb(p)
+    ipcRenderer.on('aws:installProgress', h)
+    return () => ipcRenderer.off('aws:installProgress', h)
+  },
+  awsLogin: (profile) => ipcRenderer.invoke('aws:login', profile),
+  onAwsLoginOutput: (cb) => {
+    const h = (_e: unknown, line: string) => cb(line)
+    ipcRenderer.on('aws:loginOutput', h)
+    return () => ipcRenderer.off('aws:loginOutput', h)
+  },
+  awsCancelLogin: () => ipcRenderer.invoke('aws:cancelLogin'),
+  awsLogout: (profile) => ipcRenderer.invoke('aws:logout', profile),
+  onAwsChanged: (cb) => {
+    const h = (_e: unknown, s: AwsStatus) => cb(s)
+    ipcRenderer.on('aws:changed', h)
+    return () => ipcRenderer.off('aws:changed', h)
+  },
+  onAwsAlert: (cb) => {
+    const h = (_e: unknown, a: { title: string; body: string }) => cb(a)
+    ipcRenderer.on('aws:alert', h)
+    return () => ipcRenderer.off('aws:alert', h)
+  },
   ovseerTasks: (workspaceId) => ipcRenderer.invoke('ovseer:tasks', workspaceId),
   ovseerLink: (workspaceId, links) => ipcRenderer.invoke('ovseer:link', workspaceId, links),
   ovseerMembers: (workspaceId) => ipcRenderer.invoke('ovseer:members', workspaceId),

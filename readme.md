@@ -86,6 +86,13 @@ modelo local pelo Ollama.
 - Temas Dracula, One Dark Pro, Tokyo Night, Monokai, Nord, GitHub Dark e GitHub Light.
 - Temas com nome de mapa do Counter-Strike: Dust2 (tons de arenito) e Mirage (paleta do Ayu Mirage), os dois escuros.
 
+### AWS
+
+- Instala o AWS CLI e o plugin do Session Manager pelos instaladores oficiais (o sistema pede a senha de administrador).
+- Entrar na AWS pelo navegador (`aws login` ou `aws sso login`, conforme o perfil), com a sessão mostrada em
+  Configurações → AWS.
+- Acompanha a sessão e avisa quando ela cai ou está para expirar.
+
 ### Atualização automática
 
 - O app procura versões novas ao abrir, a cada 30 minutos e ao voltar ao primeiro plano, baixa em segundo plano e instala ao reiniciar.

@@ -436,6 +436,7 @@ export async function init() {
   listenAgents()
   listenOvseer()
   api.onUpdate((s) => (state.update = s))
+  api.onAwsAlert((a) => toast(`${a.title}: ${a.body}`))
   api.updateState().then((s) => (state.update = s))
   refreshOvseer()
   if (state.settings.lastProject) {

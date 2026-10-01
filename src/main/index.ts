@@ -36,6 +36,7 @@ import * as g from './git'
 import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
+import * as aws from './aws'
 
 let win: BrowserWindow | null = null
 let root: string | null = null
@@ -634,6 +635,12 @@ function registerIpc() {
       if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('settings:changed', next)
     return next
   })
+  // AWS: instalação do CLI, login por SSO e sessão (Configurações → AWS)
+  ipcMain.handle('aws:status', () => aws.awsStatus())
+  ipcMain.handle('aws:install', (e) => aws.awsInstall((p) => !e.sender.isDestroyed() && e.sender.send('aws:installProgress', p)))
+  ipcMain.handle('aws:login', (e, profile: string) => aws.awsLogin(String(profile ?? ''), (line) => !e.sender.isDestroyed() && e.sender.send('aws:loginOutput', line)))
+  ipcMain.handle('aws:cancelLogin', () => aws.awsCancelLogin())
+  ipcMain.handle('aws:logout', (_e, profile: string) => aws.awsLogout(String(profile ?? '')))
   ipcMain.handle('update:state', () => updater.updateState())
   ipcMain.handle('update:check', () => updater.checkForUpdates())
   ipcMain.handle('update:download', () => updater.downloadUpdate())
@@ -684,6 +691,7 @@ app.whenReady().then(() => {
   createWindow()
   if (getSettings().watchAgents) startAgents()
   updater.setupUpdater((s) => toMain('update:changed', s))
+  aws.setupAws((s) => toMain('aws:changed', s))
   app.on('activate', () => {
     // clicar no Dock com só janelas de agente abertas: reabre a principal
     if (!win || win.isDestroyed()) createWindow()
@@ -696,6 +704,7 @@ app.on('before-quit', () => {
   ovseer.stopStream()
   agentWatch.stopAgentWatch()
   updater.stopUpdater()
+  aws.stopAws()
   agentChat.shutdownAgents()
   killAllTerminals()
 })

@@ -211,6 +211,26 @@ export interface Snippet {
  */
 export type TerminalSpec = { kind: 'local'; command?: string; cwd?: string } | { kind: 'ssh'; connectionId: string }
 
+export interface AwsStatus {
+  /** Versão do AWS CLI, ou null se não instalado */
+  installed: string | null
+  /** Plugin do Session Manager encontrado */
+  sessionManager: boolean
+  /** Perfis do ~/.aws/config e ~/.aws/credentials */
+  profiles: string[]
+  /** Perfil em uso */
+  profile: string
+  /** Como o perfil se autentica: `sso` (aws sso login), `login` (aws login, credenciais do console) ou `static` (chaves fixas) */
+  auth: 'sso' | 'login' | 'static'
+  /** Sessão do perfil: quem está logado, ou por que não; null sem CLI ou sem perfil */
+  session: { ok: true; account: string; arn: string; expiresAt: number | null } | { ok: false; error: string } | null
+  checkedAt: number
+}
+export interface AwsInstallProgress {
+  step: string
+  percent: number | null
+}
+
 export interface Settings {
   /** Id do tema (ver shared/themes.ts) */
   theme: string
@@ -249,6 +269,10 @@ export interface Settings {
   agentGrid: GridSize
   /** Checar e baixar versões novas do app sozinho */
   autoUpdate: boolean
+  /** Perfil do AWS CLI usado em "Entrar na AWS" (vazio: o padrão) */
+  awsProfile: string
+  /** Acompanha a sessão da AWS e avisa quando ela cai ou está para expirar */
+  awsWatch: boolean
   recentProjects: string[]
   lastProject: string | null
 }
@@ -827,6 +851,16 @@ export interface OvseerApi {
   ovseerLogin(): Promise<OvseerStatus>
   ovseerCancelLogin(): Promise<void>
   ovseerLogout(): Promise<OvseerStatus>
+  /** AWS: instalação do CLI, perfis e sessão (Configurações → AWS) */
+  awsStatus(): Promise<AwsStatus>
+  awsInstall(): Promise<void>
+  onAwsInstallProgress(cb: (p: AwsInstallProgress) => void): () => void
+  awsLogin(profile: string): Promise<AwsStatus>
+  onAwsLoginOutput(cb: (line: string) => void): () => void
+  awsCancelLogin(): Promise<void>
+  awsLogout(profile: string): Promise<AwsStatus>
+  onAwsChanged(cb: (s: AwsStatus) => void): () => void
+  onAwsAlert(cb: (a: { title: string; body: string }) => void): () => void
   ovseerTasks(workspaceId: string): Promise<OvseerTask[]>
   ovseerLink(workspaceId: string, links: { taskId: string; sha: string; message: string }[]): Promise<number>
   ovseerMembers(workspaceId: string): Promise<OvseerMember[]>
