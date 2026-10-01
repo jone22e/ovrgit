@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
-import { api, openNewAgent, saveSettings, selectFile, setPane, state, toast } from '../store'
+import { api, openNewAgent, saveSettings, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import AskCard from './AskCard.vue'
@@ -58,11 +58,10 @@ function chips(a: AgentSnapshot): { text: string; tone: '' | 'ok' | 'bad' | 'war
   const c = a.checks
   if (a.files?.count) out.push({ text: `${a.files.count} ${a.files.count === 1 ? 'arquivo' : 'arquivos'}`, tone: '' })
   if (c?.tests) out.push({ text: `${c.tests.count ? `${c.tests.count} testes` : 'testes'} ${c.tests.ok ? '✓' : '✗'}`, tone: c.tests.ok ? 'ok' : 'bad' })
-  if (c?.typecheck === null) out.push({ text: 'typecheck não rodado', tone: 'warn' })
-  else if (c?.typecheck !== undefined) out.push({ text: `typecheck ${c.typecheck ? '✓' : '✗'}`, tone: c.typecheck ? 'ok' : 'bad' })
+  // só o que aconteceu de fato: typecheck/build rodados e deploy feito (nada de "não rodado" / "sem deploy")
+  if (typeof c?.typecheck === 'boolean') out.push({ text: `typecheck ${c.typecheck ? '✓' : '✗'}`, tone: c.typecheck ? 'ok' : 'bad' })
   if (c?.build !== undefined) out.push({ text: `build ${c.build ? '✓' : '✗'}`, tone: c.build ? 'ok' : 'bad' })
   if (c?.deploy) out.push({ text: 'com deploy', tone: 'warn' })
-  else if (a.files?.count) out.push({ text: 'sem deploy', tone: '' })
   return out
 }
 
@@ -82,15 +81,13 @@ function repoPaths(a: AgentSnapshot): string[] {
 /** Concluídos cujas alterações ainda estão na lista do projeto aberto */
 const withChanges = computed(() => done.value.filter((a) => repoPaths(a).length))
 /** Vai para Alterações com os arquivos destes agentes marcados (e o diff do primeiro aberto) */
-function goToChanges(list: AgentSnapshot[], openFirst = false) {
+function goToChanges(list: AgentSnapshot[]) {
   const paths = [...new Set(list.flatMap(repoPaths))]
   if (!paths.length) return toast('As alterações desses agentes não estão mais na lista.')
   list.forEach(markSeen)
   state.tab = 'changes'
   setPane('changes')
   state.selected = new Set(paths)
-  const first = state.repo?.files.find((f) => f.path === paths[0])
-  if (openFirst && first) selectFile(first)
 }
 /** Fecha as janelas dos concluídos já vistos (a conversa continua em Conversas) */
 const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
@@ -323,12 +320,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <div v-if="chips(a).length" class="chips">
               <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
             </div>
-            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts) => act(a, { type: 'reply', text, ...opts })">
-              <template #actions>
-                <button v-if="a.checks?.typecheck !== true && a.files?.count" type="button" class="small" @click="act(a, { type: 'reply', text: 'Rode o typecheck do projeto e corrija o que falhar.' })">Rodar typecheck</button>
-                <button v-if="repoPaths(a).length" type="button" class="small" @click="goToChanges([a], true)">Ver diff</button>
-              </template>
-            </MiniComposer>
+            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts) => act(a, { type: 'reply', text, ...opts })" />
           </article>
           <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
             <span class="dot done" :class="{ seen: !isNew(a) }" />
