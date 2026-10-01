@@ -1159,6 +1159,9 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     project: info.value.project,
     provider: provider.value,
     model: modelLabel(provider.value, model.value, catalogOf(known.value, provider.value)),
+    modelId: model.value,
+    effort: effort.value,
+    mode: mode.value,
     status: statusKind.value,
     since: statusSince.value,
     lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
@@ -1233,6 +1236,9 @@ function onAct(a: AgentAction) {
   else if (a.type === 'reply') {
     const text = a.text.trim()
     if (!text) return
+    if (a.model !== undefined) model.value = a.model
+    if (a.effort) effort.value = a.effort
+    if (a.mode) setMode(a.mode)
     if (showAsk.value) decide(text)
     else if (showPlanAsk.value) adjustPlan(text)
     else {

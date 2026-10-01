@@ -495,6 +495,10 @@ export interface AgentSnapshot {
   provider: CliProvider
   /** Nome legível do modelo */
   model: string
+  /** Modelo, esforço e modo atuais da janela (o gerenciador oferece o mesmo composer) */
+  modelId: string
+  effort: AgentEffort
+  mode: AgentMode
   status: AgentStatus
   /** Desde quando está nessa situação (ms) */
   since: number
@@ -528,7 +532,8 @@ export type AgentAction =
   | { type: 'dismiss' }
   /** Mostra outra pergunta do cartão */
   | { type: 'nav'; index: number }
-  | { type: 'reply'; text: string }
+  /** Mensagem nova (ou resposta ao cartão); modelo, esforço e modo trocam os da janela quando vêm */
+  | { type: 'reply'; text: string; model?: string; effort?: AgentEffort; mode?: AgentMode }
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
   | { type: 'nudge' }

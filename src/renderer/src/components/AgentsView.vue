@@ -2,11 +2,12 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import type { AgentAction, AgentMode, AgentSnapshot } from '@shared/types'
+import type { AgentAction, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
 import { api, openNewAgent, selectFile, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import AskCard from './AskCard.vue'
 import Icon from './Icon.vue'
+import MiniComposer from './MiniComposer.vue'
 import Modal from './Modal.vue'
 import PaneSwitch from './PaneSwitch.vue'
 
@@ -139,16 +140,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 // o selecionado fechou: tira a seleção
 watch(order, (l) => selUid.value && !l.some((a) => a.uid === selUid.value) && (selUid.value = null))
 
-/** Resposta digitada em cada cartão (uid → texto) */
-const replies = ref<Record<string, string>>({})
+/** Catálogo de modelos, para o composer dos cartões */
+const known = ref<KnownModels | null>(null)
+onMounted(() => api.knownModels().then((k) => (known.value = k)).catch(() => undefined))
 function act(a: AgentSnapshot, action: AgentAction) {
   api.agentAct(a.uid, action).catch(() => undefined)
-}
-function reply(a: AgentSnapshot) {
-  const text = (replies.value[a.uid] ?? '').trim()
-  if (!text) return
-  replies.value[a.uid] = ''
-  act(a, { type: 'reply', text })
 }
 function show(a: AgentSnapshot) {
   markSeen(a)
@@ -287,11 +283,12 @@ async function arrange() {
             <div v-if="chips(a).length" class="chips">
               <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
             </div>
-            <form class="next" @submit.prevent="reply(a)">
-              <input v-model="replies[a.uid]" type="text" placeholder="Próxima instrução para este agente…" maxlength="4000" />
-              <button v-if="a.checks?.typecheck !== true && a.files?.count" type="button" class="small" @click="act(a, { type: 'reply', text: 'Rode o typecheck do projeto e corrija o que falhar.' })">Rodar typecheck</button>
-              <button v-if="repoPaths(a).length" type="button" class="small" @click="goToChanges([a], true)">Ver diff</button>
-            </form>
+            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts) => act(a, { type: 'reply', text, ...opts })">
+              <template #actions>
+                <button v-if="a.checks?.typecheck !== true && a.files?.count" type="button" class="small" @click="act(a, { type: 'reply', text: 'Rode o typecheck do projeto e corrija o que falhar.' })">Rodar typecheck</button>
+                <button v-if="repoPaths(a).length" type="button" class="small" @click="goToChanges([a], true)">Ver diff</button>
+              </template>
+            </MiniComposer>
           </article>
           <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
             <span class="dot done" :class="{ seen: !isNew(a) }" />
@@ -405,9 +402,8 @@ strong.light { font-weight: 500; }
 .chip.ok { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
 .chip.bad { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .chip.warn { color: var(--mod); background: color-mix(in srgb, var(--mod) 12%, transparent); }
-.next { display: flex; gap: 8px; margin-left: 18px; }
-.next input { flex: 1; min-width: 0; font-size: 12.5px; }
-.next button { height: 30px; }
+.next { margin-left: 18px; }
+.next .small { height: 30px; flex: none; }
 .go-btn { color: var(--faint); }
 .item:hover { background: var(--hover); }
 .when { font-size: 12px; white-space: nowrap; min-width: 40px; text-align: right; }
