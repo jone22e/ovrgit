@@ -423,7 +423,10 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .card.error { border-color: color-mix(in srgb, var(--del) 40%, var(--border)); background: color-mix(in srgb, var(--del) 6%, var(--panel)); }
 .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* o título tem prioridade: fica inteiro até 70% da linha; o que o agente está fazendo usa o resto */
+.line { display: grid; grid-template-columns: fit-content(70%) minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; }
+.line > * { min-width: 0; }
+.line > :only-child { grid-column: 1 / -1; }
 .line strong, .item strong { font-size: 13.5px; }
 .text small { font-size: 12px; }
 .err { color: var(--del); }
