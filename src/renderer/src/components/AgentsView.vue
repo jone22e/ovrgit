@@ -254,7 +254,6 @@ async function arrange() {
               <small v-if="stalled(a)" class="warn ellipsis">sem saída há {{ ago(a.lastEventAt!) }}{{ a.lastTool ? ` · último: ${a.lastTool}` : '' }}</small>
               <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
             </span>
-            <span class="bar" :class="{ stalled: stalled(a) }"><span /></span>
           </span>
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
           <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
@@ -389,12 +388,6 @@ async function arrange() {
 .item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
 .warn { color: var(--mod); }
 .nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
-/* barra de andamento: o CLI não informa quanto falta, então ela corre sem parar enquanto há sinal; parada, fica âmbar */
-.bar { position: relative; display: block; height: 3px; max-width: 520px; margin-top: 5px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
-.bar span { position: absolute; top: 0; bottom: 0; width: 35%; border-radius: inherit; background: var(--accent); animation: run 1.6s ease-in-out infinite; }
-.bar.stalled span { width: 45%; left: 0; background: var(--mod); animation: none; }
-@keyframes run { from { left: -35%; } to { left: 100%; } }
-@media (prefers-reduced-motion: reduce) { .bar span { animation: none; left: 0; } }
 .slots { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .bars { display: inline-flex; gap: 3px; }
 .bars span { width: 12px; height: 4px; border-radius: 2px; background: var(--panel-2); }
