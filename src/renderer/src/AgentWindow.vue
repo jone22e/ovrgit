@@ -1171,8 +1171,37 @@ watch(
 async function retryLast() {
   const last = turns[turns.length - 1]
   if (!last || running.value) return
-  if (last.blocks.length || !last.user.trim()) await dispatch({ id: crypto.randomUUID(), body: 'Continue a tarefa de onde parou.', attachments: [] })
-  else await dispatch({ id: crypto.randomUUID(), body: last.user, attachments: last.attachments as Shown[] })
+  if (last.blocks.length || !last.user.trim()) await continueAfter()
+  else await resend(last)
+}
+/** Pede ao agente para continuar a tarefa interrompida (a sessão lembra o que já foi feito) */
+async function continueAfter() {
+  if (running.value) return
+  await dispatch({ id: crypto.randomUUID(), body: 'Continue a tarefa de onde parou, sem refazer o que já foi feito.', attachments: [] })
+}
+/** Manda de novo o pedido da vez que falhou, com os mesmos anexos */
+async function resend(t: Turn) {
+  if (running.value || !t.user.trim()) return
+  await dispatch({ id: crypto.randomUUID(), body: t.user, attachments: t.attachments as Shown[] })
+}
+
+/** Vez que falhou: diz onde parou e o que ficou alterado, em vez de só a mensagem de erro */
+function stopInfo(t: Turn) {
+  const interrupted = !t.error || /interromp/i.test(t.error)
+  const after = took(t.durationMs)
+  const title = `${interrupted ? 'Interrompido' : 'Falhou'}${after ? ` após ${after}` : ''}`
+  const tool = [...t.blocks].reverse().find((b): b is ToolBlock => b.kind === 'tool')
+  const cmd = tool ? (tool.detail?.split('\n')[0] ?? '').trim() : ''
+  const where = tool
+    ? `Parou em: ${tool.title}${cmd ? ` ${cmd.length > 90 ? `${cmd.slice(0, 87)}…` : cmd}` : ''}.`
+    : t.blocks.some((b) => b.kind === 'text')
+      ? 'Parou enquanto escrevia a resposta.'
+      : 'Parou antes de começar a trabalhar.'
+  const n = new Set(t.blocks.flatMap((b) => (b.kind === 'files' ? b.paths : []))).size
+  const changed = n ? `${n} ${n === 1 ? 'arquivo foi alterado' : 'arquivos foram alterados'} até ali.` : 'Nenhum arquivo foi alterado.'
+  // a mensagem técnica só aparece quando diz algo além de "interrompido"
+  const detail = t.error && !/^(Interrompido\.?|A resposta foi interrompida antes de terminar\.)$/i.test(t.error.trim()) ? t.error : ''
+  return { title, text: `${where} ${changed}`, detail, worked: t.blocks.length > 0 }
 }
 function onAct(a: AgentAction) {
   if (a.type === 'decide') decide(a.choice)
@@ -1402,7 +1431,15 @@ onUnmounted(() => offs.forEach((f) => f()))
               <Icon name="forward" :size="12" />
             </button>
           </div>
-          <p v-if="t.error" class="err"><Icon name="alert" :size="13" /> {{ t.error }}</p>
+          <div v-if="t.error" class="stopped">
+            <strong>{{ stopInfo(t).title }}</strong>
+            <p>{{ stopInfo(t).text }}</p>
+            <small v-if="stopInfo(t).detail" class="stop-detail">{{ stopInfo(t).detail }}</small>
+            <div v-if="t === turns[turns.length - 1] && !running" class="stop-actions">
+              <button v-if="stopInfo(t).worked && sessionId" type="button" class="small primary" @click="continueAfter">Continuar de onde parou</button>
+              <button v-if="t.user.trim()" type="button" class="small" @click="resend(t)">Reenviar mensagem</button>
+            </div>
+          </div>
           <p v-if="!t.running && !t.superseded && (t.durationMs || t.costUsd)" class="meta faint">
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
             <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
@@ -1731,7 +1768,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 .hurry.on, .hurry.on:disabled { color: var(--accent); opacity: 1; }
 .spin-logo { animation: breathe 1.6s ease-in-out infinite; margin-right: 2px; }
 @keyframes breathe { 50% { opacity: 0.35; transform: scale(0.9); } }
-.err { margin: 0; display: flex; align-items: flex-start; gap: 6px; padding: 8px 10px; border-radius: 8px; background: var(--del-bg); color: var(--del); font-size: 12.5px; user-select: text; }
+.stopped { display: flex; flex-direction: column; gap: 6px; max-width: 640px; padding: 12px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--del) 30%, var(--border)); background: color-mix(in srgb, var(--del) 6%, var(--panel)); }
+.stopped strong { font-size: 13.5px; color: var(--del); }
+.stopped p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; user-select: text; }
+.stop-detail { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.stop-actions { display: flex; gap: 8px; margin-top: 4px; }
+.stop-actions button { height: 28px; }
 .meta { margin: 0; font-size: 11px; }
 /* cartão de pergunta do agente */
 .plan-read { max-height: min(64vh, 720px); overflow: auto; padding-right: 6px; }
