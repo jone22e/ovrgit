@@ -23,10 +23,34 @@ let fit: FitAddon | null = null
 let settings: Settings | null = null
 const offs: (() => void)[] = []
 
+// a mesma fonte, tamanho e peso do terminal integrado (Configurações → Terminal)
 const FALLBACK = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace'
 const fontFamily = () => {
   const name = (settings?.terminalFont ?? '').trim().replace(/["']/g, '')
   return name ? `"${name}", ${FALLBACK}` : FALLBACK
+}
+const fontSize = () => Math.min(Math.max(Number(settings?.terminalFontSize) || 14, 9), 28)
+const fontWeight = () => ([400, 500, 600].includes(Number(settings?.terminalFontWeight)) ? Number(settings?.terminalFontWeight) : 500)
+const fontWeightBold = () => Math.min(fontWeight() + 200, 700)
+/** Garante a fonte carregada antes de medir as células (senão o xterm calcula com a fonte errada) */
+async function loadFont() {
+  try {
+    await Promise.all([
+      document.fonts.load(`${fontWeight()} ${fontSize()}px ${fontFamily()}`),
+      document.fonts.load(`${fontWeightBold()} ${fontSize()}px ${fontFamily()}`)
+    ])
+  } catch {
+    /* fonte do sistema inexistente: usa a reserva */
+  }
+}
+function applyFont() {
+  if (!term) return
+  term.options.fontFamily = fontFamily()
+  term.options.fontSize = fontSize()
+  term.options.fontWeight = fontWeight()
+  term.options.fontWeightBold = fontWeightBold()
+  fit?.fit()
+  api.serviceResize(id, term.cols, term.rows)
 }
 function themeFromCss() {
   const css = getComputedStyle(document.documentElement)
@@ -74,10 +98,12 @@ function stop() {
 onMounted(async () => {
   settings = await api.getSettings().catch(() => null)
   applyTheme(settings?.theme)
-  const fontSize = Math.min(Math.max(Number(settings?.terminalFontSize) || 14, 9), 28)
+  await loadFont()
   term = new Terminal({
     fontFamily: fontFamily(),
-    fontSize,
+    fontSize: fontSize(),
+    fontWeight: fontWeight(),
+    fontWeightBold: fontWeightBold(),
     lineHeight: 1.15,
     cursorBlink: true,
     scrollback: 10000,
@@ -105,7 +131,15 @@ onMounted(async () => {
       if (restarted) attach()
     })
   )
-  offs.push(api.onSettingsChanged((s) => ((settings = s), applyTheme(s.theme), term && (term.options.theme = themeFromCss()))))
+  offs.push(
+    api.onSettingsChanged(async (s) => {
+      settings = s
+      applyTheme(s.theme)
+      if (term) term.options.theme = themeFromCss()
+      await loadFont()
+      applyFont()
+    })
+  )
   await attach()
   term.focus()
 })
