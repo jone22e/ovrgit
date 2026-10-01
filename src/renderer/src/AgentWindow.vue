@@ -1136,11 +1136,6 @@ function firstLine(t: Turn | undefined): string {
   const line = para.replace(/^#{1,6}\s+/gm, '').replace(/^[>*\-\s]+/gm, '').replace(/[*`_]/g, '').replace(/\s+/g, ' ').trim()
   return line.length > 240 ? `${line.slice(0, 237)}…` : line
 }
-/** Mediana da duração das respostas já concluídas nesta conversa (as muito curtas não contam) */
-function typicalDuration(): number | undefined {
-  const ds = turns.filter((t) => !t.running && !t.silent && (t.durationMs ?? 0) >= 5000).map((t) => t.durationMs!).sort((a, b) => a - b)
-  return ds.length ? ds[Math.floor(ds.length / 2)] : undefined
-}
 const snapshot = computed<AgentSnapshot | null>(() => {
   if (!info.value) return null
   const last = turns[turns.length - 1] as Turn | undefined
@@ -1179,7 +1174,6 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     startedAt: cur ? workStart(cur) : undefined,
     lastEventAt: cur ? lastEventAt.value : undefined,
     lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,
-    typicalMs: typicalDuration(),
     checks: last && !last.running ? checksOf(last.blocks, paths) : undefined,
     ask
   }
