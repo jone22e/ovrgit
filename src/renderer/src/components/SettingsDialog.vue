@@ -247,7 +247,7 @@ async function save() {
               <label class="switch-row">
                 <div>
                   <strong>Atualizar automaticamente</strong>
-                  <p>Procura versões novas ao abrir o app e a cada poucas horas, e baixa em segundo plano. A instalação acontece ao reiniciar.</p>
+                  <p>Procura versões novas ao abrir o app, a cada 30 minutos e ao voltar a ele, e baixa em segundo plano. A instalação acontece ao reiniciar.</p>
                 </div>
                 <input type="checkbox" class="switch" :checked="state.settings?.autoUpdate !== false" @change="saveSettings({ autoUpdate: ($event.target as HTMLInputElement).checked })" />
               </label>

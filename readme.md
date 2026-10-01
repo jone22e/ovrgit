@@ -88,7 +88,7 @@ modelo local pelo Ollama.
 
 ### Atualização automática
 
-- O app procura versões novas ao abrir e a cada 4 horas, baixa em segundo plano e instala ao reiniciar.
+- O app procura versões novas ao abrir, a cada 30 minutos e ao voltar ao primeiro plano, baixa em segundo plano e instala ao reiniciar.
 - Dá para desligar ou verificar na hora em Configurações → Geral.
 
 ## Provedores de IA

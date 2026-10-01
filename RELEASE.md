@@ -1,7 +1,9 @@
 # Publicar uma versão do Ovseer
 
-O app se atualiza sozinho. Ele consulta os releases de `jone22e/ovrgit` no GitHub 10 segundos depois de abrir e a
-cada 4 horas, baixa a versão nova em segundo plano e instala quando o usuário reinicia ou fecha o app.
+O app se atualiza sozinho. Ele consulta os releases de `jone22e/ovrgit` no GitHub 10 segundos depois de abrir, a
+cada 30 minutos, ao voltar ao primeiro plano e quando o computador acorda (nesses dois casos, só se a última
+consulta foi há mais de 10 minutos), baixa a versão nova em segundo plano e instala quando o usuário reinicia ou
+fecha o app.
 
 Publicar uma versão é rodar um comando:
 

@@ -1,11 +1,18 @@
-import { app } from 'electron'
+import { app, powerMonitor } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
 import { getSettings } from './settings'
 
-/** Atualização automática pelos releases do GitHub: checa ao abrir e de tempos em tempos, baixa em segundo plano. */
+/**
+ * Atualização automática pelos releases do GitHub: checa ao abrir, de tempos em tempos, quando o app volta ao
+ * primeiro plano e quando o computador acorda; baixa em segundo plano. Uma versão publicada aparece em
+ * minutos, não só na próxima abertura do app.
+ */
 const FIRST_CHECK_MS = 10_000
-const INTERVAL_MS = 4 * 60 * 60 * 1000
+const INTERVAL_MS = 30 * 60 * 1000
+/** Ao focar a janela ou acordar o computador, só checa de novo passado este tempo desde a última tentativa */
+const FOCUS_MIN_GAP_MS = 10 * 60 * 1000
+let lastAttempt = 0
 
 let current: UpdateState = { status: 'idle', current: app.getVersion() }
 let notify: (s: UpdateState) => void = () => undefined
@@ -43,6 +50,15 @@ export function setupUpdater(onChange: (s: UpdateState) => void) {
 
   setTimeout(() => getSettings().autoUpdate && checkForUpdates(), FIRST_CHECK_MS)
   timer = setInterval(() => getSettings().autoUpdate && checkForUpdates(), INTERVAL_MS)
+  // o computador dormiu: o intervalo pode ter ficado para trás; checa logo ao acordar (com rede de volta)
+  powerMonitor.on('resume', () => setTimeout(checkIfStale, 5_000))
+  app.on('browser-window-focus', checkIfStale)
+}
+
+/** Checagem oportunista (foco, acordar): só se a automática está ligada e faz tempo desde a última tentativa */
+function checkIfStale() {
+  if (!getSettings().autoUpdate || Date.now() - lastAttempt < FOCUS_MIN_GAP_MS) return
+  void checkForUpdates()
 }
 
 export async function checkForUpdates(): Promise<UpdateState> {
@@ -50,6 +66,7 @@ export async function checkForUpdates(): Promise<UpdateState> {
   // não interrompe um download em andamento nem descarta uma versão já pronta
   if (current.status === 'checking' || current.status === 'downloading' || current.status === 'ready') return current
   autoUpdater.autoDownload = getSettings().autoUpdate
+  lastAttempt = Date.now()
   try {
     await autoUpdater.checkForUpdates()
   } catch (e) {
