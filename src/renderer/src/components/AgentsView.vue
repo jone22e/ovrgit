@@ -322,7 +322,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 
       <section v-if="running.length">
         <h3 class="sec live">Rodando</h3>
-        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid }" @click="show(a)">
+        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
           <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
             <span class="line">
@@ -330,9 +330,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               <small v-if="stalled(a)" class="warn ellipsis">sem saída há {{ ago(a.lastEventAt!) }}{{ a.lastTool ? ` · último: ${a.lastTool}` : '' }}</small>
               <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
             </span>
+            <!-- checklist do plano: feito (verde), em andamento (girando) e a fazer -->
             <ol v-if="a.checklist?.length" class="cl" @click.stop>
-              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, next: !it.done && a.checklist.slice(0, n).every((x) => x.done) }">
-                <span class="cl-box"><Icon v-if="it.done" name="check" :size="10" /></span><span class="ellipsis">{{ it.text }}</span>
+              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, now: !it.done && a.checklist.slice(0, n).every((x) => x.done) }" :title="it.text">
+                <span v-if="!it.done && a.checklist.slice(0, n).every((x) => x.done) && !stalled(a)" class="cl-spin" />
+                <span v-else class="cl-box"><Icon v-if="it.done" name="check" :size="9" /></span>
+                <span class="ellipsis">{{ it.text }}</span>
               </li>
             </ol>
           </span>
@@ -514,15 +517,25 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
 .warn { color: var(--mod); }
 /* checklist do plano: itens compactos; o da vez em destaque, os abertos no concluído ficam âmbar */
-.cl { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.cl li { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); min-width: 0; }
-.cl li.done { text-decoration: line-through; color: var(--faint); }
-.cl li.next { color: var(--text); font-weight: 600; }
+.cl { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.cl li { display: flex; align-items: center; gap: 8px; min-height: 18px; font-size: 12px; color: var(--muted); min-width: 0; }
+.cl li.done { color: var(--faint); }
+.cl li.now { color: var(--text); font-weight: 600; }
 .cl li.open { color: var(--mod); }
-.cl-box { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid var(--faint); flex: none; color: var(--bg); }
+/* marcador redondo, do mesmo tamanho nos três estados, para o texto ficar numa coluna só */
+.cl-box { display: inline-grid; place-items: center; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--faint) 70%, transparent); flex: none; color: var(--bg); }
 .cl li.done .cl-box { background: var(--add); border-color: var(--add); }
-.cl li.next .cl-box { border-color: var(--hunk); }
+.cl li.now .cl-box { border-color: var(--hunk); }
 .cl li.open .cl-box { border-color: var(--mod); }
+/* item em andamento: o mesmo arco girando do indicador da linha, em tamanho de marcador */
+.cl-spin { width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; flex: none; border: 2px solid color-mix(in srgb, var(--hunk) 25%, transparent); border-top-color: var(--hunk); border-right-color: var(--hunk); animation: turn 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .cl-spin { animation: none; } }
+/* linha com checklist: ponto, contador, indicador e hora ficam na altura do título, não no meio do bloco */
+.item.has-cl { align-items: flex-start; }
+.item.has-cl > .dot { margin-top: 6px; }
+.item.has-cl > .cl-pill { margin-top: -1px; }
+.item.has-cl > .ring { margin-top: 3px; }
+.item.has-cl > .when, .item.has-cl > .go, .item.has-cl > .pin, .item.has-cl > .nudge { margin-top: 2px; }
 .card-cl { margin: 0 0 4px 18px; }
 .cl-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); flex: none; }
 /* anel de atividade: dois quartos girando enquanto há sinal do agente; sem saída, para e fica âmbar */
