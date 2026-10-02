@@ -7,13 +7,30 @@ import Icon from './Icon.vue'
 /** Ícone dos serviços na barra do topo: contador dos ativos e um menu com play/stop, portas e terminal. */
 const open = ref(false)
 const root = ref<HTMLElement>()
+const query = ref('')
+const searchEl = ref<HTMLInputElement>()
+const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const states = ref<ServiceState[]>([])
 const busy = ref<string | null>(null)
 const services = computed(() => state.settings?.services ?? [])
 const stateOf = (id: string) => states.value.find((s) => s.id === id)
 const running = computed(() => services.value.filter((s) => stateOf(s.id)?.status === 'running'))
-/** Ativos primeiro, depois os outros na ordem cadastrada */
-const ordered = computed(() => [...running.value, ...services.value.filter((s) => stateOf(s.id)?.status !== 'running')])
+/** Ativos primeiro, depois os outros na ordem cadastrada; a busca filtra por nome, porta ou comando */
+const ordered = computed(() => {
+  const all = [...running.value, ...services.value.filter((s) => stateOf(s.id)?.status !== 'running')]
+  const words = plain(query.value).split(/\s+/).filter(Boolean)
+  if (!words.length) return all
+  return all.filter((s) => {
+    const hay = plain(`${s.name} ${s.command} ${(stateOf(s.id)?.ports ?? []).map((p) => `:${p}`).join(' ')}`)
+    return words.every((w) => hay.includes(w))
+  })
+})
+function toggle() {
+  open.value = !open.value
+  if (!open.value) return
+  query.value = ''
+  setTimeout(() => searchEl.value?.focus(), 30)
+}
 
 async function start(s: Service) {
   busy.value = s.id
@@ -55,7 +72,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="root" class="services nodrag">
-    <button class="ghost icon" :class="{ on: open, live: running.length }" :title="running.length ? `${running.length} serviço(s) rodando` : 'Serviços'" @click="open = !open">
+    <button class="ghost icon" :class="{ on: open, live: running.length }" :title="running.length ? `${running.length} serviço(s) rodando` : 'Serviços'" @click="toggle">
       <Icon name="server" />
       <span v-if="running.length" class="count">{{ running.length }}</span>
     </button>
@@ -64,7 +81,13 @@ onUnmounted(() => {
         <strong>Serviços</strong>
         <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
       </div>
+      <label v-if="services.length > 3" class="search">
+        <Icon name="search" :size="13" class="faint" />
+        <input ref="searchEl" v-model="query" type="text" placeholder="Buscar por nome, porta ou comando" spellcheck="false" @keydown.esc="open = false" />
+      </label>
+      <div class="rows">
       <p v-if="!services.length" class="faint none">Nenhum serviço cadastrado.</p>
+      <p v-else-if="!ordered.length" class="faint none">Nenhum serviço com esse nome.</p>
       <div v-for="s in ordered" :key="s.id" class="row" :class="stateOf(s.id)?.status">
         <span class="dot" :class="stateOf(s.id)?.status" />
         <span class="text">
@@ -77,6 +100,7 @@ onUnmounted(() => {
         <button v-if="stateOf(s.id)?.status === 'running'" type="button" class="ghost icon small" title="Parar" :disabled="busy === s.id" @click="stop(s)"><Icon name="stop" :size="13" /></button>
         <button v-else type="button" class="ghost icon small play" title="Iniciar" :disabled="busy === s.id" @click="start(s)"><Icon name="play" :size="13" /></button>
         <button type="button" class="ghost icon small" title="Ver o terminal" @click="api.serviceOpenWindow(s.id)"><Icon name="terminal" :size="13" /></button>
+      </div>
       </div>
       <button type="button" class="ghost item" @click="manage"><Icon name="settings" :size="13" /> Gerenciar serviços…</button>
     </div>
@@ -103,6 +127,10 @@ onUnmounted(() => {
 .head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 10px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .head strong { font-size: 13px; }
 .head small { font-size: 11.5px; }
+.search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; margin: 0 0 4px; border-bottom: 1px solid var(--border); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12.5px; color: var(--text); }
+.search input:focus { box-shadow: none; }
+.rows { max-height: min(60vh, 520px); overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .none { margin: 8px 10px 10px; font-size: 12.5px; }
 .row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; min-width: 0; }
 .row:hover { background: var(--hover); }
