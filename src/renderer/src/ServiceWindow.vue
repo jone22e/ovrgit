@@ -258,35 +258,4 @@ onUnmounted(() => offs.forEach((f) => f()))
 .stop { color: var(--del); border-color: color-mix(in srgb, var(--del) 45%, var(--border)); }
 .term { flex: 1; min-height: 0; position: relative; padding: 8px 4px 8px 10px; }
 .term :deep(.xterm) { height: 100%; }
-
-/* modo interativo */
-.log { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.log-bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
-.cnt { margin-left: 4px; padding: 0 5px; border-radius: 999px; font-family: var(--mono); font-size: 10px; }
-.cnt.warn { background: color-mix(in srgb, var(--mod) 20%, transparent); color: var(--mod); }
-.cnt.error { background: color-mix(in srgb, var(--del) 20%, transparent); color: var(--del); }
-.search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); width: min(320px, 40%); }
-.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12.5px; color: var(--text); }
-.search input:focus { box-shadow: none; }
-.log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
-.none { margin: 20px 0; text-align: center; }
-.row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
-.row-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
-/* copiar: discreto, só ao passar o mouse na linha */
-.copy { width: 22px; height: 22px; border-radius: 6px; color: var(--faint); opacity: 0; transition: opacity 0.1s; }
-.row:hover .copy, .copy.done { opacity: 1; }
-.copy:hover { color: var(--text); }
-.copy.done { color: var(--add); }
-.row.json { cursor: pointer; }
-.row:hover { background: var(--hover); }
-.row.open { background: var(--panel); }
-.row.warn { background: color-mix(in srgb, var(--mod) 6%, transparent); }
-.row.error, .row.fatal { background: color-mix(in srgb, var(--del) 7%, transparent); }
-.time { color: var(--faint); font-size: 11.5px; padding-top: 1px; }
-.lvl { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding-top: 2px; color: var(--faint); }
-.lvl.info { color: var(--accent); }
-.lvl.warn { color: var(--mod); }
-.lvl.error, .lvl.fatal { color: var(--del); }
-.lvl.debug, .lvl.trace { color: var(--faint); }
-.msg { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.text { white-sp
+</style>
