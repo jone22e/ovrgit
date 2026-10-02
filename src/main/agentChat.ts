@@ -39,6 +39,8 @@ interface AgentWin {
   snap?: AgentSnapshot
   /** Último aviso de serviços em execução enviado (Codex/Antigravity só recebem de novo quando muda) */
   lastServices?: string
+  /** Última nota de espaço de trabalho enviada (Codex e Antigravity só recebem de novo quando muda) */
+  lastWorkspace?: string
 }
 
 const wins = new Map<string, AgentWin>()
@@ -52,7 +54,8 @@ const PROVIDER_NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'C
 const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
 
 function title(info: AgentWindowInfo) {
-  return `${info.title ? `${info.title} · ` : ''}${PROVIDER_NAME[info.provider]} · ${info.project}`
+  const extra = info.extraDirs?.length ? ` +${info.extraDirs.length}` : ''
+  return `${info.title ? `${info.title} · ` : ''}${PROVIDER_NAME[info.provider]} · ${info.project}${extra}`
 }
 
 async function currentBranch(cwd: string): Promise<string | null> {
@@ -161,6 +164,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     ...opts,
     uid,
     project: path.basename(opts.cwd),
+    extraDirs: (opts.extraDirs ?? prev?.extraDirs ?? []).filter((d) => d !== opts.cwd && existsSync(d)),
     branch: await currentBranch(opts.cwd),
     sessionId: opts.resumeId ?? null,
     running: false,
@@ -633,7 +637,7 @@ export function claudeInputMessage(text: string, images: AgentAttachment[]): str
 
 // ---------- argumentos dos CLIs ----------
 
-export function claudeArgs(o: AgentSendOptions & { resume: string | null; images?: number; instructions?: string }): string[] {
+export function claudeArgs(o: AgentSendOptions & { resume: string | null; images?: number; instructions?: string; addDirs?: string[] }): string[] {
   // entrada em stream-json: o pedido vai como mensagem JSON (texto + imagens) e o stdin fica aberto durante
   // a resposta, para entregar outra mensagem no meio dela sem interromper (o modelo a recebe no próximo passo)
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
@@ -644,6 +648,8 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   if (o.mode === 'full') args.push('--dangerously-skip-permissions')
   else args.push('--permission-mode', isPlanMode(o.mode) ? 'plan' : 'acceptEdits')
   if (o.resume) args.push('--resume', o.resume)
+  // outros repositórios do espaço de trabalho: o Claude pode ler e editar neles sem pedir
+  for (const d of o.addDirs ?? []) args.push('--add-dir', d)
   return args
 }
 
@@ -724,7 +730,7 @@ export function normalizeMode(m: unknown): AgentMode {
   return m === 'full' || m === 'plan' || m === 'checklist' ? m : 'safe'
 }
 
-export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[] }): string[] {
+export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; writableRoots?: string[] }): string[] {
   const args = ['exec']
   if (o.resume) args.push('resume')
   args.push('--json', '--skip-git-repo-check')
@@ -734,7 +740,11 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
   // Controle Total e os modos Plano rodam sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs)
   // e no Plano o que impede alterações é a instrução de só planejar, não o sandbox
   if (o.mode === 'full' || isPlanMode(o.mode)) args.push('--dangerously-bypass-approvals-and-sandbox')
-  else args.push('-c', 'sandbox_mode="workspace-write"')
+  else {
+    args.push('-c', 'sandbox_mode="workspace-write"')
+    // outros repositórios do espaço de trabalho também podem ser editados dentro do sandbox
+    if (o.writableRoots?.length) args.push('-c', `sandbox_workspace_write.writable_roots=[${o.writableRoots.map((d) => JSON.stringify(d)).join(',')}]`)
+  }
   if (o.resume) args.push(o.resume)
   args.push('-') // o pedido vai pelo stdin
   return args
@@ -1123,12 +1133,18 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const servicesChanged = services !== (w.lastServices ?? '')
   w.lastServices = services
   const servicesBlock = services && provider !== 'claude' && (servicesChanged || !w.info.sessionId) ? `${services}\n\n` : ''
+  // espaço de trabalho com vários repositórios: Claude recebe --add-dir e a nota a cada pedido; os outros, a nota
+  // no primeiro pedido e quando a lista muda
+  const workspace = workspaceNote(w.info)
+  const workspaceChanged = workspace !== (w.lastWorkspace ?? '')
+  w.lastWorkspace = workspace
+  const workspaceBlock = workspace && provider !== 'claude' && (workspaceChanged || !w.info.sessionId) ? `${workspace}\n\n` : ''
   // Codex e Antigravity: as instruções do usuário e o formato de perguntas entram no primeiro pedido da sessão
   // (a sessão guarda o histórico)
   const intro =
     (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : '') + servicesBlock
+      : '') + workspaceBlock + servicesBlock
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
@@ -1143,9 +1159,9 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...clean, images: inlineImages.length, instructions: [instructions, artifacts, services].filter(Boolean).join('\n\n') })
+      ? claudeArgs({ ...clean, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
-        ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path) })
+        ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path), writableRoots: w.info.extraDirs })
         : agyArgs({ ...clean, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)
@@ -1439,6 +1455,41 @@ export async function setCwd(uid: string, cwd: string): Promise<AgentWindowInfo>
   if (lastAgent) lastAgent = { ...lastAgent, cwd }
   broadcastWindows()
   return w.info
+}
+
+/**
+ * Outros repositórios do espaço de trabalho da conversa. Pode mudar a qualquer momento: o Claude recebe
+ * `--add-dir` a cada pedido; Codex e Antigravity recebem a lista no prompt quando ela muda.
+ */
+export function setExtraDirs(uid: string, dirs: string[]): AgentWindowInfo {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  const clean: string[] = []
+  for (const d of dirs) {
+    if (d === w.info.cwd || clean.includes(d)) continue
+    if (!existsSync(d) || !statSync(d).isDirectory()) throw new Error(`Pasta não encontrada: ${d}`)
+    clean.push(d)
+  }
+  w.info.extraDirs = clean.slice(0, 12)
+  if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+  broadcastWindows()
+  return w.info
+}
+
+/**
+ * Espaço de trabalho com vários repositórios, para o agente: o principal (pasta de trabalho) e os outros,
+ * com caminho absoluto. Vazio quando a conversa só tem o repositório principal.
+ */
+export function workspaceNote(info: AgentWindowInfo): string {
+  if (!info.extraDirs?.length) return ''
+  const others = info.extraDirs.map((d) => `- ${path.basename(d)}: ${d}`).join('\n')
+  return `<espaco_de_trabalho>
+Esta conversa trabalha em vários repositórios ao mesmo tempo. O principal (pasta de trabalho atual) é
+${info.project}: ${info.cwd}. Os outros, que você também deve ler e editar quando a tarefa pedir, usando
+caminhos absolutos:
+${others}
+Quando uma mudança envolver mais de um repositório, diga em qual deles cada alteração foi feita.
+</espaco_de_trabalho>`
 }
 
 /** Desfaz "Nova conversa": a janela volta à anterior. Só enquanto a nova ainda não começou. */

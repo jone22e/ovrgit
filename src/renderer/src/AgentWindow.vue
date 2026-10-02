@@ -833,6 +833,23 @@ async function pickRepo() {
   const p = await api.agentPickCwd(uid).catch(() => null)
   if (p) await switchRepo(p)
 }
+/** Outros repositórios do espaço de trabalho (a IA vê todos): pode mudar a qualquer momento */
+async function setExtraDirs(dirs: string[]) {
+  if (!info.value) return
+  try {
+    const i = await api.agentSetExtraDirs(uid, dirs)
+    info.value = { ...info.value, extraDirs: i.extraDirs }
+  } catch (e) {
+    attachError.value = clean(e)
+  }
+}
+const addDir = (p: string) => setExtraDirs([...(info.value?.extraDirs ?? []), p])
+const removeDir = (p: string) => setExtraDirs((info.value?.extraDirs ?? []).filter((d) => d !== p))
+async function pickExtraDir() {
+  const p = await api.agentPickCwd(uid).catch(() => null)
+  if (p && p !== info.value?.cwd) await addDir(p)
+  box.value?.focus()
+}
 async function backToPrevious() {
   if (!(await api.agentBack(uid).catch(() => false))) return
   sessionStorage.removeItem(STORE)
@@ -1359,7 +1376,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
         <span class="sub ellipsis">
           {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }} ·
-          <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" />
+          <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" :extra="info.extraDirs" extensible @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
           <template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
         </span>
       </div>
@@ -1397,11 +1414,12 @@ onUnmounted(() => offs.forEach((f) => f()))
         <h2 class="ask">
           O que você quer fazer em
           <span class="ask-repo">
-            <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" big center @choose="switchRepo" @pick="pickRepo" />
+            <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
             <template v-else>este projeto</template>?
           </span>
         </h2>
-        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar antes de começar.</p>
+        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar antes de começar, ou para juntar outros repositórios à mesma conversa.</p>
+        <p v-else-if="!info?.extraDirs?.length" class="faint hint-repo">Clique no repositório para juntar outros à conversa: a IA vê e edita todos.</p>
         <p class="faint">
           O agente trabalha direto na pasta do projeto, como no app do {{ providerName }}. Enter envia; Shift+Enter quebra a linha.
         </p>

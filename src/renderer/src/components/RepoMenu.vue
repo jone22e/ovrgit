@@ -3,8 +3,9 @@ import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 
 /**
- * Repositório da conversa do agente: um chip em destaque com a pasta. Enquanto a conversa não começou, o chip
- * abre a lista de repositórios recentes (os do seletor de projeto) para trocar, ou escolher outra pasta.
+ * Repositórios da conversa do agente: um chip em destaque com a pasta principal e, se houver, os outros do
+ * espaço de trabalho ("flexi2 + separador"). A lista de repositórios recentes (os do seletor de projeto) troca
+ * o principal enquanto a conversa não começou, e adiciona ou tira os outros a qualquer momento.
  */
 const props = defineProps<{
   /** Pasta atual */
@@ -13,12 +14,16 @@ const props = defineProps<{
   project: string
   /** Pode trocar: a conversa ainda não recebeu a primeira mensagem */
   switchable: boolean
+  /** Outros repositórios do espaço de trabalho */
+  extra?: string[]
+  /** Pode adicionar e tirar outros repositórios */
+  extensible?: boolean
   /** Lista centralizada abaixo do chip (estado vazio); senão alinhada à esquerda (cabeçalho) */
   center?: boolean
   /** Chip maior, no título do estado vazio */
   big?: boolean
 }>()
-const emit = defineEmits<{ choose: [path: string]; pick: [] }>()
+const emit = defineEmits<{ choose: [path: string]; pick: []; add: [path: string]; remove: [path: string]; pickExtra: [] }>()
 const api = window.ovseer
 
 const open = ref(false)
@@ -42,8 +47,10 @@ const icons = reactive(new Map<string, string | null>())
 const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 const dir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
 
+const canOpen = () => props.switchable || !!props.extensible
+const inExtra = (p: string) => (props.extra ?? []).includes(p)
 async function toggle() {
-  if (!props.switchable) return
+  if (!canOpen()) return
   open.value = !open.value
   if (!open.value) return
   place()
@@ -55,8 +62,21 @@ async function toggle() {
   }
 }
 function choose(p: string) {
+  if (p === props.cwd) return (open.value = false)
+  if (props.switchable) {
+    open.value = false
+    emit('choose', p)
+  } else if (props.extensible) toggleExtra(p)
+}
+/** Entra ou sai do espaço de trabalho (a lista fica aberta para marcar vários) */
+function toggleExtra(p: string) {
+  if (!props.extensible || p === props.cwd) return
+  if (inExtra(p)) emit('remove', p)
+  else emit('add', p)
+}
+function pickExtra() {
   open.value = false
-  if (p !== props.cwd) emit('choose', p)
+  emit('pickExtra')
 }
 function pick() {
   open.value = false
@@ -70,7 +90,7 @@ const onResize = () => open.value && place()
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && open.value) open.value = false
 }
-watch(() => props.switchable, (s) => !s && (open.value = false))
+watch(() => props.switchable || !!props.extensible, (s) => !s && (open.value = false))
 onMounted(() => {
   document.addEventListener('mousedown', onDoc)
   window.addEventListener('keydown', onKey)
@@ -88,20 +108,29 @@ onUnmounted(() => {
     <button
       type="button"
       class="repo"
-      :class="{ on: open, static: !switchable }"
-      :disabled="!switchable"
-      :title="switchable ? `${cwd}\nClique para trocar o repositório` : cwd"
+      :class="{ on: open, static: !canOpen() }"
+      :disabled="!canOpen()"
+      :title="switchable ? `${cwd}\nClique para trocar o repositório ou juntar outros` : extensible ? `${cwd}\nClique para juntar outros repositórios à conversa` : cwd"
       @click="toggle"
     >
       <Icon name="folder" :size="big ? 16 : 11" />
       <span class="ellipsis">{{ project }}</span>
-      <Icon v-if="switchable" name="chevron" :size="big ? 12 : 10" class="chev" />
+      <Icon v-if="canOpen() && !extra?.length" name="chevron" :size="big ? 12 : 10" class="chev" />
     </button>
+    <!-- os outros repositórios do espaço de trabalho: "+ nome", cada um com um × para tirar -->
+    <template v-for="p in extra ?? []" :key="p">
+      <span class="plus" aria-hidden="true">+</span>
+      <span class="repo more" :class="{ static: !extensible }" :title="p">
+        <span class="ellipsis">{{ base(p) }}</span>
+        <button v-if="extensible" type="button" class="rm" title="Tirar este repositório da conversa" @click.stop="emit('remove', p)"><Icon name="x" :size="big ? 11 : 9" /></button>
+      </span>
+    </template>
     <Teleport to="body">
       <div v-if="open" ref="popEl" class="pop" :class="{ big }" role="menu" :style="popStyle">
-      <h6>Trabalhar no repositório</h6>
+      <h6>{{ switchable ? 'Repositório principal' : 'Repositórios da conversa' }}</h6>
+      <p v-if="extensible" class="faint hint">{{ switchable ? 'Clique para trocar o principal; o + junta outros repositórios à mesma conversa.' : 'O + junta outros repositórios à conversa: a IA vê e edita todos.' }}</p>
       <div class="list">
-        <button v-for="p in projects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd }" :title="p" @click="choose(p)">
+        <button v-for="p in projects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd, in: inExtra(p) }" :title="p" @click="choose(p)">
           <img v-if="icons.get(p)" :src="icons.get(p)!" class="fav" alt="" />
           <Icon v-else name="folder" :size="14" class="faint" />
           <span class="opt-text">
@@ -109,18 +138,34 @@ onUnmounted(() => {
             <small class="ellipsis">{{ dir(p) }}</small>
           </span>
           <Icon v-if="p === cwd" name="check" :size="14" class="ok" />
+          <span v-else-if="extensible" class="add" :class="{ on: inExtra(p) }" :title="inExtra(p) ? 'Tirar da conversa' : 'Juntar à conversa'" @click.stop="toggleExtra(p)">
+            <Icon :name="inExtra(p) ? 'check' : 'plus'" :size="12" />
+          </span>
         </button>
         <p v-if="!projects.length" class="faint none">Nenhum repositório recente.</p>
       </div>
       <hr class="sep" />
-      <button type="button" class="ghost opt" @click="pick"><Icon name="plus" :size="14" class="faint" /><strong>Outra pasta…</strong></button>
+      <button v-if="switchable" type="button" class="ghost opt" @click="pick"><Icon name="folder" :size="14" class="faint" /><strong>Outra pasta como principal…</strong></button>
+      <button v-if="extensible" type="button" class="ghost opt" @click="pickExtra"><Icon name="plus" :size="14" class="faint" /><strong>Juntar outra pasta…</strong></button>
       </div>
     </Teleport>
   </span>
 </template>
 
 <style scoped>
-.repo-menu { position: relative; display: inline-flex; min-width: 0; vertical-align: baseline; -webkit-app-region: no-drag; }
+.repo-menu { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; vertical-align: baseline; -webkit-app-region: no-drag; }
+.plus { color: var(--faint); font-weight: 600; }
+.big .plus { font-size: 17px; }
+.repo.more { gap: 3px; padding-right: 4px; }
+.repo.more.static { padding-right: 6px; }
+.rm { display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--faint); cursor: pointer; }
+.rm:hover { color: var(--del); background: color-mix(in srgb, var(--del) 15%, transparent); }
+.big .rm { width: 18px; height: 18px; }
+.hint { margin: 0 10px 6px; font-size: 11.5px; line-height: 1.35; }
+.opt.in { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.add { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--faint); flex: none; }
+.add:hover { color: var(--accent); background: var(--accent-soft); }
+.add.on { color: var(--accent); }
 /* o chip: leve destaque sobre o resto do subtítulo */
 .repo {
   display: inline-flex; align-items: center; gap: 4px; height: 16px; padding: 0 6px; margin: 0 1px; min-width: 0; max-width: 100%;
@@ -134,6 +179,7 @@ onUnmounted(() => {
 /* o nome não encolhe antes do resto do subtítulo (só corta em nomes muito longos) */
 .repo .ellipsis { flex: none; max-width: 220px; }
 .big .repo { height: 30px; padding: 0 10px 0 8px; gap: 6px; margin: 0; border-radius: 9px; font-size: 17px; font-weight: 700; }
+.big .repo.more { padding: 0 6px 0 10px; }
 /* a lista vive no body (Teleport), com posição fixa calculada a partir do chip */
 .pop {
   position: fixed; z-index: 60; width: 300px; padding: 6px; box-sizing: border-box;

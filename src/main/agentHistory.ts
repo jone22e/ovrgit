@@ -79,6 +79,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status
     mode: info.mode,
     cwd: info.cwd,
     project: info.project,
+    extraDirs: info.extraDirs?.length ? info.extraDirs : undefined,
     title: info.title || titleOf(turns) || items[i]?.title || 'Conversa',
     renamed: info.renamed,
     pinned: items[i]?.pinned,

@@ -52,6 +52,10 @@ modelo local pelo Ollama.
 ### Agentes de IA
 
 - Janela própria para conversar com Claude Code, Codex (ChatGPT) e Antigravity, dentro da pasta do projeto.
+- Espaço de trabalho com vários repositórios: clique no chip do repositório para juntar outros à mesma conversa
+  (`flexi2 + separador`); a IA vê e edita todos ao mesmo tempo, com o principal como pasta de trabalho.
+- Arquivos gerados para o usuário (planilhas, PDFs, exportações) vão para `tmp/` do projeto, nunca misturados
+  com o código, e aparecem na conversa como um cartão com Abrir e Mostrar na pasta.
 - Escolha de modelo e esforço por conversa.
 - Modos de permissão, incluindo o modo Plano: o agente apresenta um plano para leitura e aprovação antes de
   executar. No modo Plano com Checklist, o plano termina com um checklist que aparece na janela e no gerenciador

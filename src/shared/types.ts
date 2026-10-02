@@ -383,6 +383,8 @@ export interface AgentChatOpen {
   effort: AgentEffort
   mode: AgentMode
   cwd: string
+  /** Outros repositórios do espaço de trabalho: o agente vê e edita todos ao mesmo tempo (cwd é o principal) */
+  extraDirs?: string[]
   /** Primeira tarefa, enviada assim que a janela abrir */
   firstMessage?: string
   /** Continuar uma conversa já existente (id da sessão do CLI) */
@@ -611,6 +613,8 @@ export interface AgentHistoryItem {
   mode: AgentMode
   cwd: string
   project: string
+  /** Outros repositórios do espaço de trabalho da conversa */
+  extraDirs?: string[]
   /** Título (da IA, do usuário, ou o primeiro pedido resumido) */
   title: string
   renamed?: boolean
@@ -986,6 +990,8 @@ export interface OvseerApi {
   agentProjects(): Promise<string[]>
   /** Diálogo para escolher outra pasta; null se cancelado */
   agentPickCwd(uid: string): Promise<string | null>
+  /** Define os outros repositórios do espaço de trabalho da conversa (pode mudar a qualquer momento) */
+  agentSetExtraDirs(uid: string, dirs: string[]): Promise<AgentWindowInfo>
   /** Traz para frente a janela da conversa; false se ela não foi aberta pelo Ovseer */
   agentFocus(sessionId: string): Promise<boolean>
   /** Ids das sessões com janela aberta no Ovseer */

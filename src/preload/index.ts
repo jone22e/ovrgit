@@ -230,6 +230,7 @@ const api: OvseerApi = {
   agentSetCwd: (uid, cwd) => ipcRenderer.invoke('agent:setCwd', uid, cwd),
   agentProjects: () => ipcRenderer.invoke('agent:projects'),
   agentPickCwd: (uid) => ipcRenderer.invoke('agent:pickCwd', uid),
+  agentSetExtraDirs: (uid, dirs) => ipcRenderer.invoke('agent:setExtraDirs', uid, dirs),
   agentSaveBlob: (uid, file) => ipcRenderer.invoke('agent:blob', uid, file),
   agentKeepFile: (uid, path) => ipcRenderer.invoke('agent:keepFile', uid, path),
   agentImage: (path) => ipcRenderer.invoke('agent:image', path),

@@ -583,6 +583,7 @@ function registerIpc() {
       effort: opts?.effort,
       mode: agentChat.normalizeMode(opts?.mode),
       cwd,
+      extraDirs: Array.isArray(opts?.extraDirs) ? opts.extraDirs.map(String).filter((d) => d !== cwd && existsSync(d)).slice(0, 12) : undefined,
       firstMessage: typeof opts?.firstMessage === 'string' ? opts.firstMessage.slice(0, 50000) : undefined,
       resumeId: typeof opts?.resumeId === 'string' && /^[\w-]{8,80}$/.test(opts.resumeId) ? opts.resumeId : undefined
     })
@@ -635,6 +636,7 @@ function registerIpc() {
   ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
   ipcMain.handle('agent:setCwd', (_e, uid: string, cwd: string) => agentChat.setCwd(String(uid), String(cwd ?? '')))
+  ipcMain.handle('agent:setExtraDirs', (_e, uid: string, dirs: string[]) => agentChat.setExtraDirs(String(uid), Array.isArray(dirs) ? dirs.map(String) : []))
   // repositórios recentes (os do seletor de projeto) para a janela do agente trocar de pasta antes de começar
   ipcMain.handle('agent:projects', () => getSettings().recentProjects.filter((p) => existsSync(p)))
   ipcMain.handle('agent:pickCwd', async (e, uid: string) => {
