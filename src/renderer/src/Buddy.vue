@@ -252,21 +252,42 @@ function onUp() {
 }
 
 // ---------- comer: arquivos arrastados e o que for colado ----------
-/** O arrastar sai de cima: `dragleave` dispara também ao passar entre elementos, então vale o silêncio de `dragover` */
+/**
+ * Enquanto algo é arrastado por cima, os `dragover` chegam de tempos em tempos (não a cada quadro), e abrir a
+ * ilha redimensiona a janela debaixo do arrasto, o que faz o sistema mandar um "saiu" e logo um "entrou".
+ * Por isso o "saiu" tem uma carência: só vale se nada chegar por um bom tempo; senão a ilha abria e fechava
+ * sem parar. E, se os eventos pararem de vez (o arrasto terminou fora), um vigia encerra.
+ */
+let leaveTimer: ReturnType<typeof setTimeout> | null = null
 let overTimer: ReturnType<typeof setTimeout> | null = null
-function onDragOver(e: DragEvent) {
-  e.preventDefault()
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+const LEAVE_GRACE_MS = 700
+const OVER_SILENCE_MS = 2000
+function arrive() {
+  if (leaveTimer) clearTimeout(leaveTimer)
+  leaveTimer = null
   if (!over.value) {
     over.value = true
     if (!expanded.value) api.buddyExpand(true)
   }
   if (overTimer) clearTimeout(overTimer)
-  overTimer = setTimeout(left, 250)
+  overTimer = setTimeout(left, OVER_SILENCE_MS)
+}
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  arrive()
+}
+function onDragLeave(e: DragEvent) {
+  // entre elementos da própria página não é sair
+  if (e.relatedTarget instanceof Node && (e.currentTarget as Node).contains(e.relatedTarget)) return
+  if (leaveTimer) clearTimeout(leaveTimer)
+  leaveTimer = setTimeout(left, LEAVE_GRACE_MS)
 }
 function left() {
   if (overTimer) clearTimeout(overTimer)
+  if (leaveTimer) clearTimeout(leaveTimer)
   overTimer = null
+  leaveTimer = null
   if (!over.value) return
   over.value = false
   // nada foi solto: encolhe (a não ser que esteja engolindo ou presa por clique)
@@ -275,7 +296,9 @@ function left() {
 function onDrop(e: DragEvent) {
   e.preventDefault()
   if (overTimer) clearTimeout(overTimer)
+  if (leaveTimer) clearTimeout(leaveTimer)
   overTimer = null
+  leaveTimer = null
   over.value = false
   const paths = [...(e.dataTransfer?.files ?? [])].map((f) => api.filePath(f)).filter(Boolean)
   if (!paths.length) {
@@ -311,6 +334,7 @@ onUnmounted(() => {
   if (happyTimer) clearTimeout(happyTimer)
   if (phaseTimer) clearInterval(phaseTimer)
   if (overTimer) clearTimeout(overTimer)
+  if (leaveTimer) clearTimeout(leaveTimer)
   if (hoverTimer) clearTimeout(hoverTimer)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('mouseup', onUp)
@@ -323,7 +347,9 @@ onUnmounted(() => {
     class="stage"
     :class="[mood, anim, { over, expanded }]"
     :style="{ width: `${geo.W}px`, height: `${geo.H}px`, '--k': geo.K }"
+    @dragenter.prevent="arrive"
     @dragover="onDragOver"
+    @dragleave="onDragLeave"
     @drop="onDrop"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
