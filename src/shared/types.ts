@@ -918,6 +918,12 @@ export interface OvseerApi {
   ovseerLogout(): Promise<OvseerStatus>
   /** Serviços em segundo plano */
   servicesStates(): Promise<ServiceState[]>
+  /** Exporta os serviços para um arquivo, sem caminhos deste computador (null: cancelado) */
+  servicesExport(): Promise<{ path: string; count: number } | null>
+  /** Abre um arquivo de serviços exportado; `root` é a pasta raiz sugerida para os repositórios */
+  servicesImportPick(): Promise<{ file: import('./servicesShare').ServicesFile; root: string } | null>
+  /** Pasta de cada serviço do arquivo neste computador, para a pasta raiz dada */
+  servicesImportResolve(file: import('./servicesShare').ServicesFile, root: string): Promise<import('./servicesShare').ImportedService[]>
   serviceStart(id: string): Promise<void>
   serviceStop(id: string): Promise<void>
   /** Abre (ou traz à frente) a janela com o terminal do serviço (desacoplado) */

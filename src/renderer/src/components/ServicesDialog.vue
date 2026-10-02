@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Service, ServiceState } from '@shared/types'
+import type { ImportedService, ServicesFile } from '@shared/servicesShare'
 import { api, openTerminalTab, saveSettings, state, toast } from '../store'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
@@ -25,6 +26,7 @@ const canSave = computed(() => !!name.value.trim() && !!command.value.trim())
 const plain = (list: Service[]): Service[] => JSON.parse(JSON.stringify(list))
 
 function openNew() {
+  importing.value = null
   editing.value = { id: '', name: '', command: '', cwd: state.repo?.root ?? '' }
   name.value = ''
   command.value = ''
@@ -32,6 +34,7 @@ function openNew() {
   setTimeout(() => nameEl.value?.focus(), 50)
 }
 function openEdit(s: Service) {
+  importing.value = null
   editing.value = s
   name.value = s.name
   command.value = s.command
@@ -54,6 +57,61 @@ async function save() {
 async function remove(s: Service) {
   if (stateOf(s.id)?.status === 'running') await api.serviceStop(s.id)
   await saveSettings({ services: plain(services.value.filter((x) => x.id !== s.id)) })
+  await load()
+}
+
+const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/** Exporta todos os serviços para um arquivo sem caminhos deste computador (pasta = repositório + caminho dentro dele) */
+async function exportAll() {
+  try {
+    const r = await api.servicesExport()
+    if (r) toast(`${r.count} ${r.count === 1 ? 'serviço exportado' : 'serviços exportados'}. Antes de compartilhar, confira se os comandos não têm senhas.`)
+  } catch (e) {
+    toast(errText(e))
+  }
+}
+
+// importação: o arquivo traz repositório + caminho; aqui o usuário confere as pastas deste computador antes de entrar
+const importing = ref<{ file: ServicesFile; root: string; items: ImportedService[]; picked: boolean[] } | null>(null)
+const importCount = computed(() => importing.value?.picked.filter(Boolean).length ?? 0)
+async function startImport() {
+  try {
+    const r = await api.servicesImportPick()
+    if (!r) return
+    editing.value = null
+    importing.value = { file: r.file, root: r.root, items: [], picked: [] }
+    await resolveImport()
+  } catch (e) {
+    toast(errText(e))
+  }
+}
+async function resolveImport() {
+  const im = importing.value
+  if (!im) return
+  try {
+    const items = await api.servicesImportResolve(JSON.parse(JSON.stringify(im.file)), im.root.trim())
+    im.items = items
+    im.picked = items.map((i) => !i.duplicate)
+  } catch (e) {
+    toast(errText(e))
+  }
+}
+async function pickImportRoot() {
+  const im = importing.value
+  if (!im) return
+  const p = await api.pickFolder(im.root || state.repo?.root || '')
+  if (!p) return
+  im.root = p
+  await resolveImport()
+}
+async function confirmImport() {
+  const im = importing.value
+  if (!im || !importCount.value) return
+  const add: Service[] = im.items.filter((_, i) => im.picked[i]).map((i) => ({ id: crypto.randomUUID(), name: i.name, command: i.command, cwd: i.cwd }))
+  await saveSettings({ services: plain([...services.value, ...add]) })
+  importing.value = null
+  toast(`${add.length} ${add.length === 1 ? 'serviço importado' : 'serviços importados'}`)
   await load()
 }
 
@@ -130,6 +188,36 @@ onUnmounted(() => offs.forEach((f) => f()))
       </div>
     </div>
 
+    <div v-if="importing" class="form">
+      <h6>Importar serviços</h6>
+      <div class="field">
+        <label for="svc-root">Pasta dos seus repositórios</label>
+        <div class="row">
+          <input id="svc-root" v-model="importing.root" type="text" class="mono" spellcheck="false" @change="resolveImport" />
+          <button type="button" @click="pickImportRoot">Escolher…</button>
+        </div>
+        <p class="faint hint">Cada serviço aponta para o repositório dele dentro desta pasta. Os projetos que você já abriu no Ovseer são encontrados onde estiverem.</p>
+      </div>
+      <div class="imp-list">
+        <label v-for="(it, i) in importing.items" :key="i" class="imp-item">
+          <input v-model="importing.picked[i]" type="checkbox" />
+          <span class="text">
+            <span class="line">
+              <strong class="ellipsis">{{ it.name }}</strong>
+              <small v-if="it.duplicate" class="faint">já existe</small>
+              <small v-else-if="!it.exists" class="imp-warn">pasta não encontrada</small>
+              <small v-else-if="it.via === 'project'" class="ok">projeto encontrado</small>
+            </span>
+            <small class="mono faint ellipsis" :title="it.cwd">{{ it.cwd || 'sua pasta de usuário' }}</small>
+          </span>
+        </label>
+      </div>
+      <div class="form-acts">
+        <button type="button" class="ghost" @click="importing = null">Cancelar</button>
+        <button type="button" class="primary" :disabled="!importCount" @click="confirmImport">Importar {{ importCount || '' }}</button>
+      </div>
+    </div>
+
     <div v-if="services.length" class="list">
       <div v-for="s in services" :key="s.id" class="item" :class="stateOf(s.id)?.status">
         <span class="dot" :class="stateOf(s.id)?.status" />
@@ -159,10 +247,13 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
     </div>
-    <p v-else-if="!editing" class="faint none">Nenhum serviço ainda.</p>
+    <p v-else-if="!editing && !importing" class="faint none">Nenhum serviço ainda.</p>
 
     <template #footer>
-      <button v-if="!editing" type="button" @click="openNew"><Icon name="plus" :size="13" /> Adicionar serviço</button>
+      <button v-if="!editing && !importing" type="button" @click="openNew"><Icon name="plus" :size="13" /> Adicionar serviço</button>
+      <!-- importar aparece também no formulário de "novo serviço" (é o que abre para quem ainda não tem nenhum) -->
+      <button v-if="!importing && !editing?.id" type="button" class="ghost" title="Importar serviços de um arquivo exportado; as pastas são trocadas pelas deste computador" @click="startImport">Importar…</button>
+      <button v-if="!editing && !importing && services.length" type="button" class="ghost" title="Exportar os serviços para um arquivo, com as pastas relativas aos repositórios" @click="exportAll">Exportar…</button>
       <span class="spacer" />
       <button type="button" class="ghost" @click="emit('close')">Fechar</button>
     </template>
@@ -179,6 +270,10 @@ onUnmounted(() => offs.forEach((f) => f()))
 .row { display: flex; gap: 8px; }
 .row input { flex: 1; min-width: 0; }
 .form-acts { display: flex; justify-content: flex-end; gap: 8px; }
+.imp-list { display: flex; flex-direction: column; gap: 1px; max-height: 260px; overflow-y: auto; margin: 0 -6px; }
+.imp-item { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
+.imp-item:hover { background: var(--hover); }
+.imp-warn { color: var(--mod); }
 .list { display: flex; flex-direction: column; gap: 2px; }
 .item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; }
 .item:hover { background: var(--hover); }

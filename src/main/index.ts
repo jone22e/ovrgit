@@ -39,6 +39,8 @@ import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
+import * as servicesShare from './servicesShare'
+import type { ServicesFile } from '../shared/servicesShare'
 
 let win: BrowserWindow | null = null
 let root: string | null = null
@@ -709,6 +711,9 @@ function registerIpc() {
   })
   // serviços em segundo plano (menu do usuário → Serviços)
   ipcMain.handle('services:states', () => services.serviceStates())
+  ipcMain.handle('services:export', () => servicesShare.exportToFile(win!))
+  ipcMain.handle('services:importPick', () => servicesShare.pickImport(win!))
+  ipcMain.handle('services:importResolve', (_e, file: ServicesFile, root: string) => servicesShare.resolveImport(file, String(root ?? '')))
   ipcMain.handle('services:start', (_e, id: string) => services.startService(String(id)))
   ipcMain.handle('services:stop', (_e, id: string) => services.stopService(String(id)))
   ipcMain.handle('services:openWindow', (_e, id: string) => services.openServiceWindow(String(id)))
