@@ -118,6 +118,23 @@ Responda exatamente neste formato, em tópicos de uma linha (no máximo 5 por se
 Dúvidas e decisões em aberto vão na seção "Decisões e dúvidas" (não use o formato de perguntas ao usuário nesta etapa).
 Na última linha, sozinha, escreva "[interface] sim" se o pedido envolve tela ou front-end, ou "[interface] não" se não envolve.`
 
+/**
+ * Descoberta no Codex: o `exec` não tem modo de colaboração, então a regra de só ler vai por instrução. É um bloco
+ * próprio: o do Modo Plano comum pede "um plano detalhado e completo", o contrário do que a descoberta precisa.
+ */
+export const CODEX_DISCOVERY = `<collaboration_mode>
+# Modo Arquiteto: descoberta
+
+Nesta etapa você só lê: NÃO edite, crie ou apague arquivos, não rode comandos que alterem algo e não execute a
+tarefa. Não escreva um plano de implementação. Responda em português do Brasil.
+
+${ARCH_DISCOVERY}
+
+Não pergunte se deve seguir: quando o resumo terminar, o próprio app pergunta ao usuário se o entendimento está certo.
+</collaboration_mode>
+
+`
+
 const INTERFACE_RE = /^[ \t]*\[interface\][ \t]*(sim|n[aã]o|yes|no)\b[^\n]*$/im
 
 /** O que a descoberta disse sobre haver interface (indefinido se não disse) */
@@ -188,6 +205,20 @@ export function extractHtml(text: string): string {
   return start >= 0 ? text.slice(start).replace(/```\s*$/, '').trim() : ''
 }
 
+/**
+ * Tira do HTML do conceito o que executa ou navega sozinho: scripts, redirecionamento por meta e <base>.
+ * Vale para a prévia e para o que fica guardado (as versões e o arquivo do conceito aprovado, que o usuário
+ * pode abrir no navegador).
+ */
+export function cleanDesignHtml(html: string): string {
+  return html
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+    .replace(/<script\b[^>]*\/?>/gi, '')
+    .replace(/<meta[^>]+http-equiv=["']?refresh["']?[^>]*>/gi, '')
+    .replace(/<base\b[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+}
+
 /** O que o agente de design disse antes do HTML (o resumo do que fez), limpo e curto */
 export function extractSummary(text: string): string {
   const cut = text.search(/```|<!doctype html|<html[\s>]/i)
@@ -199,11 +230,7 @@ export function extractSummary(text: string): string {
  * política de conteúdo que impede qualquer carga de fora (o documento veio de uma IA e roda isolado, sem scripts).
  */
 export function previewDocument(input: string): string {
-  // nada que execute ou navegue sozinho: scripts, redirecionamento por meta e <base>
-  const html = input
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<meta[^>]+http-equiv=["']?refresh["']?[^>]*>/gi, '')
-    .replace(/<base\b[^>]*>/gi, '')
+  const html = cleanDesignHtml(input)
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">`
   if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${csp}`)
   if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${csp}</head>`)

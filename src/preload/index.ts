@@ -296,6 +296,8 @@ const api: OvseerApi = {
   designOpen: (uid) => ipcRenderer.invoke('design:open', uid),
   designPush: (uid, state) => ipcRenderer.send('design:push', uid, state),
   designState: (uid) => ipcRenderer.invoke('design:state', uid),
+  designIsOpen: (uid) => ipcRenderer.invoke('design:isOpen', uid),
+  designClose: (uid) => ipcRenderer.invoke('design:close', uid),
   designAct: (uid, action) => ipcRenderer.invoke('design:act', uid, action),
   onDesignState: (cb) => {
     const h = (_e: unknown, uid: string, st: DesignWindowState) => cb(uid, st)

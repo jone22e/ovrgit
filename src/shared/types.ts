@@ -601,6 +601,8 @@ export interface AgentSnapshot {
   ask?: AgentAsk
   /** Checklist da implementação em andamento (ou da última), para o gerenciador */
   checklist?: ChecklistItem[]
+  /** O que a conversa espera do usuário quando não há cartão para responder (ex.: aprovar o conceito visual) */
+  note?: string
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean
@@ -1051,6 +1053,8 @@ export interface OvseerApi {
   designOpen(uid: string): Promise<void>
   designPush(uid: string, state: DesignWindowState): void
   designState(uid: string): Promise<DesignWindowState | null>
+  designIsOpen(uid: string): Promise<boolean>
+  designClose(uid: string): Promise<void>
   designAct(uid: string, action: DesignAction): Promise<void>
   onDesignState(cb: (uid: string, state: DesignWindowState) => void): () => void
   onDesignAct(cb: (uid: string, action: DesignAction) => void): () => void

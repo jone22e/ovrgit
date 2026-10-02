@@ -649,6 +649,8 @@ function registerIpc() {
   ipcMain.handle('design:open', (_e, uid: string) => agentChat.openDesignWindow(String(uid)))
   ipcMain.on('design:push', (_e, uid: string, state: DesignWindowState) => agentChat.pushDesignState(String(uid), state))
   ipcMain.handle('design:state', (_e, uid: string) => agentChat.designState(String(uid)))
+  ipcMain.handle('design:close', (_e, uid: string) => agentChat.closeDesignWindow(String(uid)))
+  ipcMain.handle('design:isOpen', (_e, uid: string) => agentChat.designWindowOpen(String(uid)))
   ipcMain.handle('design:act', (_e, uid: string, action: DesignAction) => agentChat.actOnDesign(String(uid), action))
   ipcMain.handle('design:cancel', (_e, uid: string) => agentChat.cancelDesign(String(uid)))
   ipcMain.handle('design:save', (_e, uid: string, html: string, name: string) => agentChat.saveDesign(String(uid), String(html ?? ''), String(name ?? 'conceito.html')))

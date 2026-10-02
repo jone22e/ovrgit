@@ -15,7 +15,7 @@ import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
 import { findArtifacts } from '@shared/artifacts'
-import { ARCH_PHASES, archPlanRequest, designRequest, extractHtml, extractSummary, hasInterface, stripArchMarkers, type ArchPhase, type ArchState, type DesignAction, type DesignWindowState } from '@shared/architect'
+import { ARCH_PHASES, archPlanRequest, cleanDesignHtml, designRequest, extractHtml, extractSummary, hasInterface, stripArchMarkers, type ArchPhase, type ArchState, type DesignAction, type DesignWindowState } from '@shared/architect'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
 import FileCard from './components/FileCard.vue'
@@ -948,7 +948,6 @@ let pushTimer: ReturnType<typeof setTimeout> | undefined
 watch(
   [() => arch.value?.design, designRunning, designLive, designActs, designError, chatTitle],
   () => {
-    if (!designOpen.value) return
     clearTimeout(pushTimer)
     pushTimer = setTimeout(pushDesign, 120)
   },
@@ -1014,7 +1013,8 @@ function onDesignEvent(ev: AgentChatEvent) {
     designLiveTimer = undefined
     designRunning.value = false
     designActivity.value = ''
-    const html = extractHtml(designText)
+    // o que fica guardado (e vai para o arquivo do conceito) sai sem nada que execute
+    const html = cleanDesignHtml(extractHtml(designText))
     if (ev.ok && html) {
       d.versions.push({ html, note: designNote, at: Date.now(), target: designTarget || undefined, attachments: designFiles.length ? designFiles : undefined, summary: extractSummary(designText) || undefined, activity: designActs.value.length ? designActs.value : undefined })
       d.current = d.versions.length - 1
@@ -1040,6 +1040,8 @@ async function approveDesign() {
     return
   }
   d.approved = d.current
+  // conceito aprovado: a janela de design fecha; o trabalho segue na conversa (o botão Design a reabre para consulta)
+  api.designClose(uid).catch(() => undefined)
   await startArchPlan(d.file)
 }
 /** Caminho do conceito como o agente e a conversa veem: relativo à pasta do projeto, quando está dentro dela */
@@ -1052,6 +1054,7 @@ function skipDesign() {
   const d = arch.value?.design
   if (!d || designRunning.value) return
   d.approved = 'skipped'
+  api.designClose(uid).catch(() => undefined)
   startArchPlan()
 }
 
@@ -1582,6 +1585,8 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     checks: last && !last.running ? checksOf(last.blocks, paths) : undefined,
     ask,
     checklist: checklist.value ? checklist.value.map((i) => ({ ...i })) : undefined,
+    // Modo Arquiteto: o conceito visual espera aprovação na janela de design (não há cartão para o gerenciador mostrar)
+    note: !ask && arch.value?.phase === 'concept' && arch.value.design?.approved === undefined && !designRunning.value ? 'Conceito visual aguardando a sua aprovação, na janela de design' : undefined,
     canPin: !!sessionId.value && turns.length > 0,
     pinned: pinned.value
   }
@@ -1720,6 +1725,14 @@ onMounted(async () => {
   chatTitle.value = i.title
   sessionId.value = i.sessionId
   await restore(i)
+  // Modo Arquiteto: conversa reaberta volta no modo da etapa em que parou (o processo principal reabre tudo em
+  // Controle Total, e uma mensagem na descoberta ou no plano executaria em vez de refinar)
+  const a = arch.value
+  if (a && !running.value) {
+    if (a.phase === 'discovery' || a.phase === 'concept') mode.value = 'architect'
+    else if (a.phase === 'plan') mode.value = 'checklist'
+  }
+  if (a?.design) api.designIsOpen(uid).then((open) => (designOpen.value = open)).catch(() => undefined)
   scrollToEnd(true)
   known.value = await api.knownModels().catch(() => null)
   box.value?.focus()

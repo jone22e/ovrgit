@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { archPlanRequest, designRequest, designScreens, extractHtml, extractSummary, hasInterface, previewDocument, stripArchMarkers } from '../src/shared/architect'
+import { archPlanRequest, cleanDesignHtml, CODEX_DISCOVERY, designRequest, designScreens, extractHtml, extractSummary, hasInterface, previewDocument, stripArchMarkers } from '../src/shared/architect'
 
 describe('descoberta', () => {
   it('lê o marcador de interface e o tira do texto exibido', () => {
@@ -43,6 +43,15 @@ describe('conceito visual', () => {
     const doc = previewDocument('<html><head><base href="https://x.test/"><meta http-equiv="refresh" content="0;url=https://x.test"><script>alert(1)</script></head><body><p>ok</p><script src="https://x.test/a.js"></script></body></html>')
     expect(doc).not.toMatch(/<script|refresh|<base/i)
     expect(doc).toContain('<p>ok</p>')
+  })
+  it('o HTML guardado sai sem scripts nem manipuladores de evento', () => {
+    const out = cleanDesignHtml('<html><head><script src="x.js"></script></head><body onload="x()"><a href="#" onclick="y()">ok</a><script>1</script></body></html>')
+    expect(out).not.toMatch(/<script|onload|onclick/i)
+    expect(out).toContain('<a href="#">ok</a>')
+  })
+  it('a descoberta no Codex não pede plano detalhado', () => {
+    expect(CODEX_DISCOVERY).toContain('## Objetivo')
+    expect(CODEX_DISCOVERY).not.toMatch(/plano detalhado/i)
   })
   it('lista as telas do conceito', () => {
     expect(designScreens('<section data-tela="Análise"></section><section class="a" data-tela=\'Configuração\'>')).toEqual(['Análise', 'Configuração'])

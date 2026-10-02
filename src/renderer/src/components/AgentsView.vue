@@ -294,6 +294,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
                 <strong class="ellipsis">{{ a.title }}</strong>
                 <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
               </span>
+              <small v-if="a.note && !a.ask" class="warn ellipsis">{{ a.note }}</small>
               <small v-if="a.status === 'error'" class="err ellipsis" :title="a.error">
                 {{ a.lastUser ? `Interrompido durante "${a.lastUser}"` : (a.error ?? 'Falhou') }}
               </small>

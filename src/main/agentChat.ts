@@ -7,7 +7,7 @@ import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { artifactsDir, artifactsRule } from '../shared/artifacts'
-import { ARCH_DISCOVERY, DESIGN_RULES, type DesignAction, type DesignWindowState } from '../shared/architect'
+import { ARCH_DISCOVERY, CODEX_DISCOVERY, cleanDesignHtml, DESIGN_RULES, type DesignAction, type DesignWindowState } from '../shared/architect'
 import { projectMap } from './projectMap'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
@@ -713,7 +713,9 @@ export const PLAN_TITLE =
  * Modo plano no Codex: o `exec` não expõe o modo de colaboração do app, então usamos sandbox
  * somente leitura (nada muda no projeto) e a mesma orientação que o app dá ao modelo.
  */
-export const codexPlanInstructions = (mode: AgentMode) => CODEX_PLAN_INSTRUCTIONS.replace(PLAN_TITLE, planFormat(mode))
+export const codexPlanInstructions = (mode: AgentMode) =>
+  // a descoberta do Modo Arquiteto tem o seu próprio bloco: rápida e curta, sem "plano detalhado"
+  mode === 'architect' ? CODEX_DISCOVERY : CODEX_PLAN_INSTRUCTIONS.replace(PLAN_TITLE, planFormat(mode))
 export const CODEX_PLAN_INSTRUCTIONS = `<collaboration_mode>
 # Modo Plano
 
@@ -1624,6 +1626,9 @@ export function pushDesignState(uid: string, state: DesignWindowState) {
 
 export const designState = (uid: string): DesignWindowState | null => designStates.get(uid) ?? null
 
+/** A janela de design desta conversa está aberta? (a conversa pergunta ao recarregar) */
+export const designWindowOpen = (uid: string): boolean => !!designWins.get(uid) && !designWins.get(uid)!.isDestroyed()
+
 /** A janela de design pede algo à conversa (revisar, aprovar, trocar de versão…) */
 export function actOnDesign(uid: string, action: DesignAction) {
   const w = wins.get(uid)
@@ -1631,7 +1636,7 @@ export function actOnDesign(uid: string, action: DesignAction) {
   w.win.webContents.send('design:act', uid, action)
 }
 
-function closeDesignWindow(uid: string) {
+export function closeDesignWindow(uid: string) {
   const win = designWins.get(uid)
   if (win && !win.isDestroyed()) win.close()
   designStates.delete(uid)
@@ -1652,7 +1657,8 @@ export function saveDesign(uid: string, html: string, name: string): string {
   const dir = artifactsDir(w.info.cwd)
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, name.replace(/[^\w.-]+/g, '-').replace(/^\.+/, '') || 'conceito.html')
-  writeFileSync(file, String(html).slice(0, 5_000_000))
+  // o arquivo pode ser aberto no navegador: vai sem nada que execute
+  writeFileSync(file, cleanDesignHtml(String(html).slice(0, 5_000_000)))
   return file
 }
 
@@ -1672,6 +1678,9 @@ export async function newChat(uid: string) {
   w.info.title = ''
   w.info.renamed = false
   w.titleToken = undefined // um título ainda a caminho era da conversa anterior
+  // o conceito visual era da conversa anterior: encerra o desenho em curso e fecha a janela de design
+  if (w.designChild) terminate(w.designChild, 'codex')
+  closeDesignWindow(uid)
   w.info.running = false
   w.info.mode = 'full' // conversa nova sempre começa em Controle Total
   w.turnDone = true
