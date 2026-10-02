@@ -147,6 +147,11 @@ function openAgentBounds(): WindowBounds[] {
 /** Último agente aberto ou usado desde que o app abriu: é a base do atalho de "novo agente" */
 let lastAgent: AgentChatOpen | null = null
 
+/** O último agente aberto ou usado (depois de reabrir o app, a conversa mais recente do histórico) */
+export function agentBase(): AgentChatOpen | undefined {
+  return lastAgent ?? [...listHistory()].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+}
+
 /**
  * Novo agente pelo atalho, sem passar pelo diálogo: repete provedor, modelo, esforço e modo.
  * Com uma janela de agente em foco, a base é ela (e a pasta dela); senão, o último agente aberto ou usado
@@ -155,8 +160,7 @@ let lastAgent: AgentChatOpen | null = null
  */
 export async function openAgentLikeLast(focused: BrowserWindow | null, projectRoot: string | null): Promise<AgentWindowInfo | null> {
   const here = focused ? [...wins.values()].find((w) => w.win === focused) : undefined
-  const recent = () => [...listHistory()].sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  const base: AgentChatOpen | undefined = here?.info ?? lastAgent ?? recent()
+  const base: AgentChatOpen | undefined = here?.info ?? agentBase()
   if (!base) return null
   const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
   if (!existsSync(cwd)) return null

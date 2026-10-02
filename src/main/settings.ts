@@ -31,7 +31,8 @@ const DEFAULTS: Settings = {
   awsProfile: '',
   awsWatch: true,
   recentProjects: [],
-  lastProject: null
+  lastProject: null,
+  buddy: false
 }
 
 const file = () => path.join(app.getPath('userData'), 'settings.json')

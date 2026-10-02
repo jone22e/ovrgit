@@ -308,6 +308,8 @@ export interface Settings {
   awsWatch: boolean
   recentProjects: string[]
   lastProject: string | null
+  /** Mascote no topo da tela, ao lado do recorte da câmera */
+  buddy: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
@@ -392,6 +394,8 @@ export interface AgentChatOpen {
   extraDirs?: string[]
   /** Primeira tarefa, enviada assim que a janela abrir */
   firstMessage?: string
+  /** Arquivos que vão junto com a primeira tarefa (caminhos; os temporários ganham uma cópia da conversa) */
+  firstFiles?: string[]
   /** Continuar uma conversa já existente (id da sessão do CLI) */
   resumeId?: string
 }
@@ -1078,6 +1082,16 @@ export interface OvseerApi {
   agentShow(uid: string): Promise<void>
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
+  /** Mascote do topo da tela */
+  buddySet(on: boolean): Promise<void>
+  buddyFiles(paths: string[]): Promise<void>
+  buddyPaste(): Promise<{ ate: boolean; kind?: 'image' | 'text' }>
+  buddyOpenMain(): void
+  buddyMenu(): void
+  /** Abre (cresce para baixo do recorte) ou fecha a ilha; `buddyFocus` abre e toma o foco, para colar */
+  buddyExpand(on: boolean): void
+  buddyFocus(): void
+  onBuddyCursor(cb: (p: { x: number; y: number }) => void): () => void
   /** Esconde a janela do agente sem fechar (a conversa e o agente continuam) */
   agentHide(uid: string): Promise<void>
   /** Todas as janelas de agente: mostrar, esconder, (tirar do) segundo plano ou fechar */

@@ -39,6 +39,7 @@ import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
+import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
 import type { ServicesFile } from '../shared/servicesShare'
 
@@ -820,6 +821,17 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   agentChat.setupAgentWindows({ icon, background: initialBackground })
+  buddy.registerBuddyIpc()
+  buddy.setupBuddy({
+    showMain: () => {
+      if (!win || win.isDestroyed()) createWindow()
+      else {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+    }
+  })
   services.setupServices({ icon, background: initialBackground })
   createWindow()
   if (getSettings().watchAgents) startAgents()

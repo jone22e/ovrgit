@@ -19,7 +19,8 @@ export default defineConfig({
           agent: resolve('src/renderer/agent.html'),
           service: resolve('src/renderer/service.html'),
           terminal: resolve('src/renderer/terminal.html'),
-          design: resolve('src/renderer/design.html')
+          design: resolve('src/renderer/design.html'),
+          buddy: resolve('src/renderer/buddy.html')
         }
       }
     },

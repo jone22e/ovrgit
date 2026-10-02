@@ -326,6 +326,18 @@ const api: OvseerApi = {
   },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
   agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
+  buddySet: (on) => ipcRenderer.invoke('buddy:set', on),
+  buddyFiles: (paths) => ipcRenderer.invoke('buddy:files', paths),
+  buddyPaste: () => ipcRenderer.invoke('buddy:paste'),
+  buddyOpenMain: () => ipcRenderer.send('buddy:openMain'),
+  buddyMenu: () => ipcRenderer.send('buddy:menu'),
+  onBuddyCursor: (cb) => {
+    const h = (_e: unknown, p: { x: number; y: number }) => cb(p)
+    ipcRenderer.on('buddy:cursor', h)
+    return () => ipcRenderer.off('buddy:cursor', h)
+  },
+  buddyExpand: (on) => ipcRenderer.send('buddy:expand', on),
+  buddyFocus: () => ipcRenderer.send('buddy:focus'),
   agentHide: (uid) => ipcRenderer.invoke('agent:hide', uid),
   agentAll: (action) => ipcRenderer.invoke('agent:all', action),
   agentBackground: (uid, on) => ipcRenderer.invoke('agent:background', uid, on),
