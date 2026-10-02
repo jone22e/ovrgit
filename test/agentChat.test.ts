@@ -141,11 +141,16 @@ describe('anexos', () => {
 })
 
 describe('modo plano', () => {
-  it('claude usa o modo plan nativo; codex fica só leitura', async () => {
+  it('claude usa o modo plan nativo; codex planeja sem sandbox (só a instrução impede alterações)', async () => {
     const { claudeArgs, codexArgs, normalizeMode } = await import('../src/main/agentChat')
     expect(claudeArgs({ model: '', effort: 'high', mode: 'plan', resume: null })).toEqual(expect.arrayContaining(['--permission-mode', 'plan']))
-    expect(codexArgs({ model: '', effort: 'high', mode: 'plan', resume: null })).toContain('sandbox_mode="read-only"')
+    expect(claudeArgs({ model: '', effort: 'high', mode: 'checklist', resume: null })).toEqual(expect.arrayContaining(['--permission-mode', 'plan']))
+    const codexPlan = codexArgs({ model: '', effort: 'high', mode: 'plan', resume: null })
+    expect(codexPlan).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(codexPlan.join(' ')).not.toContain('sandbox_mode')
+    expect(codexArgs({ model: '', effort: 'high', mode: 'safe', resume: null })).toContain('sandbox_mode="workspace-write"')
     expect(normalizeMode('plan')).toBe('plan')
+    expect(normalizeMode('checklist')).toBe('checklist')
     expect(normalizeMode('x')).toBe('safe')
   })
 

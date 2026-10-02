@@ -100,7 +100,7 @@ export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', co
 
 /** Modos de permissão do agente, do mais cauteloso para o mais livre. */
 export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChecks' | 'shield' | 'zap'; hint: string }[] = [
-  { id: 'plan', label: 'Plano', icon: 'clipboard', hint: 'Só lê o projeto e propõe um plano. Nada é alterado.' },
+  { id: 'plan', label: 'Plano', icon: 'clipboard', hint: 'Só lê o projeto e propõe um plano, sem alterar nada (com acesso total ao sistema, sem sandbox).' },
   { id: 'checklist', label: 'Plano com Checklist', icon: 'listChecks', hint: 'Como o Plano, mas termina com um checklist; ao implementar, cada item é marcado conforme o agente conclui.' },
   { id: 'safe', label: 'Só edições', icon: 'shield', hint: 'Edita arquivos do projeto à vontade; comandos fora do sandbox são negados.' },
   { id: 'full', label: 'Controle Total', icon: 'zap', hint: 'Roda qualquer comando sem perguntar. Use quando confiar na tarefa.' }

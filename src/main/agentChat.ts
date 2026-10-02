@@ -143,14 +143,14 @@ export async function openAgentLikeLast(focused: BrowserWindow | null, projectRo
   if (!base) return null
   const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
   if (!existsSync(cwd)) return null
-  // repetir o último agente nunca começa no modo Plano
-  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: isPlanMode(base.mode) ? 'safe' : base.mode, cwd })
+  // repetir o último agente: mesma IA, modelo e esforço; conversa nova sempre começa em Controle Total
+  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: 'full', cwd })
 }
 
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
   // conversa reaberta nunca volta no modo Plano (só começa nele quando escolhido no diálogo)
-  if (opts.resumeId && isPlanMode(opts.mode)) opts = { ...opts, mode: 'safe' }
+  if (opts.resumeId && isPlanMode(opts.mode)) opts = { ...opts, mode: 'full' }
   const uid = crypto.randomUUID()
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
@@ -699,8 +699,10 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
   for (const img of o.images ?? []) args.push('-i', img)
   if (o.model) args.push('-m', o.model)
   if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
-  if (o.mode === 'full') args.push('--dangerously-bypass-approvals-and-sandbox')
-  else args.push('-c', isPlanMode(o.mode) ? 'sandbox_mode="read-only"' : 'sandbox_mode="workspace-write"')
+  // Controle Total e os modos Plano rodam sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs)
+  // e no Plano o que impede alterações é a instrução de só planejar, não o sandbox
+  if (o.mode === 'full' || isPlanMode(o.mode)) args.push('--dangerously-bypass-approvals-and-sandbox')
+  else args.push('-c', 'sandbox_mode="workspace-write"')
   if (o.resume) args.push(o.resume)
   args.push('-') // o pedido vai pelo stdin
   return args
@@ -1375,6 +1377,7 @@ export async function newChat(uid: string) {
   w.info.title = ''
   w.info.renamed = false
   w.info.running = false
+  w.info.mode = 'full' // conversa nova sempre começa em Controle Total
   w.turnDone = true
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
   broadcastWindows()

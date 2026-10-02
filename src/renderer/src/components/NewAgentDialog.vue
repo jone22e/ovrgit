@@ -18,7 +18,8 @@ const model = ref(prefs.model[prefs.provider])
 const effort = ref<AgentEffort>(prefs.effort[prefs.provider])
 // o Plano pode ser escolhido aqui, mas não vira o padrão: o diálogo sempre abre num modo que executa
 const START_MODES = MODES
-const mode = ref<AgentMode>(isPlanMode(prefs.mode) ? 'safe' : prefs.mode)
+// toda conversa nova começa em Controle Total (o modo escolhido vale só para a conversa)
+const mode = ref<AgentMode>('full')
 
 const known = ref<KnownModels | null>(null)
 const detected = ref<ProviderStatus | null>(null)
