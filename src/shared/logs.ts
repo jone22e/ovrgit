@@ -148,3 +148,52 @@ function fromText(raw: string): LogEntry {
   if (level !== 'none') message = message.replace(/^\s*[[(]?\s*(TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?|ERROR|ERR|FATAL|PANIC|CRITICAL)\s*[\])]?\s*[:\-–]?\s*/i, '').trim()
   return { level, time, message: message || raw, raw, json: false }
 }
+
+// ---------- reinícios (watchers de desenvolvimento) ----------
+
+export interface RestartInfo {
+  /** Arquivo cuja alteração causou o reinício, quando a linha diz */
+  file?: string
+  /** Ferramenta que reiniciou (tsx, nodemon, vite…) */
+  tool?: string
+}
+
+const RESTART_PATTERNS: RegExp[] = [
+  // tsx watch: "[tsx] change in ./src/x.ts Restarting..." / "[tsx] rerunning"
+  /\[(tsx)\]\s+(?:change in\s+(\S+)\s+)?(?:restarting|rerunning)/i,
+  // nodemon: "[nodemon] restarting due to changes..."
+  /\[(nodemon)\]\s+restarting\b/i,
+  // ts-node-dev: "[INFO] 11:35:08 Restarting: /path/file.ts has been modified"
+  /\brestarting:\s+(\S+)\s+has been modified/i,
+  // vite: "vite.config.ts changed, restarting server..." / "[vite] server restarted."
+  /(\S+)\s+changed,\s+restarting server/i,
+  // node --watch: "Restarting 'src/index.js'"
+  /^restarting\s+['"]([^'"]+)['"]/i,
+  // genérico: "Restarting...", "restarting due to", "Reiniciando..."
+  /\b(?:restarting|reiniciando)\b(?:\.{2,}|…| due to| server| app| process)?/i
+]
+
+/** A linha anuncia um reinício do processo (watcher de desenvolvimento)? Devolve o que deu para saber. */
+export function restartOf(message: string): RestartInfo | null {
+  const m = stripAnsi(message)
+  if (m.length > 300) return null
+  for (const [i, re] of RESTART_PATTERNS.entries()) {
+    const hit = re.exec(m)
+    if (!hit) continue
+    if (i === 0) return { tool: 'tsx', file: hit[2] }
+    if (i === 1) return { tool: 'nodemon' }
+    if (i === 2) return { tool: 'ts-node-dev', file: hit[1] }
+    if (i === 3) return { tool: 'vite', file: hit[1] }
+    if (i === 4) return { tool: 'node', file: hit[1] }
+    // genérico: só quando a palavra abre a mensagem ou vem logo depois de uma etiqueta ("[app] Restarting...")
+    return /^(?:\[[^\]]+\]\s*|\S+:\s*)?(?:restarting|reiniciando)\b/i.test(m.trim()) ? {} : null
+  }
+  return null
+}
+
+/** A linha indica que o processo voltou a atender (o reinício terminou)? */
+export function isReadyLine(message: string): boolean {
+  const m = stripAnsi(message)
+  return /\b(?:listening|ready in|ready on|server (?:is )?(?:running|started|ready|up)|started (?:server|on|at)|running (?:on|at)|escutando|rodando em|servidor (?:iniciado|rodando|pronto)|compiled successfully|watching for file changes|started successfully|app listening|local:\s+https?:)/i.test(m)
+}
+

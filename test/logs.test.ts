@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTime, parseLogLine } from '../src/shared/logs'
+import { formatTime, isReadyLine, parseLogLine, restartOf } from '../src/shared/logs'
 
 describe('parseLogLine', () => {
   it('desmonta JSON do pino (nível numérico, hora em epoch ms)', () => {
@@ -35,3 +35,27 @@ describe('formatTime', () => {
     expect(formatTime('abc')).toBeUndefined()
   })
 })
+
+describe('restartOf / isReadyLine', () => {
+  it('reconhece reinícios de tsx, nodemon, ts-node-dev, vite e node --watch', () => {
+    expect(restartOf('[tsx] change in ./src/marketplaces/marketplaceVendasUfRoutes.ts Restarting...')).toEqual({ tool: 'tsx', file: './src/marketplaces/marketplaceVendasUfRoutes.ts' })
+    expect(restartOf('[tsx] rerunning')).toEqual({ tool: 'tsx', file: undefined })
+    expect(restartOf('[nodemon] restarting due to changes...')).toEqual({ tool: 'nodemon' })
+    expect(restartOf('[INFO] Restarting: /app/src/index.ts has been modified')).toEqual({ tool: 'ts-node-dev', file: '/app/src/index.ts' })
+    expect(restartOf('vite.config.ts changed, restarting server...')).toEqual({ tool: 'vite', file: 'vite.config.ts' })
+    expect(restartOf("Restarting 'src/index.js'")).toEqual({ tool: 'node', file: 'src/index.js' })
+    expect(restartOf('Restarting...')).toEqual({})
+  })
+  it('não confunde texto comum que cita reinício', () => {
+    expect(restartOf('worker 3 died, restarting it would lose the queue')).toBeNull()
+    expect(restartOf('GET /api/restarting-jobs 200')).toBeNull()
+    expect(restartOf('[redis] target host=127.0.0.1 port=2013')).toBeNull()
+  })
+  it('reconhece a linha de "voltou a atender"', () => {
+    expect(isReadyLine('Server listening on http://localhost:2012')).toBe(true)
+    expect(isReadyLine('  VITE v6.4.2  ready in 206 ms')).toBe(true)
+    expect(isReadyLine('[nodemon] watching for file changes before starting')).toBe(true)
+    expect(isReadyLine('[redis] target host=127.0.0.1')).toBe(false)
+  })
+})
+

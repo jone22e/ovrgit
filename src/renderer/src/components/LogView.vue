@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { parseLogLine, type LogEntry, type LogLevel } from '@shared/logs'
+import { isReadyLine, parseLogLine, restartOf, type LogEntry, type LogLevel, type RestartInfo } from '@shared/logs'
 import Icon from './Icon.vue'
 
 /**
@@ -31,17 +31,88 @@ function prune() {
   if (first === -1) entries.value = []
   else if (first > 0) entries.value.splice(0, first)
 }
-const entries = ref<(LogEntry & { n: number; at: number })[]>([])
+/** Reinício do processo (watcher de desenvolvimento): gira até o serviço voltar a dar sinal */
+interface Restart extends RestartInfo {
+  startedAt: number
+  /** Quando voltou; ausente enquanto reinicia */
+  doneAt?: number
+  /** Sem como medir quanto levou (veio do histórico, ou outro reinício começou por cima) */
+  unmeasured?: boolean
+  /** Não veio nenhuma saída depois do reinício: não dá para afirmar que voltou */
+  silent?: boolean
+}
+type Row = LogEntry & { n: number; at: number; restart?: Restart }
+const entries = ref<Row[]>([])
+// reinício em andamento: fecha na linha de "voltou a atender", ou depois de um instante de silêncio após
+// a primeira saída nova, ou quando outro reinício começa; sem nenhuma saída, desiste em 30 s
+let openRestart: number | null = null
+let quietTimer: ReturnType<typeof setTimeout> | undefined
+let giveUpTimer: ReturnType<typeof setTimeout> | undefined
+const QUIET_MS = 2500
+const GIVE_UP_MS = 30_000
+/** `batch`: linhas ainda não incluídas em `entries` (o reinício em aberto pode estar no lote que está chegando) */
+function closeRestart(doneAt: number, unmeasured = false, batch: Row[] = []) {
+  clearTimeout(quietTimer)
+  clearTimeout(giveUpTimer)
+  const row = openRestart === null ? undefined : (batch.find((e) => e.n === openRestart) ?? entries.value.find((e) => e.n === openRestart))
+  openRestart = null
+  if (row?.restart && !row.restart.doneAt) {
+    row.restart.doneAt = doneAt
+    if (unmeasured) row.restart.unmeasured = true
+  }
+}
+/** Marca os reinícios nas linhas novas e acompanha o que está em andamento. `historical`: linhas antigas, sem hora de chegada real */
+function trackRestarts(add: Row[], historical: boolean) {
+  let sawOutput = false
+  for (const e of add) {
+    const r = e.json ? null : restartOf(e.message)
+    if (r) {
+      closeRestart(e.at, true, add)
+      e.restart = { ...r, startedAt: e.at }
+      openRestart = e.n
+      sawOutput = false
+    } else if (openRestart !== null) {
+      if (isReadyLine(e.message)) closeRestart(e.at, historical, add)
+      else sawOutput = true
+    }
+  }
+  if (openRestart === null) return
+  const n = openRestart
+  const inBatch = add.find((x) => x.n === n)
+  // histórico com saída depois do reinício: já voltou faz tempo
+  if (historical && sawOutput) return closeRestart(inBatch?.at ?? Date.now(), true, add)
+  if (sawOutput) {
+    clearTimeout(quietTimer)
+    const last = Date.now()
+    quietTimer = setTimeout(() => openRestart === n && closeRestart(last), QUIET_MS)
+  }
+  if (inBatch) {
+    clearTimeout(giveUpTimer)
+    giveUpTimer = setTimeout(() => {
+      if (openRestart !== n) return
+      const row = entries.value.find((e) => e.n === n)
+      if (row?.restart) row.restart.silent = true
+      closeRestart(Date.now(), true)
+    }, GIVE_UP_MS)
+  }
+}
+const baseName = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
+const took = (r: Restart) => {
+  if (!r.doneAt || r.unmeasured) return ''
+  const s = (r.doneAt - r.startedAt) / 1000
+  return s < 0.05 ? '' : `em ${s < 10 ? s.toFixed(1).replace('.', ',') : Math.round(s)} s`
+}
 let seq = 0
 let partial = ''
 /** Alimenta as linhas a partir do texto bruto (pedaços podem cortar uma linha ao meio) */
-function feed(data: string) {
+function feed(data: string, historical = false) {
   const text = partial + data.replace(/\r\n?/g, '\n')
   const parts = text.split('\n')
   partial = parts.pop() ?? ''
   const at = Date.now()
-  const add = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++, at }))
+  const add: Row[] = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++, at }))
   if (!add.length) return
+  trackRestarts(add, historical)
   entries.value.push(...add)
   if (entries.value.length > MAX_LINES) entries.value.splice(0, entries.value.length - MAX_LINES)
   prune()
@@ -92,7 +163,7 @@ const short = (v: unknown) => {
 const LEVEL_LABEL: Record<LogLevel, string> = { trace: 'trace', debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'fatal', none: '' }
 const copied = ref<number | null>(null)
 /** Copia a linha original (o JSON inteiro ou o texto) */
-async function copyLine(e: LogEntry & { n: number; at: number }) {
+async function copyLine(e: Row) {
   try {
     await navigator.clipboard.writeText(e.raw)
     copied.value = e.n
@@ -106,16 +177,21 @@ function reset(history = '') {
   entries.value = []
   partial = ''
   expanded.value.clear()
-  if (history) feed(history)
+  closeRestart(Date.now(), true)
+  if (history) feed(history, true)
   nextTick(scrollLog)
 }
-defineExpose({ feed, reset })
+defineExpose({ feed: (data: string) => feed(data), reset })
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   nextTick(scrollLog)
   timer = setInterval(prune, 30_000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  clearInterval(timer)
+  clearTimeout(quietTimer)
+  clearTimeout(giveUpTimer)
+})
 </script>
 
 <template>
@@ -144,11 +220,21 @@ onUnmounted(() => clearInterval(timer))
       </div>
       <div ref="logEl" class="log-list" @scroll="onLogScroll">
         <p v-if="!shown.length" class="faint none">{{ entries.length ? 'Nenhuma linha com esse filtro.' : 'Sem saída ainda.' }}</p>
-        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json, plain: e.level === 'none' && !e.time }]" @click="e.json && toggle(e.n)">
+        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json, plain: e.level === 'none' && !e.time && !e.restart, restart: e.restart, back: e.restart?.doneAt && !e.restart.silent, quiet: e.restart?.silent }]" @click="e.json && toggle(e.n)">
           <!-- sem hora nem nível: a mensagem ocupa a linha inteira, como saída comum -->
-          <span v-if="!(e.level === 'none' && !e.time)" class="time mono">{{ e.time ?? '' }}</span>
-          <span v-if="!(e.level === 'none' && !e.time)" class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] || '·' }}</span>
-          <span class="msg">
+          <span v-if="e.restart || !(e.level === 'none' && !e.time)" class="time mono">{{ e.time ?? '' }}</span>
+          <!-- reinício do processo: gira até o serviço voltar; depois diz quanto levou -->
+          <span v-if="e.restart" class="rs" :title="e.message">
+            <span v-if="!e.restart.doneAt" class="rs-ring" />
+            <Icon v-else-if="!e.restart.silent" name="check" :size="13" class="rs-ok" />
+            <strong>{{ !e.restart.doneAt ? 'Reiniciando…' : e.restart.silent ? 'Reinício' : 'Reiniciado' }}</strong>
+            <small v-if="e.restart.silent" class="faint">sem saída depois</small>
+            <span v-if="e.restart.file" class="chip" :title="e.restart.file">{{ baseName(e.restart.file) }}</span>
+            <small v-if="took(e.restart)" class="faint">{{ took(e.restart) }}</small>
+            <small v-if="e.restart.tool" class="faint rs-tool">{{ e.restart.tool }}</small>
+          </span>
+          <span v-if="!e.restart && !(e.level === 'none' && !e.time)" class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] || '·' }}</span>
+          <span v-if="!e.restart" class="msg">
             <span class="text">{{ e.message }}</span>
             <span v-if="e.fields && !expanded.has(e.n)" class="chips">
               <span v-for="(v, k) in e.fields" :key="k" class="chip" :title="pretty(v)"><b>{{ k }}</b>{{ short(v) }}</span>
@@ -185,10 +271,31 @@ onUnmounted(() => clearInterval(timer))
 .keep select { height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
 .keep select:hover { color: var(--text); }
 .log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
-.none { margin: 20px 0; text-align: center; }
+/* aviso de lista vazia; restrito ao parágrafo: as linhas sem nível também têm a classe "none" */
+p.none { margin: 20px 0; text-align: center; }
 .row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
 .row.plain .msg { grid-column: 1 / 4; }
 .row.plain .text { color: var(--muted); }
+/* reinício: faixa própria, com o arco girando (o mesmo das tarefas) enquanto o serviço não volta */
+.row.restart { align-items: center; margin: 4px 0; background: color-mix(in srgb, var(--accent) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.row.restart.back { background: color-mix(in srgb, var(--add) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--add) 18%, transparent); }
+.row.restart.quiet { background: var(--panel); box-shadow: inset 0 0 0 1px var(--border); }
+.row.restart.quiet .rs strong { color: var(--muted); }
+.row.restart .time { padding-top: 0; }
+.rs { grid-column: 2 / 4; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rs strong { font-size: 12.5px; font-weight: 600; color: var(--accent); flex: none; }
+.row.restart.back .rs strong { color: var(--add); }
+.rs .chip { flex: 0 1 auto; min-width: 0; }
+.rs small { font-size: 11.5px; flex: none; }
+.rs-tool { margin-left: auto; font-family: var(--mono); }
+.rs-ok { color: var(--add); flex: none; }
+.rs-ring {
+  width: 14px; height: 14px; border-radius: 50%; flex: none; box-sizing: border-box;
+  border: 2.5px solid color-mix(in srgb, var(--faint) 30%, transparent); border-top-color: var(--accent); border-right-color: var(--accent);
+  animation: rs-turn 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes rs-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rs-ring { animation: none; } }
 .row-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
 /* copiar: discreto, só ao passar o mouse na linha */
 .copy { width: 22px; height: 22px; border-radius: 6px; color: var(--faint); opacity: 0; transition: opacity 0.1s; }
