@@ -61,7 +61,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
     <div class="row">
       <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers lock-provider :known="known" />
       <div ref="modeRoot" class="mode-menu">
-        <button type="button" class="chip mode-chip" :class="[mode, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
+        <button type="button" class="chip mode-chip" :class="[`m-${mode}`, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
           <Icon :name="currentMode.icon" :size="13" />
         </button>
         <div v-if="modeOpen" class="pop">
@@ -91,8 +91,8 @@ textarea:focus { box-shadow: none; }
 .spacer { flex: 1 1 auto; }
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
 .chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
-.chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
-.chip.plan { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
+.chip.m-full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
+.chip.m-plan, .chip.m-checklist { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
 .chip.on { background: var(--hover); }
 .mode-menu { position: relative; flex: none; }
 .pop {

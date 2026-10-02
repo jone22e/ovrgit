@@ -1670,7 +1670,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
         <div ref="modeRoot" class="mode-menu">
           <!-- só o ícone: o nome do modo fica na dica e no menu -->
-          <button type="button" class="chip mode-chip" :class="[mode, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
+          <button type="button" class="chip mode-chip" :class="[`m-${mode}`, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
             <Icon :name="currentMode.icon" :size="13" />
           </button>
           <div v-if="modeOpen" class="pop">
@@ -1997,8 +1997,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 .row .spacer { flex: 1 1 auto; }
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
 .chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
-.chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
-.chip.plan, .chip.checklist { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
+/* classes do modo com prefixo: "checklist" sem prefixo pegava os estilos do painel do checklist e desalinhava o botão */
+.chip.m-full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
+.chip.m-plan, .chip.m-checklist { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
 .chip.on { background: var(--hover); }
 .chip .chev { transform: rotate(-90deg); color: var(--faint); }
 .mode-menu { position: relative; flex: none; }
