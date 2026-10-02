@@ -23,7 +23,8 @@ const paths = {
   /* lista com checks (lucide list-checks) */
   circleAlert: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 8v4M12 16h.01',
   circleX: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM15 9l-6 6M9 9l6 6',
-  compass: 'M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12zM12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z',
+  // compasso de desenho técnico (Modo Arquiteto)
+  drafting: 'M12.99 6.74l1.93 3.44M19.136 12a10 10 0 0 1-14.271 0M21 21l-2.16-3.84M3 21l8.02-14.26M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
   listChecks: 'M13 5h8M13 12h8M13 19h8M3 17l2 2 4-4M3 7l2 2 4-4',
   panel: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM15 3v18',
   task: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',

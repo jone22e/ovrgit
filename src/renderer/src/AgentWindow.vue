@@ -1944,7 +1944,7 @@ onUnmounted(() => offs.forEach((f) => f()))
     <section v-if="arch" class="archcard" :class="{ open: archOpen }">
       <div class="ac-head">
         <button type="button" class="ghost ac-main" :title="archOpen ? 'Recolher as etapas' : 'Mostrar as etapas'" @click="archOpen = !archOpen">
-          <span class="ac-icon"><Icon name="compass" :size="14" /></span>
+          <span class="ac-icon"><Icon name="drafting" :size="14" /></span>
           <span class="ac-title">
             <strong>{{ archNow.label }} <small>· etapa {{ archNow.n }} de 4</small></strong>
             <small class="ellipsis">{{ archHint }}</small>
