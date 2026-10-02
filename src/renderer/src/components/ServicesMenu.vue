@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { Service, ServiceState } from '@shared/types'
+import type { AwsStatus, Service, ServiceState } from '@shared/types'
 import { api, openTerminalTab, state, toast } from '../store'
 import Icon from './Icon.vue'
 
-/** Ícone dos serviços na barra do topo: contador dos ativos e um menu com play/stop, portas e terminal. */
+/**
+ * Ícone dos serviços na barra do topo: contador dos ativos e um menu com play/stop, portas e terminal.
+ * A conexão com a AWS (aws login) é uma linha fixa no topo do menu: entrar abre o navegador, parar encerra a sessão.
+ */
 const open = ref(false)
 const root = ref<HTMLElement>()
 const query = ref('')
@@ -25,9 +28,75 @@ const ordered = computed(() => {
     return words.every((w) => hay.includes(w))
   })
 })
+// ---------- AWS: linha fixa no topo ----------
+const aws = ref<AwsStatus | null>(null)
+const awsLoading = ref(false)
+const awsBusy = ref<'login' | 'logout' | null>(null)
+const now = ref(Date.now())
+async function loadAws() {
+  awsLoading.value = true
+  aws.value = await api.awsStatus().catch(() => aws.value)
+  awsLoading.value = false
+  now.value = Date.now()
+}
+const awsOk = computed(() => !!aws.value?.session?.ok)
+/** Chaves fixas não têm "entrar": a sessão vale enquanto as chaves valerem */
+const awsCanLogin = computed(() => !!aws.value?.installed && !!aws.value.profile && aws.value.auth !== 'static')
+const awsLine = computed(() => {
+  const a = aws.value
+  if (!a) return awsLoading.value ? 'verificando…' : ''
+  if (!a.installed) return 'AWS CLI não instalado'
+  if (!a.profile) return 'nenhum perfil configurado'
+  if (awsBusy.value === 'login') return 'aguardando o login no navegador…'
+  const s = a.session
+  if (s?.ok) {
+    const who = s.arn.replace(/^arn:aws:(sts|iam)::\d+:(assumed-role|user|role)\//, '').split('/').pop()
+    let left = ''
+    if (s.expiresAt) {
+      const ms = s.expiresAt - now.value
+      const h = Math.floor(ms / 3600_000)
+      const m = Math.max(0, Math.round((ms % 3600_000) / 60_000))
+      left = ms <= 0 ? ' · expirada' : h ? ` · expira em ${h} h ${m} min` : ` · expira em ${m} min`
+    }
+    return `${a.profile} · ${who}${left}`
+  }
+  return `${a.profile} · desconectado`
+})
+const cleanErr = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+async function awsLogin() {
+  if (!aws.value || awsBusy.value) return
+  awsBusy.value = 'login'
+  try {
+    aws.value = await api.awsLogin(aws.value.profile)
+    if (aws.value.session?.ok) toast('Conectado à AWS.')
+  } catch (e) {
+    toast(cleanErr(e))
+  } finally {
+    awsBusy.value = null
+  }
+}
+async function awsLogout() {
+  if (!aws.value || awsBusy.value) return
+  awsBusy.value = 'logout'
+  try {
+    aws.value = await api.awsLogout(aws.value.profile)
+  } catch (e) {
+    toast(cleanErr(e))
+  } finally {
+    awsBusy.value = null
+  }
+}
+/** Abre Configurações já na seção AWS (instalar o CLI, trocar de perfil, acompanhar a sessão) */
+function awsSettings() {
+  open.value = false
+  localStorage.setItem('ovseer.settings.section', 'aws')
+  state.showSettings = true
+}
+
 function toggle() {
   open.value = !open.value
   if (!open.value) return
+  loadAws()
   query.value = ''
   setTimeout(() => searchEl.value?.focus(), 30)
 }
@@ -80,6 +149,7 @@ onMounted(async () => {
   document.addEventListener('mousedown', onDoc)
   states.value = await api.servicesStates().catch(() => [])
   offs.push(api.onServicesChanged((s) => (states.value = s)))
+  offs.push(api.onAwsChanged((s) => (aws.value = s)))
 })
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDoc)
@@ -102,6 +172,19 @@ onUnmounted(() => {
           </button>
           <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
         </span>
+      </div>
+      <!-- conexão com a AWS: fixa no topo, fora da busca -->
+      <div class="row aws" :class="{ running: awsOk }">
+        <span class="dot" :class="awsOk ? 'running' : aws?.installed && aws.profile ? 'exited' : ''" />
+        <span class="text">
+          <span class="name ellipsis"><Icon name="cloud" :size="12" class="faint" /> AWS</span>
+          <small class="faint ellipsis" :title="aws?.session && !aws.session.ok ? aws.session.error : awsLine">{{ awsLine || 'conexão com a AWS' }}</small>
+        </span>
+        <span v-if="awsBusy === 'login'" class="spinner" />
+        <button v-if="awsBusy === 'login'" type="button" class="ghost icon small" title="Cancelar o login" @click="api.awsCancelLogin()"><Icon name="x" :size="13" /></button>
+        <button v-else-if="awsOk && awsCanLogin" type="button" class="ghost icon small" title="Encerrar a sessão da AWS" :disabled="!!awsBusy" @click="awsLogout"><Icon name="stop" :size="13" /></button>
+        <button v-else-if="awsCanLogin" type="button" class="ghost icon small play" title="Entrar na AWS (abre o navegador)" :disabled="!!awsBusy" @click="awsLogin"><Icon name="play" :size="13" /></button>
+        <button type="button" class="ghost icon small" title="Configurações da AWS" @click="awsSettings"><Icon name="settings" :size="13" /></button>
       </div>
       <label v-if="services.length > 3" class="search">
         <Icon name="search" :size="13" class="faint" />
@@ -160,6 +243,8 @@ onUnmounted(() => {
 .none { margin: 8px 10px 10px; font-size: 12.5px; }
 .row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; min-width: 0; }
 .row:hover { background: var(--hover); }
+.row.aws { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; margin-bottom: 4px; padding-bottom: 8px; }
+.row.aws .name { display: inline-flex; align-items: center; gap: 5px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); opacity: 0.5; }
 .dot.running { background: var(--add); opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--add) 25%, transparent); }
 .dot.exited { background: var(--mod); opacity: 1; }
