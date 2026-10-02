@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { parseLogLine, type LogEntry, type LogLevel } from '@shared/logs'
 import Icon from './Icon.vue'
 
@@ -9,7 +9,29 @@ import Icon from './Icon.vue'
  * zera (ou recomeça de um histórico) com `reset`.
  */
 const MAX_LINES = 4000
-const entries = ref<(LogEntry & { n: number })[]>([])
+/** Por quanto tempo uma linha fica na lista (um terminal aberto o dia todo não acumula tudo); 0 = sempre */
+const KEEP_KEY = 'logKeepMin'
+const keepOptions = [
+  { min: 5, label: '5 min' },
+  { min: 15, label: '15 min' },
+  { min: 60, label: '1 hora' },
+  { min: 0, label: 'Tudo' }
+]
+const keepMin = ref(Number(localStorage.getItem(KEEP_KEY) ?? 15) || 0)
+function setKeep(min: number) {
+  keepMin.value = min
+  localStorage.setItem(KEEP_KEY, String(min))
+  prune()
+}
+/** Descarta as linhas mais velhas que o prazo escolhido */
+function prune() {
+  if (!keepMin.value) return
+  const limit = Date.now() - keepMin.value * 60_000
+  const first = entries.value.findIndex((e) => e.at >= limit)
+  if (first === -1) entries.value = []
+  else if (first > 0) entries.value.splice(0, first)
+}
+const entries = ref<(LogEntry & { n: number; at: number })[]>([])
 let seq = 0
 let partial = ''
 /** Alimenta as linhas a partir do texto bruto (pedaços podem cortar uma linha ao meio) */
@@ -17,10 +39,12 @@ function feed(data: string) {
   const text = partial + data.replace(/\r\n?/g, '\n')
   const parts = text.split('\n')
   partial = parts.pop() ?? ''
-  const add = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++ }))
+  const at = Date.now()
+  const add = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++, at }))
   if (!add.length) return
   entries.value.push(...add)
   if (entries.value.length > MAX_LINES) entries.value.splice(0, entries.value.length - MAX_LINES)
+  prune()
   if (follow.value) nextTick(scrollLog)
 }
 const levels: { id: LogLevel | 'all'; label: string; icon: 'list' | 'info' | 'circleAlert' | 'circleX' }[] = [
@@ -68,7 +92,7 @@ const short = (v: unknown) => {
 const LEVEL_LABEL: Record<LogLevel, string> = { trace: 'trace', debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'fatal', none: '' }
 const copied = ref<number | null>(null)
 /** Copia a linha original (o JSON inteiro ou o texto) */
-async function copyLine(e: LogEntry & { n: number }) {
+async function copyLine(e: LogEntry & { n: number; at: number }) {
   try {
     await navigator.clipboard.writeText(e.raw)
     copied.value = e.n
@@ -86,7 +110,12 @@ function reset(history = '') {
   nextTick(scrollLog)
 }
 defineExpose({ feed, reset })
-onMounted(() => nextTick(scrollLog))
+let timer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  nextTick(scrollLog)
+  timer = setInterval(prune, 30_000)
+})
+onUnmounted(() => clearInterval(timer))
 </script>
 
 <template>
@@ -104,6 +133,12 @@ onMounted(() => nextTick(scrollLog))
           <input v-model="query" type="text" placeholder="Buscar nas linhas" spellcheck="false" />
         </label>
         <span class="spacer" />
+        <label class="keep" title="Linhas mais velhas que isso são descartadas">
+          <Icon name="history" :size="12" class="faint" />
+          <select :value="keepMin" @change="setKeep(Number(($event.target as HTMLSelectElement).value))">
+            <option v-for="o in keepOptions" :key="o.min" :value="o.min">{{ o.label }}</option>
+          </select>
+        </label>
         <small class="faint">{{ shown.length === entries.length ? `${entries.length} linhas` : `${shown.length} de ${entries.length} linhas` }}</small>
         <button v-if="!follow" type="button" class="small" title="Voltar a acompanhar o fim" @click="(follow = true), scrollLog()"><Icon name="down" :size="12" /> Seguir</button>
       </div>
@@ -146,6 +181,9 @@ onMounted(() => nextTick(scrollLog))
 .search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); width: min(320px, 40%); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12.5px; color: var(--text); }
 .search input:focus { box-shadow: none; }
+.keep { display: inline-flex; align-items: center; gap: 4px; }
+.keep select { height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.keep select:hover { color: var(--text); }
 .log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
 .none { margin: 20px 0; text-align: center; }
 .row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
