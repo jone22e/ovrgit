@@ -66,6 +66,13 @@ describe('importar serviços', () => {
     expect(out[1]).toMatchObject({ cwd: '/home/ana/outros/loja', via: 'project' })
     expect(out[1].command).toContain('--config /home/ana/trabalho/flexi-novo/vite.config.ts')
   })
+  it('repositório apontado pela IA vale no lugar da busca comum', () => {
+    const known: RepoRef[] = [{ root: '/home/ana/trabalho/flexi-novo', name: 'flexi-novo', remote: 'github.com/c2s/flexi2' }]
+    const out = resolveServices(file, { root: '/home/ana/dev', known, home: '/home/ana', picked: { loja: '/home/ana/x/minha-loja' } })
+    expect(out[0]).toMatchObject({ cwd: '/home/ana/trabalho/flexi-novo/backend', via: 'project' })
+    expect(out[1]).toMatchObject({ cwd: '/home/ana/x/minha-loja', via: 'ai' })
+    expect(out[1].command).toContain('cd /home/ana/x/minha-loja/web')
+  })
   it('no Windows os caminhos saem com a barra de lá', () => {
     const out = resolveServices(file, { root: 'C:\\dev', known: [], home: 'C:\\Users\\ana' })
     expect(out[0].cwd).toBe('C:\\dev\\flexi2\\backend')

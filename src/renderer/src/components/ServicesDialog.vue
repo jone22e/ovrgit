@@ -72,15 +72,19 @@ async function exportAll() {
   }
 }
 
-// importação: o arquivo traz repositório + caminho; aqui o usuário confere as pastas deste computador antes de entrar
-const importing = ref<{ file: ServicesFile; root: string; items: ImportedService[]; picked: boolean[] } | null>(null)
+// importação: o arquivo traz repositório + caminho; aqui o usuário confere as pastas deste computador antes de entrar.
+// Só entra serviço cuja pasta foi encontrada: os projetos do app, os repositórios achados no disco e, para o que
+// sobrar, os que a IA reconhecer entre os repositórios do computador.
+const importing = ref<{ file: ServicesFile; root: string; items: ImportedService[]; picked: boolean[]; searching: boolean; aiNote: string } | null>(null)
 const importCount = computed(() => importing.value?.picked.filter(Boolean).length ?? 0)
+const canImport = (i: ImportedService) => i.exists && !i.duplicate
+let importRun = 0
 async function startImport() {
   try {
     const r = await api.servicesImportPick()
     if (!r) return
     editing.value = null
-    importing.value = { file: r.file, root: r.root, items: [], picked: [] }
+    importing.value = { file: r.file, root: r.root, items: [], picked: [], searching: false, aiNote: '' }
     await resolveImport()
   } catch (e) {
     toast(errText(e))
@@ -89,10 +93,30 @@ async function startImport() {
 async function resolveImport() {
   const im = importing.value
   if (!im) return
-  try {
-    const items = await api.servicesImportResolve(JSON.parse(JSON.stringify(im.file)), im.root.trim())
+  const run = ++importRun
+  const file = JSON.parse(JSON.stringify(im.file)) as ServicesFile
+  const show = (items: ImportedService[]) => {
     im.items = items
-    im.picked = items.map((i) => !i.duplicate)
+    im.picked = items.map(canImport)
+  }
+  im.aiNote = ''
+  try {
+    show(await api.servicesImportResolve(file, im.root.trim()))
+    const missing = () => new Set(im.items.filter((i) => !i.exists && i.repo).map((i) => i.repo)).size
+    if (!missing()) return
+    // repositórios que não estão onde se esperava: a IA procura entre os que existem no computador
+    im.searching = true
+    try {
+      const found = await api.servicesImportLocate(file, im.root.trim())
+      if (run !== importRun || importing.value !== im) return
+      if (Object.keys(found).length) show(await api.servicesImportResolve(file, im.root.trim(), found))
+      const left = missing()
+      if (left) im.aiNote = `${left === 1 ? '1 repositório não foi encontrado' : `${left} repositórios não foram encontrados`} neste computador. Os serviços dele${left === 1 ? '' : 's'} não serão importados; escolha outra pasta ou clone o repositório e importe de novo.`
+    } catch (e) {
+      if (run === importRun) im.aiNote = `Não foi possível procurar com a IA (${errText(e)}). Os serviços sem pasta não serão importados.`
+    } finally {
+      if (run === importRun) im.searching = false
+    }
   } catch (e) {
     toast(errText(e))
   }
@@ -108,7 +132,7 @@ async function pickImportRoot() {
 async function confirmImport() {
   const im = importing.value
   if (!im || !importCount.value) return
-  const add: Service[] = im.items.filter((_, i) => im.picked[i]).map((i) => ({ id: crypto.randomUUID(), name: i.name, command: i.command, cwd: i.cwd }))
+  const add: Service[] = im.items.filter((it, i) => im.picked[i] && it.exists).map((i) => ({ id: crypto.randomUUID(), name: i.name, command: i.command, cwd: i.cwd }))
   await saveSettings({ services: plain([...services.value, ...add]) })
   importing.value = null
   toast(`${add.length} ${add.length === 1 ? 'serviço importado' : 'serviços importados'}`)
@@ -196,25 +220,29 @@ onUnmounted(() => offs.forEach((f) => f()))
           <input id="svc-root" v-model="importing.root" type="text" class="mono" spellcheck="false" @change="resolveImport" />
           <button type="button" @click="pickImportRoot">Escolher…</button>
         </div>
-        <p class="faint hint">Cada serviço aponta para o repositório dele dentro desta pasta. Os projetos que você já abriu no Ovseer são encontrados onde estiverem.</p>
+        <p class="faint hint">Os repositórios são procurados nesta pasta, entre os projetos do Ovseer e no seu computador; a IA ajuda a reconhecer os que tiverem outro nome. Só entra o serviço cuja pasta for encontrada.</p>
       </div>
       <div class="imp-list">
-        <label v-for="(it, i) in importing.items" :key="i" class="imp-item">
-          <input v-model="importing.picked[i]" type="checkbox" />
+        <label v-for="(it, i) in importing.items" :key="i" class="imp-item" :class="{ off: !it.exists }">
+          <input v-model="importing.picked[i]" type="checkbox" :disabled="!it.exists" />
           <span class="text">
             <span class="line">
               <strong class="ellipsis">{{ it.name }}</strong>
-              <small v-if="it.duplicate" class="faint">já existe</small>
-              <small v-else-if="!it.exists" class="imp-warn">pasta não encontrada</small>
-              <small v-else-if="it.via === 'project'" class="ok">projeto encontrado</small>
+              <small v-if="!it.exists && importing.searching" class="faint">procurando…</small>
+              <small v-else-if="!it.exists" class="imp-warn">pasta não encontrada · não será importado</small>
+              <small v-else-if="it.duplicate" class="faint">já existe</small>
+              <small v-else-if="it.via === 'ai'" class="ok">encontrado pela IA</small>
+              <small v-else-if="it.via === 'project'" class="ok">repositório encontrado</small>
             </span>
             <small class="mono faint ellipsis" :title="it.cwd">{{ it.cwd || 'sua pasta de usuário' }}</small>
           </span>
         </label>
       </div>
+      <p v-if="importing.searching" class="faint hint imp-status"><span class="imp-spin" /> Procurando com a IA os repositórios que faltam…</p>
+      <p v-else-if="importing.aiNote" class="hint imp-warn">{{ importing.aiNote }}</p>
       <div class="form-acts">
         <button type="button" class="ghost" @click="importing = null">Cancelar</button>
-        <button type="button" class="primary" :disabled="!importCount" @click="confirmImport">Importar {{ importCount || '' }}</button>
+        <button type="button" class="primary" :disabled="!importCount || importing.searching" @click="confirmImport">Importar {{ importCount || '' }}</button>
       </div>
     </div>
 
@@ -273,7 +301,12 @@ onUnmounted(() => offs.forEach((f) => f()))
 .imp-list { display: flex; flex-direction: column; gap: 1px; max-height: 260px; overflow-y: auto; margin: 0 -6px; }
 .imp-item { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
 .imp-item:hover { background: var(--hover); }
+.imp-item.off { cursor: default; }
+.imp-item.off strong { color: var(--muted); }
 .imp-warn { color: var(--mod); }
+.imp-status { display: flex; align-items: center; gap: 8px; }
+.imp-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: imp-turn 0.8s linear infinite; flex: none; }
+@keyframes imp-turn { to { transform: rotate(360deg); } }
 .list { display: flex; flex-direction: column; gap: 2px; }
 .item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; }
 .item:hover { background: var(--hover); }

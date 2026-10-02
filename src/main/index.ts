@@ -713,7 +713,10 @@ function registerIpc() {
   ipcMain.handle('services:states', () => services.serviceStates())
   ipcMain.handle('services:export', () => servicesShare.exportToFile(win!))
   ipcMain.handle('services:importPick', () => servicesShare.pickImport(win!))
-  ipcMain.handle('services:importResolve', (_e, file: ServicesFile, root: string) => servicesShare.resolveImport(file, String(root ?? '')))
+  ipcMain.handle('services:importResolve', (_e, file: ServicesFile, root: string, picked?: Record<string, string>) =>
+    servicesShare.resolveImport(file, String(root ?? ''), picked)
+  )
+  ipcMain.handle('services:importLocate', (_e, file: ServicesFile, root: string) => servicesShare.locateWithAi(file, String(root ?? '')))
   ipcMain.handle('services:start', (_e, id: string) => services.startService(String(id)))
   ipcMain.handle('services:stop', (_e, id: string) => services.stopService(String(id)))
   ipcMain.handle('services:openWindow', (_e, id: string) => services.openServiceWindow(String(id)))

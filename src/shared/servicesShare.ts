@@ -42,8 +42,8 @@ export interface ResolvedService {
   cwd: string
   /** Repositório a que pertence (nome), se pertence a um */
   repo?: string
-  /** De onde saiu a pasta: de um projeto já conhecido, da pasta raiz escolhida, ou do próprio arquivo */
-  via: 'project' | 'root' | 'file'
+  /** De onde saiu a pasta: de um repositório achado no computador, da IA, da pasta raiz escolhida, ou do próprio arquivo */
+  via: 'project' | 'ai' | 'root' | 'file'
 }
 
 /** O que a tela de importação mostra de cada serviço */
@@ -154,16 +154,20 @@ export function parseServicesFile(text: string): ServicesFile {
 /**
  * Pasta de cada serviço neste computador. `known` são os repositórios que o usuário já tem (projetos do app);
  * `root` é a pasta onde ficam os repositórios dele, usada para os que não foram achados.
+ * A ordem de `known` é a de preferência (os projetos abertos no app antes dos achados no disco).
  */
-export function resolveServices(file: ServicesFile, o: { root: string; known: RepoRef[]; home: string }): ResolvedService[] {
+export function resolveServices(file: ServicesFile, o: { root: string; known: RepoRef[]; home: string; picked?: Record<string, string> }): ResolvedService[] {
   const native = (p: string) => (/\\/.test(o.home) || /^[a-z]:/i.test(o.root) ? p.replace(/\//g, '\\') : p)
-  const found = new Map<string, { root: string; via: 'project' | 'root' }>()
+  const found = new Map<string, { root: string; via: 'project' | 'ai' | 'root' }>()
   const repoRoot = (s: SharedService) => {
     const key = `${s.repo}\n${s.remote ?? ''}`
     let hit = found.get(key)
     if (!hit) {
-      const k = (s.remote && o.known.find((r) => r.remote && r.remote === s.remote)) || o.known.find((r) => r.name === s.repo)
-      hit = k ? { root: slash(k.root), via: 'project' } : { root: `${slash(o.root)}/${s.repo}`, via: 'root' }
+      // `picked`: repositórios que a IA apontou (pelo nome que têm no arquivo) para os que não serviram pelo
+      // remoto nem pelo nome; quem chama só manda os que faltavam, então valem antes da busca comum
+      const ai = s.repo ? o.picked?.[s.repo] : undefined
+      const k = ai ? undefined : (s.remote && o.known.find((r) => r.remote && r.remote === s.remote)) || o.known.find((r) => r.name === s.repo)
+      hit = ai ? { root: slash(ai), via: 'ai' } : k ? { root: slash(k.root), via: 'project' } : { root: `${slash(o.root)}/${s.repo}`, via: 'root' }
       found.set(key, hit)
     }
     return hit

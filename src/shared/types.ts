@@ -922,8 +922,10 @@ export interface OvseerApi {
   servicesExport(): Promise<{ path: string; count: number } | null>
   /** Abre um arquivo de serviços exportado; `root` é a pasta raiz sugerida para os repositórios */
   servicesImportPick(): Promise<{ file: import('./servicesShare').ServicesFile; root: string } | null>
-  /** Pasta de cada serviço do arquivo neste computador, para a pasta raiz dada */
-  servicesImportResolve(file: import('./servicesShare').ServicesFile, root: string): Promise<import('./servicesShare').ImportedService[]>
+  /** Pasta de cada serviço do arquivo neste computador, para a pasta raiz dada (`picked`: repositórios apontados pela IA) */
+  servicesImportResolve(file: import('./servicesShare').ServicesFile, root: string, picked?: Record<string, string>): Promise<import('./servicesShare').ImportedService[]>
+  /** A IA procura, entre os repositórios do computador, os do arquivo que não foram achados (nome no arquivo → pasta) */
+  servicesImportLocate(file: import('./servicesShare').ServicesFile, root: string): Promise<Record<string, string>>
   serviceStart(id: string): Promise<void>
   serviceStop(id: string): Promise<void>
   /** Abre (ou traz à frente) a janela com o terminal do serviço (desacoplado) */
