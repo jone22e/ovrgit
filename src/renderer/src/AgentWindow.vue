@@ -2483,10 +2483,15 @@ onUnmounted(() => offs.forEach((f) => f()))
 .send-main:hover:not(:disabled), .send-more:hover:not(:disabled), .send-split.on .send-more { background: color-mix(in srgb, currentColor 14%, transparent); }
 .send-split .chev { transform: rotate(90deg); color: inherit; }
 .send-split .pop { left: auto; right: 0; }
-.queue { display: flex; flex-direction: column; gap: 2px; padding: 2px 4px 0; }
-.queued { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 8px; background: var(--panel-2); font-size: 12px; min-width: 0; }
-.q-text { flex: 1; min-width: 0; }
-.queued small { font-size: 11px; flex: none; }
+.queue { display: flex; flex-direction: column; gap: 4px; padding: 2px 4px 2px; }
+/* mensagem na fila: uma linha que se destaca do campo (borda e fio na cor do tema), com altura de toque */
+.queued {
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px 0 10px; border-radius: 9px; min-width: 0;
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent); font-size: 12.5px; color: var(--text);
+}
+.q-text { flex: 1; min-width: 0; font-weight: 500; }
+.queued small { font-size: 11px; flex: none; color: var(--accent); font-weight: 600; }
 .q-acts { display: inline-flex; gap: 2px; flex: none; margin-right: -4px; }
 .qa { width: 22px; height: 22px; padding: 0; border-radius: 6px; color: var(--faint); }
 .qa:hover { color: var(--text); }
