@@ -24,6 +24,7 @@ import * as sshImport from './sshImport'
 import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
+import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
 import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
@@ -637,9 +638,18 @@ function registerIpc() {
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
   // conceito visual do Modo Arquiteto: pedido à parte da conversa, possivelmente em outra IA
   ipcMain.handle('design:run', (_e, uid: string, o: agentChat.DesignRunOptions) =>
-    agentChat.runDesign(String(uid), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort, prompt: String(o?.prompt ?? '') })
+    agentChat.runDesign(String(uid), {
+      provider: provider(o?.provider),
+      model: String(o?.model ?? '').slice(0, 80),
+      effort: o?.effort,
+      prompt: String(o?.prompt ?? ''),
+      attachments: Array.isArray(o?.attachments) ? o.attachments.slice(0, 20) : []
+    })
   )
-  ipcMain.handle('design:layout', (_e, uid: string, on: boolean) => agentChat.setDesignLayout(String(uid), !!on))
+  ipcMain.handle('design:open', (_e, uid: string) => agentChat.openDesignWindow(String(uid)))
+  ipcMain.on('design:push', (_e, uid: string, state: DesignWindowState) => agentChat.pushDesignState(String(uid), state))
+  ipcMain.handle('design:state', (_e, uid: string) => agentChat.designState(String(uid)))
+  ipcMain.handle('design:act', (_e, uid: string, action: DesignAction) => agentChat.actOnDesign(String(uid), action))
   ipcMain.handle('design:cancel', (_e, uid: string) => agentChat.cancelDesign(String(uid)))
   ipcMain.handle('design:save', (_e, uid: string, html: string, name: string) => agentChat.saveDesign(String(uid), String(html ?? ''), String(name ?? 'conceito.html')))
   ipcMain.handle('agent:setCwd', (_e, uid: string, cwd: string) => agentChat.setCwd(String(uid), String(cwd ?? '')))

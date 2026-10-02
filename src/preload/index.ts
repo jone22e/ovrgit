@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, ServiceState, Settings, TerminalSpec, UpdateState } from '../shared/types'
+import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -292,7 +293,25 @@ const api: OvseerApi = {
   },
   designRun: (uid, o) => ipcRenderer.invoke('design:run', uid, o),
   designCancel: (uid) => ipcRenderer.invoke('design:cancel', uid),
-  designLayout: (uid, on) => ipcRenderer.invoke('design:layout', uid, on),
+  designOpen: (uid) => ipcRenderer.invoke('design:open', uid),
+  designPush: (uid, state) => ipcRenderer.send('design:push', uid, state),
+  designState: (uid) => ipcRenderer.invoke('design:state', uid),
+  designAct: (uid, action) => ipcRenderer.invoke('design:act', uid, action),
+  onDesignState: (cb) => {
+    const h = (_e: unknown, uid: string, st: DesignWindowState) => cb(uid, st)
+    ipcRenderer.on('design:state', h)
+    return () => ipcRenderer.off('design:state', h)
+  },
+  onDesignAct: (cb) => {
+    const h = (_e: unknown, uid: string, a: DesignAction) => cb(uid, a)
+    ipcRenderer.on('design:act', h)
+    return () => ipcRenderer.off('design:act', h)
+  },
+  onDesignClosed: (cb) => {
+    const h = (_e: unknown, uid: string) => cb(uid)
+    ipcRenderer.on('design:closed', h)
+    return () => ipcRenderer.off('design:closed', h)
+  },
   designSave: (uid, html, name) => ipcRenderer.invoke('design:save', uid, html, name),
   onDesignEvent: (cb) => {
     const h = (_e: unknown, uid: string, ev: AgentChatEvent) => cb(uid, ev)

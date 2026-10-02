@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { archPlanRequest, designRequest, designScreens, extractHtml, hasInterface, previewDocument, stripArchMarkers } from '../src/shared/architect'
+import { archPlanRequest, designRequest, designScreens, extractHtml, extractSummary, hasInterface, previewDocument, stripArchMarkers } from '../src/shared/architect'
 
 describe('descoberta', () => {
   it('lê o marcador de interface e o tira do texto exibido', () => {
@@ -27,6 +27,11 @@ describe('conceito visual', () => {
     expect(extractHtml('<!DOCTYPE html><html></html>')).toBe('<!DOCTYPE html><html></html>')
     expect(extractHtml('ainda pensando…')).toBe('')
     expect(extractHtml('```\nsó texto\n```')).toBe('')
+  })
+  it('separa o resumo que vem antes do HTML', () => {
+    expect(extractSummary('Criei duas telas:\na de análise e a de pedido.\n\n```html\n<!doctype html><html></html>\n```')).toBe('Criei duas telas: a de análise e a de pedido.')
+    expect(extractSummary('```html\n<html></html>\n```')).toBe('')
+    expect(extractSummary('texto sem html')).toBe('')
   })
   it('a prévia ganha a política que bloqueia cargas de fora', () => {
     const doc = previewDocument('<html><head><title>x</title></head><body></body></html>')

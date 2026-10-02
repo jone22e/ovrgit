@@ -18,7 +18,8 @@ export default defineConfig({
           index: resolve('src/renderer/index.html'),
           agent: resolve('src/renderer/agent.html'),
           service: resolve('src/renderer/service.html'),
-          terminal: resolve('src/renderer/terminal.html')
+          terminal: resolve('src/renderer/terminal.html'),
+          design: resolve('src/renderer/design.html')
         }
       }
     },

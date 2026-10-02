@@ -7,7 +7,7 @@ import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { artifactsDir, artifactsRule } from '../shared/artifacts'
-import { ARCH_DISCOVERY, DESIGN_RULES } from '../shared/architect'
+import { ARCH_DISCOVERY, DESIGN_RULES, type DesignAction, type DesignWindowState } from '../shared/architect'
 import { projectMap } from './projectMap'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
@@ -47,8 +47,6 @@ interface AgentWin {
   titleToken?: symbol
   /** Processo do conceito visual (Modo Arquiteto), separado da conversa e possivelmente de outra IA */
   designChild?: ChildProcessWithoutNullStreams | null
-  /** Tamanho da janela antes de abrir o painel de design (para voltar ao fechar) */
-  beforeDesign?: Electron.Rectangle | null
 }
 
 const wins = new Map<string, AgentWin>()
@@ -211,10 +209,6 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
   })
-  // a prévia do conceito visual (Modo Arquiteto) é um iframe com HTML vindo de uma IA: ele nunca navega para fora
-  win.webContents.on('will-frame-navigate', (e) => {
-    if (!e.isMainFrame && !/^about:(srcdoc|blank)/.test(e.url)) e.preventDefault()
-  })
   // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
   // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
   win.webContents.on('will-navigate', (e, url) => {
@@ -230,6 +224,8 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   win.on('closed', () => {
     const w = wins.get(uid)
     if (w?.child) terminate(w.child, 'codex')
+    if (w?.designChild) terminate(w.designChild, 'codex')
+    closeDesignWindow(uid)
     wins.delete(uid)
     broadcastWindows()
     // cópias de imagens coladas/arrastadas desta conversa
@@ -1479,6 +1475,8 @@ export interface DesignRunOptions {
   effort: AgentEffort
   /** Pedido completo (resumo aprovado e, nas revisões, o HTML atual e o que ajustar) */
   prompt: string
+  /** Arquivos e imagens que acompanham o pedido (referências de layout, capturas de tela…) */
+  attachments?: AgentAttachment[]
 }
 
 /**
@@ -1494,7 +1492,9 @@ export async function runDesign(uid: string, o: DesignRunOptions): Promise<void>
   const bin = await findBinary(BIN[provider])
   if (!bin) throw new Error(`${PROVIDER_NAME[provider]} não encontrado neste computador.`)
   const model = safeModel(o.model ?? '')
-  const prompt = String(o.prompt).slice(0, 400_000)
+  // anexos como na conversa: imagens em linha (Claude e Codex); o resto, pelo caminho, para ler com as ferramentas
+  const { prompt: withFiles, inlineImages } = composeMessage(provider, String(o.prompt), o.attachments ?? [])
+  const prompt = withFiles.slice(0, 400_000)
   let args: string[]
   let input = ''
   if (provider === 'claude') {
@@ -1504,10 +1504,11 @@ export async function runDesign(uid: string, o: DesignRunOptions): Promise<void>
     args.push('--append-system-prompt', DESIGN_RULES, '--tools', 'Read,Glob,Grep', '--no-session-persistence')
     if (model) args.push('--model', model)
     if (o.effort) args.push('--effort', o.effort)
-    input = claudeInputMessage(prompt, [])
+    input = claudeInputMessage(prompt, inlineImages)
   } else if (provider === 'codex') {
     // --ephemeral: não grava sessão; sandbox somente leitura: o design não altera o projeto
     args = ['exec', '--ephemeral', '--json', '--skip-git-repo-check', '-c', 'sandbox_mode="read-only"']
+    for (const img of inlineImages) args.push('-i', img.path)
     if (model) args.push('-m', model)
     if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
     args.push('-')
@@ -1564,27 +1565,76 @@ export async function runDesign(uid: string, o: DesignRunOptions): Promise<void>
   else child.stdin.end(input)
 }
 
-/**
- * O painel de design abre ao lado da conversa: a janela alarga para caber os dois (dentro da tela em que está)
- * e volta ao tamanho de antes quando o painel fecha.
- */
-export function setDesignLayout(uid: string, on: boolean) {
+// ---------- janela de design: uma tela à parte, ligada à conversa que a abriu ----------
+const designWins = new Map<string, BrowserWindow>()
+/** Último estado publicado pela conversa: a janela de design pede ao carregar */
+const designStates = new Map<string, DesignWindowState>()
+
+/** Abre (ou traz para a frente) a janela de design da conversa `uid` */
+export function openDesignWindow(uid: string) {
   const w = wins.get(uid)
-  if (!w || w.win.isDestroyed()) return
-  if (on) {
-    if (w.beforeDesign) return
-    const b = w.win.getBounds()
-    const area = screen.getDisplayMatching(b).workArea
-    const width = Math.min(area.width, Math.max(b.width, 1320))
-    if (width <= b.width) return
-    w.beforeDesign = b
-    // cresce para a direita; se não couber, desloca para a esquerda até caber na tela
-    const x = Math.max(area.x, Math.min(b.x, area.x + area.width - width))
-    w.win.setBounds({ x, y: b.y, width, height: b.height }, true)
-  } else if (w.beforeDesign) {
-    w.win.setBounds(w.beforeDesign, true)
-    w.beforeDesign = null
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  const existing = designWins.get(uid)
+  if (existing && !existing.isDestroyed()) {
+    existing.show()
+    existing.focus()
+    return
   }
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 560,
+    title: `${w.info.project} — Design`,
+    icon: setup?.icon,
+    show: false,
+    backgroundColor: setup?.background() ?? '#1e1e1e',
+    webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+  })
+  designWins.set(uid, win)
+  win.once('ready-to-show', () => win.show())
+  win.on('page-title-updated', (e) => e.preventDefault())
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // a tela do conceito é um iframe com HTML vindo de uma IA: ele nunca navega para fora
+  win.webContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame && !/^about:(srcdoc|blank)/.test(e.url)) e.preventDefault()
+  })
+  win.on('closed', () => {
+    designWins.delete(uid)
+    const a = wins.get(uid)
+    if (a && !a.win.isDestroyed()) a.win.webContents.send('design:closed', uid)
+  })
+  const load = () =>
+    process.env.ELECTRON_RENDERER_URL
+      ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/design.html?uid=${encodeURIComponent(uid)}`)
+      : win.loadFile(path.join(__dirname, '../renderer/design.html'), { query: { uid } })
+  load().catch((e) => console.error('Janela de design não carregou:', e))
+}
+
+/** A conversa publica o estado do design; a janela de design (se aberta) recebe */
+export function pushDesignState(uid: string, state: DesignWindowState) {
+  if (!wins.has(uid)) return
+  designStates.set(uid, state)
+  const win = designWins.get(uid)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('design:state', uid, state)
+    win.setTitle(`${state.project} — ${state.title || 'Design'}`)
+  }
+}
+
+export const designState = (uid: string): DesignWindowState | null => designStates.get(uid) ?? null
+
+/** A janela de design pede algo à conversa (revisar, aprovar, trocar de versão…) */
+export function actOnDesign(uid: string, action: DesignAction) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) throw new Error('A conversa deste design foi fechada.')
+  w.win.webContents.send('design:act', uid, action)
+}
+
+function closeDesignWindow(uid: string) {
+  const win = designWins.get(uid)
+  if (win && !win.isDestroyed()) win.close()
+  designStates.delete(uid)
 }
 
 export function cancelDesign(uid: string) {

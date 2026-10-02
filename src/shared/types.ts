@@ -1,5 +1,5 @@
 import type { ChecklistItem } from './checklist'
-import type { ArchState } from './architect'
+import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
 
 export interface FileChange {
@@ -1045,10 +1045,16 @@ export interface OvseerApi {
   /** Na janela do agente: ações vindas do gerenciador */
   onAgentAct(cb: (uid: string, action: AgentAction) => void): () => void
   /** Conceito visual do Modo Arquiteto: pede uma versão (pedido à parte da conversa, em qualquer IA), interrompe e salva o aprovado */
-  designRun(uid: string, o: { provider: CliProvider; model: string; effort: AgentEffort; prompt: string }): Promise<void>
+  designRun(uid: string, o: { provider: CliProvider; model: string; effort: AgentEffort; prompt: string; attachments?: AgentAttachment[] }): Promise<void>
   designCancel(uid: string): Promise<void>
-  /** Alarga a janela do agente para caber o painel de design ao lado da conversa (e volta ao fechar) */
-  designLayout(uid: string, on: boolean): Promise<void>
+  /** Janela de design (uma tela à parte): abrir; a conversa publica o estado e recebe os pedidos da janela */
+  designOpen(uid: string): Promise<void>
+  designPush(uid: string, state: DesignWindowState): void
+  designState(uid: string): Promise<DesignWindowState | null>
+  designAct(uid: string, action: DesignAction): Promise<void>
+  onDesignState(cb: (uid: string, state: DesignWindowState) => void): () => void
+  onDesignAct(cb: (uid: string, action: DesignAction) => void): () => void
+  onDesignClosed(cb: (uid: string) => void): () => void
   designSave(uid: string, html: string, name: string): Promise<string>
   onDesignEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   /** A janela foi trazida para a frente pelo gerenciador ou pela lista de conversas: pisca a borda */

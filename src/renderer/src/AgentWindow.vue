@@ -15,10 +15,9 @@ import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
 import { findArtifacts } from '@shared/artifacts'
-import { ARCH_PHASES, archPlanRequest, designRequest, extractHtml, hasInterface, stripArchMarkers, type ArchPhase, type ArchState } from '@shared/architect'
+import { ARCH_PHASES, archPlanRequest, designRequest, extractHtml, extractSummary, hasInterface, stripArchMarkers, type ArchPhase, type ArchState, type DesignAction, type DesignWindowState } from '@shared/architect'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
-import DesignPanel from './components/DesignPanel.vue'
 import FileCard from './components/FileCard.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
@@ -885,36 +884,6 @@ const archHint = computed(() => {
   if (running.value) return checklist.value ? `Implementando · ${checklistDone.value} de ${checklist.value.length} etapas` : 'Implementando…'
   return checklist.value && checklistPending.value === 0 ? 'Concluído' : 'Execução'
 })
-/** Largura da conversa (em %) quando o painel de design está aberto; o divisor arrasta e a escolha fica guardada */
-const SPLIT_KEY = 'ovseer.design.split'
-const SPLIT_DEFAULT = 38
-const readSplit = () => {
-  const n = Number(localStorage.getItem(SPLIT_KEY))
-  return n >= 20 && n <= 75 ? n : SPLIT_DEFAULT
-}
-const designSplit = ref(readSplit())
-const splitting = ref(false)
-function startSplit() {
-  splitting.value = true
-  const move = (e: MouseEvent) => {
-    const w = window.innerWidth
-    // nenhum dos dois lados fica menor do que o que dá para usar
-    const px = Math.min(Math.max(e.clientX, 320), w - 420)
-    designSplit.value = Math.round((px / w) * 1000) / 10
-  }
-  const up = () => {
-    splitting.value = false
-    window.removeEventListener('mousemove', move)
-    window.removeEventListener('mouseup', up)
-    localStorage.setItem(SPLIT_KEY, String(designSplit.value))
-  }
-  window.addEventListener('mousemove', move)
-  window.addEventListener('mouseup', up)
-}
-function resetSplit() {
-  designSplit.value = SPLIT_DEFAULT
-  localStorage.removeItem(SPLIT_KEY)
-}
 /** Entendimento aprovado: guarda o resumo e segue para o conceito visual ou direto para o plano */
 async function approveDiscovery(concept: boolean) {
   const a = arch.value
@@ -945,18 +914,61 @@ async function startArchPlan(conceptFile?: string) {
 let designText = ''
 let designNote = ''
 let designLiveTimer: ReturnType<typeof setTimeout> | undefined
+/** Abre (ou traz para a frente) a janela de design desta conversa; o estado é publicado para ela */
 function openDesign() {
-  if (!arch.value?.design || designOpen.value) return
+  if (!arch.value?.design) return
   designOpen.value = true
-  api.designLayout(uid, true).catch(() => undefined)
+  pushDesign()
+  api.designOpen(uid).catch((e) => (attachError.value = clean(e)))
 }
-function closeDesign() {
-  if (!designOpen.value) return
-  designOpen.value = false
-  api.designLayout(uid, false).catch(() => undefined)
+offs.push(api.onDesignClosed((u) => u === uid && (designOpen.value = false)))
+/** O que a janela de design mostra: o conceito, as versões e a rodada em andamento */
+const designActs = ref<string[]>([])
+let designTarget = ''
+let designFiles: AgentAttachment[] = []
+function pushDesign() {
+  const a = arch.value
+  if (!a?.design || !info.value) return
+  const st: DesignWindowState = {
+    title: chatTitle.value || info.value.title || '',
+    project: info.value.project,
+    request: turns.find((t) => t.arch)?.user ?? '',
+    design: a.design,
+    running: designRunning.value,
+    live: designLive.value,
+    activity: designActs.value,
+    note: designNote,
+    target: designTarget,
+    attachments: designFiles,
+    error: designError.value
+  }
+  api.designPush(uid, JSON.parse(JSON.stringify(st)))
 }
+let pushTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  [() => arch.value?.design, designRunning, designLive, designActs, designError, chatTitle],
+  () => {
+    if (!designOpen.value) return
+    clearTimeout(pushTimer)
+    pushTimer = setTimeout(pushDesign, 120)
+  },
+  { deep: true }
+)
+/** Pedidos da janela de design: revisar, aprovar, pular, trocar de versão, trocar a IA */
+function onDesignAct(a: DesignAction) {
+  const d = arch.value?.design
+  if (!d) return
+  if (a.type === 'revise') drawDesign(a.note, a.target, a.attachments)
+  else if (a.type === 'retry') drawDesign(designNote, undefined, designFiles)
+  else if (a.type === 'approve') approveDesign()
+  else if (a.type === 'skip') skipDesign()
+  else if (a.type === 'cancel') api.designCancel(uid)
+  else if (a.type === 'select') d.current = Math.max(0, Math.min(d.versions.length - 1, a.index))
+  else if (a.type === 'ai') setDesignAi(a.provider, a.model, a.effort as AgentEffort)
+}
+offs.push(api.onDesignAct((u, a) => u === uid && onDesignAct(a)))
 /** Pede uma versão do conceito: a primeira parte do resumo aprovado; as revisões levam o HTML atual e o ajuste */
-async function drawDesign(note = '') {
+async function drawDesign(note = '', target?: { label: string; ref: string }, files?: AgentAttachment[]) {
   const a = arch.value
   const d = a?.design
   if (!a || !d || designRunning.value) return
@@ -964,6 +976,11 @@ async function drawDesign(note = '') {
   const cur = d.versions[d.current]
   designText = ''
   designNote = note
+  designTarget = target?.label ?? ''
+  // a primeira versão leva o que foi anexado ao pedido original da conversa (capturas, referências de layout)
+  const first = turns.find((t) => t.arch)
+  designFiles = (files ?? (note ? [] : (first?.attachments ?? []))).map(({ name, path, mime, size, kind }) => ({ name, path, mime, size, kind }))
+  designActs.value = []
   designLive.value = ''
   designActivity.value = ''
   designError.value = null
@@ -973,7 +990,8 @@ async function drawDesign(note = '') {
       provider: d.provider,
       model: d.model,
       effort: d.effort as AgentEffort,
-      prompt: designRequest({ request, brief: a.brief ?? '', currentHtml: note && cur ? cur.html : undefined, note, history: d.versions.slice(0, d.current + 1).map((v) => v.note) })
+      attachments: designFiles,
+      prompt: designRequest({ request, brief: a.brief ?? '', currentHtml: note && cur ? cur.html : undefined, note: target ? `Sobre o elemento ${target.ref}: ${note}` : note, history: d.versions.slice(0, d.current + 1).map((v) => v.note) })
     })
   } catch (e) {
     designRunning.value = false
@@ -989,6 +1007,8 @@ function onDesignEvent(ev: AgentChatEvent) {
     if (!designLiveTimer) designLiveTimer = setTimeout(() => ((designLiveTimer = undefined), (designLive.value = extractHtml(designText))), 700)
   } else if (ev.type === 'tool') {
     designActivity.value = nowLabel(ev)
+    // a janela de design mostra o que foi feito no caminho, linha a linha
+    if (designActs.value[designActs.value.length - 1] !== designActivity.value) designActs.value = [...designActs.value, designActivity.value].slice(-12)
   } else if (ev.type === 'done') {
     clearTimeout(designLiveTimer)
     designLiveTimer = undefined
@@ -996,7 +1016,7 @@ function onDesignEvent(ev: AgentChatEvent) {
     designActivity.value = ''
     const html = extractHtml(designText)
     if (ev.ok && html) {
-      d.versions.push({ html, note: designNote, at: Date.now() })
+      d.versions.push({ html, note: designNote, at: Date.now(), target: designTarget || undefined, attachments: designFiles.length ? designFiles : undefined, summary: extractSummary(designText) || undefined, activity: designActs.value.length ? designActs.value : undefined })
       d.current = d.versions.length - 1
     } else designError.value = ev.ok ? 'A resposta veio sem o HTML do conceito.' : (ev.error ?? 'Falhou.')
     designLive.value = ''
@@ -1004,13 +1024,6 @@ function onDesignEvent(ev: AgentChatEvent) {
   }
 }
 offs.push(api.onDesignEvent((u, ev) => u === uid && onDesignEvent(ev)))
-/** Texto editado direto na tela do conceito: vira uma versão nova, sem passar pela IA */
-function designEdited(html: string) {
-  const d = arch.value?.design
-  if (!d || designRunning.value) return
-  d.versions.push({ html, note: 'Edição direta do texto', at: Date.now() })
-  d.current = d.versions.length - 1
-}
 function setDesignAi(p: CliProvider, m: string, e: AgentEffort) {
   const d = arch.value?.design
   if (d) Object.assign(d, { provider: p, model: m, effort: e })
@@ -1039,7 +1052,6 @@ function skipDesign() {
   const d = arch.value?.design
   if (!d || designRunning.value) return
   d.approved = 'skipped'
-  closeDesign()
   startArchPlan()
 }
 
@@ -1720,8 +1732,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 <template>
   <div
     class="agent"
-    :class="{ 'with-design': designOpen && arch?.design, splitting }"
-    :style="[fontStyle, { '--split': `${designSplit}%` }]"
+    :style="fontStyle"
     @dragenter.prevent="onDragMove"
     @dragover.prevent="onDragMove"
     @dragleave="onDragLeave"
@@ -1778,28 +1789,6 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small></span>
       </span>
     </header>
-
-    <DesignPanel
-      v-if="designOpen && arch?.design"
-      class="design-side"
-      :design="arch.design"
-      :running="designRunning"
-      :live="designLive"
-      :activity="designActivity"
-      :error="designError"
-      :known="known"
-      @revise="drawDesign"
-      @retry="drawDesign(designNote)"
-      @approve="approveDesign"
-      @skip="skipDesign"
-      @cancel="api.designCancel(uid)"
-      @close="closeDesign"
-      @select="(i) => arch?.design && (arch.design.current = i)"
-      @ai="setDesignAi"
-      @edited="designEdited"
-    />
-    <!-- divisor entre a conversa e o design: arrastar muda a largura de cada lado; dois cliques voltam ao padrão -->
-    <div v-if="designOpen && arch?.design" class="design-divider" role="separator" aria-orientation="vertical" title="Arraste para ajustar; dois cliques voltam ao padrão" @mousedown.prevent="startSplit" @dblclick="resetSplit" />
 
     <main ref="thread" class="thread" @scroll="onScroll">
       <p v-if="fatal" class="fatal">{{ fatal }}</p>
@@ -1954,7 +1943,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </button>
         <!-- o plano foi interrompido (ou a conversa foi reaberta nesta etapa): dá para pedir de novo -->
         <button v-if="archCanReplan" type="button" class="small primary ac-btn" @click="startArchPlan(typeof arch.design?.approved === 'number' ? arch.design.file : undefined)">Gerar o plano</button>
-        <button v-if="arch.design" type="button" class="ghost ac-btn ac-design" :class="{ on: designOpen }" :title="designOpen ? 'Fechar o painel de design' : 'Abrir o painel de design'" @click="designOpen ? closeDesign() : openDesign()">
+        <button v-if="arch.design" type="button" class="ghost ac-btn ac-design" :class="{ on: designOpen }" :title="designOpen ? 'Trazer a janela de design para a frente' : 'Abrir a janela de design'" @click="openDesign">
           <Icon name="layers" :size="13" /> Design
         </button>
       </div>
@@ -2141,22 +2130,6 @@ onUnmounted(() => offs.forEach((f) => f()))
 
 <style scoped>
 .agent { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
-/* painel de design aberto: conversa | divisor | design; só o cabeçalho atravessa tudo */
-.agent.with-design { display: grid; grid-template-columns: minmax(320px, var(--split, 38%)) 7px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; }
-.agent.with-design > .bar { grid-column: 1 / -1; }
-.agent.with-design > .thread { grid-column: 1; grid-row: 2; min-height: 0; }
-.agent.with-design > .archcard { grid-column: 1; grid-row: 3; }
-.agent.with-design > .checklist { grid-column: 1; grid-row: 4; }
-.agent.with-design > .composer { grid-column: 1; grid-row: 5; }
-.agent.with-design > .design-divider { grid-column: 2; grid-row: 2 / 6; }
-.agent.with-design > .design-side { grid-column: 3; grid-row: 2 / 6; border-left: 0; }
-/* divisor: uma linha fina que engrossa e ganha cor ao passar o mouse ou arrastar */
-.design-divider { position: relative; cursor: col-resize; background: transparent; }
-.design-divider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--border); transition: background 0.12s, width 0.12s, left 0.12s; }
-.design-divider:hover::before, .agent.splitting .design-divider::before { left: 2px; width: 3px; background: var(--accent); }
-/* arrastando: a prévia não engole o mouse e nada é selecionado */
-.agent.splitting { cursor: col-resize; user-select: none; }
-.agent.splitting :deep(iframe) { pointer-events: none; }
 /* cartão do Modo Arquiteto: da mesma família do cartão do checklist, encostado no campo */
 .archcard { flex: none; margin: 0 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); overflow: hidden; }
 .ac-head { display: flex; align-items: center; gap: 6px; padding-right: 8px; min-width: 0; }

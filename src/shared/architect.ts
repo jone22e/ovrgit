@@ -28,7 +28,53 @@ export interface DesignVersion {
   /** O que o usuário pediu nesta revisão (vazio na primeira) */
   note: string
   at: number
+  /** Elemento da tela a que a revisão se refere ("botão «Calcular»"), quando foi pedida sobre um elemento */
+  target?: string
+  /** O que o agente de design disse que fez, em uma ou duas frases */
+  summary?: string
+  /** O que ele fez no caminho ("Lendo tokens.css"), na ordem */
+  activity?: string[]
+  /** Arquivos e imagens que acompanharam o pedido desta versão */
+  attachments?: DesignAttachment[]
 }
+
+/** Anexo de um pedido de design (o mesmo formato dos anexos da conversa) */
+export interface DesignAttachment {
+  name: string
+  path: string
+  mime: string
+  size: number
+  kind: 'image' | 'audio' | 'file'
+}
+
+/** Estado que a janela do agente publica para a janela de design (a conversa é a dona do estado) */
+export interface DesignWindowState {
+  /** Título da conversa e nome do projeto, para o título da janela */
+  title: string
+  project: string
+  /** Pedido original do usuário */
+  request: string
+  design: NonNullable<ArchState['design']>
+  /** Uma versão está sendo desenhada agora; `live` é o HTML parcial e `activity` o que já foi feito nesta rodada */
+  running: boolean
+  live: string
+  activity: string[]
+  /** Revisão em andamento: o que foi pedido, sobre qual elemento e com quais anexos */
+  note: string
+  target: string
+  attachments: DesignAttachment[]
+  error: string | null
+}
+
+/** O que a janela de design pede à conversa */
+export type DesignAction =
+  | { type: 'revise'; note: string; target?: { label: string; ref: string }; attachments?: DesignAttachment[] }
+  | { type: 'retry' }
+  | { type: 'approve' }
+  | { type: 'skip' }
+  | { type: 'cancel' }
+  | { type: 'select'; index: number }
+  | { type: 'ai'; provider: 'claude' | 'codex' | 'agy'; model: string; effort: string }
 
 /** Estado do Modo Arquiteto de uma conversa (fica na vez da descoberta e vai junto na transcrição) */
 export interface ArchState {
@@ -114,7 +160,7 @@ Regras do mockup:
 - Layout responsivo: tem que funcionar em largura de desktop e em 390 px.
 - Enxuto: mostre o essencial de cada tela (até cerca de 400 linhas no total).
 
-Responda SOMENTE com o HTML, dentro de um único bloco \`\`\`html. Nenhuma explicação antes ou depois.`
+Formato da resposta: comece com um resumo de uma ou duas frases, em texto simples, do que você fez (numa revisão: do que mudou). Depois, o HTML completo dentro de um único bloco \`\`\`html. Nada depois do bloco.`
 
 /** Pedido de uma versão do conceito: a primeira parte do resumo aprovado; as revisões, do HTML atual e do que ajustar */
 export function designRequest(o: { request: string; brief: string; currentHtml?: string; note?: string; history?: string[] }): string {
@@ -140,6 +186,12 @@ export function extractHtml(text: string): string {
   if (fence && /<[a-z!]/i.test(fence[1])) return fence[1].trim()
   const start = text.search(/<!doctype html|<html[\s>]/i)
   return start >= 0 ? text.slice(start).replace(/```\s*$/, '').trim() : ''
+}
+
+/** O que o agente de design disse antes do HTML (o resumo do que fez), limpo e curto */
+export function extractSummary(text: string): string {
+  const cut = text.search(/```|<!doctype html|<html[\s>]/i)
+  return (cut >= 0 ? text.slice(0, cut) : '').replace(/\s+/g, ' ').trim().slice(0, 400)
 }
 
 /**
