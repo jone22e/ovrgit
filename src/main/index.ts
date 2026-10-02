@@ -3,7 +3,7 @@ import {
   type MenuItemConstructorOptions
 } from 'electron'
 import { findTheme } from '../shared/themes'
-import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, promises as fsp } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import icon from '../../build/icon.png?asset'
@@ -716,7 +716,25 @@ function registerIpc() {
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
   })
+  // arquivos gerados pelo agente (cartão na conversa): existe? tamanho; abrir no app padrão; mostrar na pasta
+  ipcMain.handle('files:info', async (_e, paths: string[]) =>
+    Promise.all(
+      paths.map(String).map(async (p) => {
+        const full = expandHome(p)
+        try {
+          const st = await fsp.stat(full)
+          return { path: p, exists: st.isFile(), size: st.size, mtime: st.mtimeMs }
+        } catch {
+          return { path: p, exists: false, size: 0, mtime: 0 }
+        }
+      })
+    )
+  )
+  ipcMain.handle('files:open', (_e, p: string) => shell.openPath(expandHome(String(p))))
+  ipcMain.handle('files:reveal', (_e, p: string) => shell.showItemInFolder(expandHome(String(p))))
 }
+
+const expandHome = (p: string) => (p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p)
 
 app.setName('Ovseer')
 // Permite isolar as configurações (testes automatizados, múltiplos perfis)

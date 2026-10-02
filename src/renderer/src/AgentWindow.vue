@@ -14,8 +14,10 @@ import { checksOf } from '@shared/agentChecks'
 import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, isPlanMode, parseChecklist } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
+import { findArtifacts } from '@shared/artifacts'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
+import FileCard from './components/FileCard.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
@@ -1434,7 +1436,13 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
-            <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
+            <template v-if="b.kind === 'text'">
+              <div class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
+              <!-- arquivos gerados citados na resposta (planilhas, PDFs…): cartão com Abrir, só com a vez terminada -->
+              <template v-if="!t.running">
+                <FileCard v-for="p in findArtifacts(b.text)" :key="p" :path="p" :cwd="info?.cwd" />
+              </template>
+            </template>
             <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
               <!-- linha discreta: enquanto roda mostra o que está fazendo; depois, só o resumo. Clique abre a lista. -->
               <button type="button" class="ghost tools-line" @click="toggleGroup(b.key)">

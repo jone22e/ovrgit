@@ -6,6 +6,7 @@ import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, Agent
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
+import { artifactsDir, artifactsRule } from '../shared/artifacts'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { serviceStates } from './services'
@@ -1114,6 +1115,8 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
   const instructions = getSettings().agentInstructions?.trim() ?? ''
+  // arquivos gerados (planilhas, relatórios…) vão para tmp/ do projeto, nunca misturados com o código
+  const artifacts = artifactsRule(artifactsDir(w.info.cwd))
   // serviços rodando no computador (menu Serviços): o agente fica sabendo das portas e não sobe duplicados.
   // Claude recebe a cada pedido (no prompt de sistema); Codex e Antigravity, no primeiro e quando a lista muda.
   const services = servicesNote()
@@ -1124,7 +1127,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   // (a sessão guarda o histórico)
   const intro =
     (provider !== 'claude' && !w.info.sessionId
-      ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
+      ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
       : '') + servicesBlock
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
@@ -1140,7 +1143,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...clean, images: inlineImages.length, instructions: [instructions, services].filter(Boolean).join('\n\n') })
+      ? claudeArgs({ ...clean, images: inlineImages.length, instructions: [instructions, artifacts, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
         ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path) })
         : agyArgs({ ...clean, prompt })

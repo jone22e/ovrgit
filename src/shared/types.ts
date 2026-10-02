@@ -233,6 +233,13 @@ export interface Snippet {
  */
 export type TerminalSpec = { kind: 'local'; command?: string; cwd?: string } | { kind: 'ssh'; connectionId: string } | { kind: 'service'; serviceId: string }
 
+export interface FileInfo {
+  path: string
+  exists: boolean
+  size: number
+  mtime: number
+}
+
 export interface AwsStatus {
   /** Versão do AWS CLI, ou null se não instalado */
   installed: string | null
@@ -863,6 +870,10 @@ export interface OvseerApi {
   featurePreview(): Promise<FeaturePreview>
   createFeature(name: string, prefix: string): Promise<OperationResult>
   openExternal(url: string): Promise<void>
+  /** Arquivos gerados pelo agente: existe/tamanho, abrir no app padrão, mostrar na pasta */
+  filesInfo(paths: string[]): Promise<FileInfo[]>
+  fileOpen(path: string): Promise<string>
+  fileReveal(path: string): Promise<void>
   getSettings(): Promise<Settings>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   /** Configurações salvas por outra janela */
