@@ -137,6 +137,14 @@ async function startAll() {
   startingAll.value = false
   if (failed.length) toast(`Não deu para iniciar: ${failed.join(', ')}`)
 }
+/** "Interromper todos": só os serviços locais; a conexão com a AWS fica como está */
+const stoppingAll = ref(false)
+async function stopAll() {
+  if (stoppingAll.value) return
+  stoppingAll.value = true
+  for (const s of [...running.value]) await api.serviceStop(s.id).catch(() => undefined)
+  stoppingAll.value = false
+}
 function manage() {
   open.value = false
   state.showServices = true
@@ -170,6 +178,9 @@ onUnmounted(() => {
         <span class="head-right">
           <button v-if="stopped.length" type="button" class="ghost start-all" :disabled="startingAll" :title="`Inicia os ${stopped.length} serviços parados`" @click="startAll">
             <Icon name="play" :size="10" /> {{ startingAll ? 'Iniciando…' : 'Iniciar todos' }}
+          </button>
+          <button v-if="running.length" type="button" class="ghost start-all stop-all" :disabled="stoppingAll" :title="`Interrompe os ${running.length} serviços rodando (a AWS fica como está)`" @click="stopAll">
+            <Icon name="stop" :size="10" /> {{ stoppingAll ? 'Interrompendo…' : 'Interromper todos' }}
           </button>
           <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
         </span>
@@ -238,6 +249,7 @@ onUnmounted(() => {
 /* discreto: texto pequeno, só ganha cor ao passar o mouse */
 .start-all { height: 20px; padding: 0 6px; gap: 4px; border-radius: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
 .start-all:hover:not(:disabled) { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
+.stop-all:hover:not(:disabled) { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .sec { margin: 6px 10px 2px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 .search { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; margin: 0 0 2px; border-bottom: 1px solid var(--border); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12px; color: var(--text); }
