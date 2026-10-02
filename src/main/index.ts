@@ -1,5 +1,5 @@
 import {
-  app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, systemPreferences,
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell, systemPreferences,
   type MenuItemConstructorOptions
 } from 'electron'
 import { findTheme } from '../shared/themes'
@@ -732,6 +732,15 @@ function registerIpc() {
       })
     )
   )
+  // copiar uma imagem da conversa: a janela manda o PNG (data URL) e a escrita é feita aqui, sem depender do
+  // foco do documento que a API de clipboard do navegador exige
+  ipcMain.handle('clipboard:writeImage', (_e, dataUrl: string) => {
+    const url = String(dataUrl ?? '')
+    if (!url.startsWith('data:image/png;base64,') || url.length > 60_000_000) throw new Error('Imagem inválida.')
+    const image = nativeImage.createFromDataURL(url)
+    if (image.isEmpty()) throw new Error('Imagem inválida.')
+    clipboard.writeImage(image)
+  })
   ipcMain.handle('files:open', (_e, p: string) => shell.openPath(expandHome(String(p))))
   ipcMain.handle('files:reveal', (_e, p: string) => shell.showItemInFolder(expandHome(String(p))))
 }

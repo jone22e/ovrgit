@@ -552,8 +552,38 @@ async function loadPreview(a: Shown | undefined) {
 }
 /** Imagem aberta em tamanho maior (clique na miniatura) */
 const zoom = ref<{ src: string; name: string } | null>(null)
-const onZoomKey = (e: KeyboardEvent) => e.key === 'Escape' && (zoom.value = null)
-watch(zoom, (z) => (z ? window.addEventListener('keydown', onZoomKey) : window.removeEventListener('keydown', onZoomKey)))
+const zoomImg = ref<HTMLImageElement>()
+/** Resultado da última cópia da imagem aberta (some depois de um instante) */
+const zoomCopied = ref<'ok' | 'fail' | null>(null)
+/** Copia a imagem aberta para a área de transferência, como PNG (qualquer formato de origem passa pelo canvas) */
+async function copyZoom() {
+  const img = zoomImg.value
+  if (!img || !img.naturalWidth) return
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    canvas.getContext('2d')!.drawImage(img, 0, 0)
+    // a escrita é feita pelo processo principal: a API do navegador exige o documento em foco
+    await api.copyImage(canvas.toDataURL('image/png'))
+    zoomCopied.value = 'ok'
+  } catch {
+    zoomCopied.value = 'fail'
+  }
+  setTimeout(() => (zoomCopied.value = null), 1600)
+}
+const onZoomKey = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') zoom.value = null
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && !window.getSelection()?.toString()) {
+    e.preventDefault()
+    copyZoom()
+  }
+}
+watch(zoom, (z) => {
+  zoomCopied.value = null
+  if (z) window.addEventListener('keydown', onZoomKey)
+  else window.removeEventListener('keydown', onZoomKey)
+})
 
 /** Arquivos vindos do sistema (arrastados) ou só com bytes (colados): os sem caminho são guardados pelo app. */
 async function addFiles(files: File[]) {
@@ -1664,9 +1694,13 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
       </div>
     </footer>
-    <!-- imagem anexada em tamanho maior: clique fora ou Esc fecha -->
+    <!-- imagem anexada em tamanho maior: clique fora ou Esc fecha; o botão (ou ⌘C/Ctrl+C) copia a imagem -->
     <div v-if="zoom" class="zoom" @click="zoom = null">
-      <img :src="zoom.src" :alt="zoom.name" @click.stop />
+      <img ref="zoomImg" :src="zoom.src" :alt="zoom.name" @click.stop />
+      <button type="button" class="zoom-copy" :class="zoomCopied ?? ''" title="Copiar a imagem (⌘C)" @click.stop="copyZoom">
+        <Icon :name="zoomCopied === 'ok' ? 'check' : 'clipboard'" :size="14" />
+        {{ zoomCopied === 'ok' ? 'Copiada' : zoomCopied === 'fail' ? 'Não deu para copiar' : 'Copiar imagem' }}
+      </button>
       <button type="button" class="zoom-close" title="Fechar (Esc)" @click="zoom = null"><Icon name="x" :size="16" /></button>
     </div>
 
@@ -1824,6 +1858,14 @@ onUnmounted(() => offs.forEach((f) => f()))
   display: grid; place-items: center; background: rgba(255, 255, 255, 0.14); color: #fff; cursor: pointer;
 }
 .zoom-close:hover { background: rgba(255, 255, 255, 0.26); }
+.zoom-copy {
+  position: absolute; top: 14px; right: 56px; height: 32px; padding: 0 14px; border-radius: 999px; border: 0;
+  display: inline-flex; align-items: center; gap: 7px; background: rgba(255, 255, 255, 0.14); color: #fff;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.zoom-copy:hover { background: rgba(255, 255, 255, 0.26); }
+.zoom-copy.ok { background: color-mix(in srgb, var(--add) 55%, transparent); }
+.zoom-copy.fail { background: color-mix(in srgb, var(--del) 55%, transparent); }
 @keyframes zoom-in { from { opacity: 0; } }
 .att.paste { height: auto; padding: 6px 8px 6px 8px; max-width: 320px; align-items: flex-start; }
 .paste-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text); }

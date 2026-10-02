@@ -68,6 +68,7 @@ const api: OvseerApi = {
   filesInfo: (paths) => ipcRenderer.invoke('files:info', paths),
   fileOpen: (p) => ipcRenderer.invoke('files:open', p),
   fileReveal: (p) => ipcRenderer.invoke('files:reveal', p),
+  copyImage: (dataUrl) => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   onSettingsChanged: (cb) => {

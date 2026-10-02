@@ -878,6 +878,8 @@ export interface OvseerApi {
   filesInfo(paths: string[]): Promise<FileInfo[]>
   fileOpen(path: string): Promise<string>
   fileReveal(path: string): Promise<void>
+  /** Copia uma imagem (PNG em data URL) para a área de transferência */
+  copyImage(dataUrl: string): Promise<void>
   getSettings(): Promise<Settings>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   /** Configurações salvas por outra janela */
