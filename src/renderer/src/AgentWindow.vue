@@ -1340,15 +1340,20 @@ function onAct(a: AgentAction) {
   }
   else if (a.type === 'reply') {
     const text = a.text.trim()
-    if (!text) return
+    // reativo desde já: a prévia da imagem chega depois (loadPreview) e precisa aparecer no balão
+    const attachments: Shown[] = reactive((a.attachments ?? []).map((x) => ({ ...x })))
+    if (!text && !attachments.length) return
     if (a.model !== undefined) model.value = a.model
     if (a.effort) effort.value = a.effort
     if (a.mode) setMode(a.mode)
-    if (showAsk.value) decide(text)
-    else if (showPlanAsk.value) adjustPlan(text)
+    // com anexos é sempre uma mensagem nova (as respostas a perguntas e ao plano não levam arquivos)
+    if (showAsk.value && !attachments.length) decide(text)
+    else if (showPlanAsk.value && !attachments.length) adjustPlan(text)
     else {
       // mensagem nova, sem mexer no que estiver sendo escrito no campo desta janela
-      const p: Payload = { id: crypto.randomUUID(), body: text, attachments: [] }
+      attachments.forEach((x) => loadPreview(x))
+      const body = text || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.')
+      const p: Payload = { id: crypto.randomUUID(), body, attachments }
       if (running.value) queue.push(p)
       else dispatch(p)
     }

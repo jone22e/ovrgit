@@ -599,7 +599,7 @@ export type AgentAction =
   /** Mostra outra pergunta do cartão */
   | { type: 'nav'; index: number }
   /** Mensagem nova (ou resposta ao cartão); modelo, esforço e modo trocam os da janela quando vêm */
-  | { type: 'reply'; text: string; model?: string; effort?: AgentEffort; mode?: AgentMode }
+  | { type: 'reply'; text: string; model?: string; effort?: AgentEffort; mode?: AgentMode; attachments?: AgentAttachment[] }
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
   | { type: 'nudge' }

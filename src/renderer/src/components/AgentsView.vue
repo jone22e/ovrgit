@@ -382,7 +382,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <div v-if="chips(a).length" class="chips">
               <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
             </div>
-            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts) => act(a, { type: 'reply', text, ...opts })" />
+            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts, attachments) => act(a, { type: 'reply', text, ...opts, attachments })" />
           </article>
           <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
             <span class="dot done" :class="{ seen: !isNew(a) }" />
