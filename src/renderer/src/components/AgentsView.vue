@@ -294,7 +294,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </ol>
           </span>
           <span v-if="a.checklist?.length" class="cl-pill" :title="`Checklist: ${a.checklist.filter((i) => i.done).length} de ${a.checklist.length} itens concluídos`">
-            <Icon name="list" :size="11" /> {{ a.checklist.filter((i) => i.done).length }}/{{ a.checklist.length }}
+            <Icon name="listChecks" :size="11" /> {{ a.checklist.filter((i) => i.done).length }}/{{ a.checklist.length }}
           </span>
           <span class="ring" :class="{ stalled: stalled(a) }" :title="elapsedTitle(a)" />
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>

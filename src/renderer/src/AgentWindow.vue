@@ -1520,7 +1520,7 @@ onUnmounted(() => offs.forEach((f) => f()))
     <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen, live: checklistTurn?.running }">
       <span class="cl-progress"><i :style="{ width: `${(checklistDone / checklist.length) * 100}%` }" /></span>
       <button type="button" class="ghost cl-head" :title="checklistOpen ? 'Recolher o checklist' : 'Mostrar o checklist'" @click="checklistOpen = !checklistOpen">
-        <span class="cl-icon"><Icon :name="checklistDone === checklist.length ? 'check' : 'list'" :size="13" /></span>
+        <span class="cl-icon"><Icon :name="checklistDone === checklist.length ? 'check' : 'listChecks'" :size="14" /></span>
         <span class="cl-title">
           <strong>Checklist do plano</strong>
           <small>{{ checklistDone === checklist.length ? 'Todas as etapas concluídas' : checklistNext >= 0 && !checklistOpen ? checklist[checklistNext].text : `${checklistDone} de ${checklist.length} etapas` }}</small>
