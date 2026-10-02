@@ -1516,23 +1516,27 @@ onUnmounted(() => offs.forEach((f) => f()))
       </article>
     </main>
 
-    <!-- Plano com Checklist: painel fixo da janela, acima do campo; some quando a conversa não tem checklist -->
-    <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen }">
+    <!-- Plano com Checklist: faixa fixa da janela, encostada no campo; some quando a conversa não tem checklist -->
+    <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen, live: checklistTurn?.running }">
+      <span class="cl-progress"><i :style="{ width: `${(checklistDone / checklist.length) * 100}%` }" /></span>
       <button type="button" class="ghost cl-head" :title="checklistOpen ? 'Recolher o checklist' : 'Mostrar o checklist'" @click="checklistOpen = !checklistOpen">
-        <Icon name="list" :size="13" />
-        <strong>Checklist</strong>
-        <span class="cl-count">{{ checklistDone }} de {{ checklist.length }}</span>
-        <span class="cl-bar"><i :style="{ width: `${(checklistDone / checklist.length) * 100}%` }" /></span>
-        <span v-if="!checklistOpen && checklistNext >= 0" class="cl-now ellipsis">{{ checklist[checklistNext].text }}</span>
+        <span class="cl-icon"><Icon :name="checklistDone === checklist.length ? 'check' : 'list'" :size="13" /></span>
+        <span class="cl-title">
+          <strong>Checklist do plano</strong>
+          <small>{{ checklistDone === checklist.length ? 'Todas as etapas concluídas' : checklistNext >= 0 && !checklistOpen ? checklist[checklistNext].text : `${checklistDone} de ${checklist.length} etapas` }}</small>
+        </span>
+        <span class="cl-segs" aria-hidden="true"><i v-for="(it, n) in checklist" :key="n" :class="{ done: it.done, next: n === checklistNext && checklistTurn?.running }" /></span>
+        <span class="cl-pct">{{ Math.round((checklistDone / checklist.length) * 100) }}%</span>
         <Icon name="chevron" :size="12" class="cl-chev" />
       </button>
       <ol v-if="checklistOpen">
         <li v-for="(it, n) in checklist" :key="n" :class="{ done: it.done, next: n === checklistNext && checklistTurn?.running }">
-          <span class="cl-box"><Icon v-if="it.done" name="check" :size="11" /></span>
+          <span class="cl-num"><Icon v-if="it.done" name="check" :size="11" /><template v-else>{{ n + 1 }}</template></span>
           <span class="cl-text">{{ it.text }}</span>
+          <small v-if="n === checklistNext && checklistTurn?.running" class="cl-state">em andamento</small>
+          <small v-else-if="!it.done && checklistTurn && !checklistTurn.running" class="cl-state open">não confirmada</small>
         </li>
       </ol>
-      <p v-if="checklistOpen && checklistTurn && !checklistTurn.running && checklistDone < checklist.length" class="cl-note faint">O agente terminou sem confirmar os itens em aberto.</p>
     </section>
     <footer class="composer" :class="{ drop: dragging }">
       <div v-if="slashItems.length" class="slash">
@@ -1722,26 +1726,35 @@ onUnmounted(() => offs.forEach((f) => f()))
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
-/* painel do checklist: parte da janela, entre a conversa e o campo; recolhido vira uma linha com o progresso */
-.checklist { flex: none; margin: 0 16px 8px; padding: 0 0 10px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--hunk) 35%, var(--border)); background: color-mix(in srgb, var(--hunk) 6%, var(--panel)); max-height: 40vh; overflow: auto; }
-.checklist.collapsed { padding-bottom: 0; }
-.checklist.complete { border-color: color-mix(in srgb, var(--add) 40%, var(--border)); background: color-mix(in srgb, var(--add) 6%, var(--panel)); }
-.cl-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 14px; border-radius: 14px; justify-content: flex-start; font-size: 12.5px; color: var(--hunk); background: inherit; }
-.checklist.complete .cl-head { color: var(--add); }
-.cl-count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); flex: none; }
-.cl-bar { flex: 0 0 120px; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
-.cl-bar i { display: block; height: 100%; background: currentColor; transition: width 0.3s; }
-.cl-now { flex: 1; min-width: 0; font-size: 12px; color: var(--text); font-weight: 500; text-align: left; }
-.cl-chev { margin-left: auto; color: var(--faint); transform: rotate(90deg); transition: transform 0.15s; flex: none; }
+/* faixa do checklist: parte da janela, entre a conversa e o campo; linha de progresso no topo e etapas numeradas */
+.checklist { --cl: var(--hunk); position: relative; flex: none; margin: 0 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); overflow: hidden; max-height: 42vh; display: flex; flex-direction: column; }
+.checklist.complete { --cl: var(--add); }
+.cl-progress { flex: none; display: block; height: 3px; background: var(--panel-2); }
+.cl-progress i { display: block; height: 100%; background: var(--cl); transition: width 0.4s ease; }
+.cl-head { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; height: 48px; padding: 0 14px 0 12px; border-radius: 0; justify-content: flex-start; text-align: left; }
+.cl-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: color-mix(in srgb, var(--cl) 16%, transparent); color: var(--cl); flex: none; }
+.cl-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; line-height: 1.2; }
+.cl-title strong { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.cl-title small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* segmentos: um por etapa, acompanham o progresso mesmo com a lista recolhida */
+.cl-segs { display: inline-flex; gap: 3px; flex: none; }
+.cl-segs i { width: 14px; height: 5px; border-radius: 3px; background: var(--panel-2); }
+.cl-segs i.done { background: var(--cl); }
+.cl-segs i.next { background: color-mix(in srgb, var(--cl) 45%, var(--panel-2)); animation: pulse 1.4s ease-in-out infinite; }
+.cl-pct { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--cl); flex: none; min-width: 34px; text-align: right; }
+.cl-chev { color: var(--faint); transform: rotate(90deg); transition: transform 0.15s; flex: none; }
 .checklist.collapsed .cl-chev { transform: rotate(-90deg); }
-.checklist ol { list-style: none; margin: 0; padding: 2px 14px 0; display: flex; flex-direction: column; gap: 4px; }
-.checklist li { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.4; color: var(--text); }
-.checklist li.done .cl-text { color: var(--muted); text-decoration: line-through; }
+.checklist ol { list-style: none; margin: 0; padding: 0 8px 8px; overflow: auto; display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--border); }
+.checklist li { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 4px 8px; border-radius: 8px; font-size: 13px; line-height: 1.35; color: var(--text); }
+.checklist li.next { background: color-mix(in srgb, var(--cl) 8%, transparent); }
+.checklist li.done .cl-text { color: var(--muted); }
 .checklist li.next .cl-text { font-weight: 600; }
-.cl-box { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-top: 2px; border-radius: 5px; border: 1.5px solid var(--faint); flex: none; color: var(--bg); }
-.checklist li.done .cl-box { background: var(--add); border-color: var(--add); }
-.checklist li.next .cl-box { border-color: var(--hunk); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hunk) 25%, transparent); }
-.cl-note { margin: 8px 14px 0; font-size: 12px; }
+.cl-text { flex: 1; min-width: 0; }
+.cl-num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted); border: 1.5px solid var(--border); }
+.checklist li.done .cl-num { background: var(--add); border-color: var(--add); color: var(--bg); }
+.checklist li.next .cl-num { border-color: var(--cl); color: var(--cl); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cl) 22%, transparent); }
+.cl-state { flex: none; font-size: 11px; color: var(--cl); font-weight: 500; }
+.cl-state.open { color: var(--mod); }
 .user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 /* hora e copiar: aparecem ao passar o mouse na mensagem */
 .user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }
