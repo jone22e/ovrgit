@@ -1933,6 +1933,10 @@ onUnmounted(() => offs.forEach((f) => f()))
           />
         </div>
       </article>
+      <!-- conversa concluída: uma linha verde fecha a conversa; some quando o agente volta a trabalhar -->
+      <div v-if="statusKind === 'done'" class="done-mark" role="status">
+        <span class="dm-line" /><span class="dm-label"><Icon name="check" :size="12" /> Concluído</span><span class="dm-line" />
+      </div>
     </main>
 
     <!-- Modo Arquiteto: cartão da janela, encostado no campo (o mesmo desenho do cartão do checklist): a etapa atual,
@@ -2246,6 +2250,11 @@ onUnmounted(() => offs.forEach((f) => f()))
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 /* só rola na vertical: textos longos quebram e código/tabelas rolam por dentro do próprio bloco */
+/* marca de conversa concluída, no fim da conversa */
+.done-mark { flex: none; display: flex; align-items: center; gap: 10px; margin: -8px 0 2px; color: var(--add); font-size: 11.5px; font-weight: 600; animation: dm-in 0.25s ease-out; }
+.dm-line { flex: 1; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--add) 60%, transparent); }
+.dm-label { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+@keyframes dm-in { from { opacity: 0; } }
 .thread { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
 .fatal { color: var(--del); }
 .empty { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
