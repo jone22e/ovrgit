@@ -1027,6 +1027,8 @@ export interface OvseerApi {
   agentAct(uid: string, action: AgentAction): Promise<void>
   /** Na janela do agente: ações vindas do gerenciador */
   onAgentAct(cb: (uid: string, action: AgentAction) => void): () => void
+  /** A janela foi trazida para a frente pelo gerenciador ou pela lista de conversas: pisca a borda */
+  onAgentFlash(cb: (uid: string) => void): () => void
   /** Traz a janela do agente para a frente */
   agentShow(uid: string): Promise<void>
   /** Fecha janelas de agente */

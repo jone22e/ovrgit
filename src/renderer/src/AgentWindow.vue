@@ -1325,6 +1325,18 @@ function onAct(a: AgentAction) {
 }
 offs.push(api.onAgentAct((u, a) => u === uid && onAct(a)))
 
+/** Borda na cor do tema por ~2 s quando a janela é trazida para a frente pelo gerenciador: mostra qual é */
+const flashing = ref(false)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+offs.push(
+  api.onAgentFlash((u) => {
+    if (u !== uid) return
+    flashing.value = true
+    clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => (flashing.value = false), 2000)
+  })
+)
+
 onMounted(async () => {
   try {
     const s = await api.getSettings()
@@ -1694,6 +1706,8 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canCompose || !info" @click="send()"><Icon name="up" :size="16" /></button>
       </div>
     </footer>
+    <!-- destaque de "esta é a janela": borda na cor do tema, some sozinha -->
+    <Transition name="flash"><div v-if="flashing" class="flash-ring" aria-hidden="true" /></Transition>
     <!-- imagem anexada em tamanho maior: clique fora ou Esc fecha; o botão (ou ⌘C/Ctrl+C) copia a imagem -->
     <div v-if="zoom" class="zoom" @click="zoom = null">
       <img ref="zoomImg" :src="zoom.src" :alt="zoom.name" @click.stop />
@@ -1847,6 +1861,10 @@ onUnmounted(() => offs.forEach((f) => f()))
   display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer;
 }
 .thumb-rm:hover { background: rgba(0, 0, 0, 0.85); }
+.flash-ring { position: fixed; inset: 0; z-index: 90; pointer-events: none; border: 5px solid var(--accent); border-radius: 10px; box-shadow: inset 0 0 24px color-mix(in srgb, var(--accent) 35%, transparent); }
+.flash-enter-active { transition: opacity 0.12s ease-out; }
+.flash-leave-active { transition: opacity 0.5s ease-in; }
+.flash-enter-from, .flash-leave-to { opacity: 0; }
 .zoom {
   position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 32px;
   background: rgba(0, 0, 0, 0.78); cursor: zoom-out; animation: zoom-in 0.12s ease-out;

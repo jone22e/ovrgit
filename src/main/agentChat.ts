@@ -369,7 +369,13 @@ export function focusAgentWindow(sessionId: string): boolean {
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
+  flash(w)
   return true
+}
+
+/** A janela pisca uma borda na cor do tema por um instante: mostra qual janela veio para a frente */
+function flash(w: { win: BrowserWindow; info: AgentWindowInfo }) {
+  if (!w.win.isDestroyed()) w.win.webContents.send('agent:flash', w.info.uid)
 }
 
 function broadcastWindows() {
@@ -457,6 +463,7 @@ export function showAgentWindow(uid: string) {
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
+  flash(w)
 }
 
 export function closeAgentWindows(uids: string[]) {

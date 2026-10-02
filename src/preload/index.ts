@@ -285,6 +285,11 @@ const api: OvseerApi = {
     ipcRenderer.on('agent:act', h)
     return () => ipcRenderer.off('agent:act', h)
   },
+  onAgentFlash: (cb) => {
+    const h = (_e: unknown, uid: string) => cb(uid)
+    ipcRenderer.on('agent:flash', h)
+    return () => ipcRenderer.off('agent:flash', h)
+  },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
   agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
   agentArrange: () => ipcRenderer.invoke('agent:arrange'),
