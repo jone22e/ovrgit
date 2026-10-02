@@ -225,10 +225,38 @@ const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error
  * ativo; em vezes já respondidas, ficam como texto comum (pergunta em negrito e opções em lista). */
 /** Marcadores do checklist ("[ok] 3"): o cartão já mostra; na conversa só poluem */
 const MARKERS = /^[ \t]*(?:\[(?:ok|x|concluído|concluido|done|falhou|erro|failed|pulado|pulada|dispensado|dispensada|skipped|n\/a)\]|✅|❌)[ \t]*(?:item\s*|etapa\s*|passo\s*)?#?\d{1,2}[ \t]*$\n?/gim
-function md(text: string, card: boolean) {
+/**
+ * O resultado fica guardado por texto: a janela se redesenha a cada segundo e a cada pedaço de resposta enquanto
+ * o agente trabalha, e sem isso o markdown da conversa inteira era reprocessado toda vez (numa conversa longa,
+ * metade de um núcleo só nisso). `stable: false` (resposta ainda chegando): não guarda, o texto muda a cada pedaço.
+ */
+const mdCache = new Map<string, string>()
+const MD_CACHE_MAX = 1500
+function md(text: string, card: boolean, stable = true) {
+  const key = (card ? '1' : '0') + text
+  if (stable) {
+    const hit = mdCache.get(key)
+    if (hit !== undefined) return hit
+  }
   const { text: rest, questions: qs } = splitQuestions(text.replace(MARKERS, ''))
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
-  return withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
+  const html = withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
+  if (stable) {
+    // o mais antigo sai quando enche (o Map guarda a ordem de inserção)
+    if (mdCache.size >= MD_CACHE_MAX) mdCache.delete(mdCache.keys().next().value as string)
+    mdCache.set(key, html)
+  }
+  return html
+}
+/** Arquivos gerados citados numa resposta terminada, também guardados por texto (mesmo motivo) */
+const artifactsCache = new Map<string, string[]>()
+function artifactsOf(text: string): string[] {
+  let list = artifactsCache.get(text)
+  if (!list) {
+    if (artifactsCache.size >= MD_CACHE_MAX) artifactsCache.delete(artifactsCache.keys().next().value as string)
+    artifactsCache.set(text, (list = findArtifacts(text)))
+  }
+  return list
 }
 const SVG = (d: string) =>
   `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`
@@ -435,6 +463,30 @@ async function saveTitle() {
   }
 }
 
+/**
+ * Os pedaços de texto da resposta chegam às dezenas por segundo e cada um redesenhava a janela. Eles são
+ * juntados e aplicados no máximo ~12 vezes por segundo; qualquer outro evento aplica antes o texto pendente,
+ * para a ordem dos blocos não mudar.
+ */
+let textBuf = ''
+let textTimer: ReturnType<typeof setTimeout> | undefined
+function flushText() {
+  clearTimeout(textTimer)
+  textTimer = undefined
+  if (!textBuf) return
+  const delta = textBuf
+  textBuf = ''
+  apply({ type: 'text', delta })
+}
+function onEvent(ev: AgentChatEvent) {
+  if (ev.type === 'text') {
+    textBuf += ev.delta
+    if (!textTimer) textTimer = setTimeout(flushText, 80)
+    return
+  }
+  flushText()
+  apply(ev)
+}
 function apply(ev: AgentChatEvent) {
   lastEventAt.value = Date.now()
   if (ev.type === 'session') {
@@ -1382,7 +1434,8 @@ onMounted(async () => {
   } catch {
     /* tema padrão */
   }
-  offs.push(api.onAgentEvent((u, ev) => u === uid && apply(ev)))
+  offs.push(api.onAgentEvent((u, ev) => u === uid && onEvent(ev)))
+  offs.push(() => clearTimeout(textTimer))
   document.addEventListener('mousedown', onDocClick)
   offs.push(() => document.removeEventListener('mousedown', onDocClick))
   window.addEventListener('keydown', onModKey)
@@ -1533,10 +1586,10 @@ onUnmounted(() => offs.forEach((f) => f()))
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
             <template v-if="b.kind === 'text'">
-              <div class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
+              <div class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk, !t.running)" />
               <!-- arquivos gerados citados na resposta (planilhas, PDFs…): cartão com Abrir, só com a vez terminada -->
               <template v-if="!t.running">
-                <FileCard v-for="p in findArtifacts(b.text)" :key="p" :path="p" :cwd="info?.cwd" />
+                <FileCard v-for="p in artifactsOf(b.text)" :key="p" :path="p" :cwd="info?.cwd" />
               </template>
             </template>
             <div v-else-if="b.kind === 'tools'" class="tools" :class="{ open: openGroups.has(b.key) }">
