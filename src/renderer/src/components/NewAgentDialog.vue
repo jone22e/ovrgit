@@ -126,7 +126,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div class="lbl">Permissões</div>
       <div class="modes">
         <button v-for="m in START_MODES" :key="m.id" type="button" class="mode" :class="{ active: mode === m.id }" @click="mode = m.id">
-          <span class="radio"><i /></span>
           <span class="mode-ic"><Icon :name="m.icon" :size="14" /></span>
           <span class="mode-text">
             <span class="name">{{ m.label }}</span>
@@ -157,17 +156,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 /* lista: uma linha por modo, com o marcador de escolha, o ícone e a descrição ao lado */
 .modes { display: flex; flex-direction: column; gap: 4px; }
-.mode { height: auto; padding: 9px 12px; align-items: center; justify-content: flex-start; gap: 10px; text-align: left; white-space: normal; }
+.mode { height: 60px; padding: 0 12px; align-items: center; justify-content: flex-start; gap: 12px; text-align: left; white-space: normal; }
 .mode.active { border-color: var(--accent); background: var(--accent-soft); }
-.radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--faint); display: grid; place-items: center; flex: none; }
-.radio i { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
-.mode.active .radio { border-color: var(--accent); }
-.mode.active .radio i { background: var(--accent); }
 .mode-ic { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--panel-2); color: var(--muted); flex: none; }
 .mode.active .mode-ic { color: var(--accent); }
 .mode-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .mode .name { font-weight: 600; }
-.mode .hint { font-size: 11.5px; color: var(--muted); font-weight: 400; line-height: 1.35; }
+.mode .hint { font-size: 11.5px; color: var(--muted); font-weight: 400; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .bad { margin: 0; font-size: 12px; color: var(--del); }
 textarea { font-size: 13px; line-height: 1.45; }
 </style>
