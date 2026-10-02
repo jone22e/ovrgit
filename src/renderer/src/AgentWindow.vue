@@ -1653,9 +1653,8 @@ onUnmounted(() => offs.forEach((f) => f()))
               <button v-if="t.user.trim()" type="button" class="small" @click="resend(t)">Reenviar mensagem</button>
             </div>
           </div>
-          <p v-if="!t.running && !t.superseded && (t.durationMs || t.costUsd)" class="meta faint">
+          <p v-if="!t.running && !t.superseded && t.durationMs" class="meta faint">
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
-            <template v-if="t.costUsd"> · US$ {{ t.costUsd.toFixed(3) }}</template>
           </p>
           <AskCard
             v-if="t.id === questionTurn && askModel"
