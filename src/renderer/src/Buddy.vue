@@ -72,6 +72,9 @@ const geo = computed(() => {
   }
 })
 
+/** Algo está sendo arrastado por cima dele */
+const over = ref(false)
+
 // ---------- cursor: olhar e inclinação ----------
 const cursor = ref({ x: 0, y: -1000 })
 const look = computed(() => {
@@ -79,8 +82,9 @@ const look = computed(() => {
   const dx = cursor.value.x - CX
   const dy = cursor.value.y - CY
   const d = Math.hypot(dx, dy) || 1
-  // o olhar satura perto; longe, aponta na direção
-  const k = Math.min(1, d / (2.6 * R))
+  // o olhar satura perto; longe, aponta na direção. Com algo arrastado por cima, ele acompanha o objeto com
+  // mais vontade (olhos e inclinação maiores), como quem espera a hora de soltar
+  const k = Math.min(1, d / (2.6 * R)) * (over.value ? 1.5 : 1)
   const ux = dx / d
   const uy = dy / d
   return { x: ux * 0.167 * R * k, y: uy * 0.13 * R * k, tilt: ux * 4 * k, dx: ux * 0.056 * R * k, dy: uy * 0.037 * R * k }
@@ -159,11 +163,12 @@ function onLeave() {
 // ---------- movimentos contínuos, em poucos quadros por segundo ----------
 // Uma animação CSS infinita em SVG repinta a janela transparente a cada quadro (60 por segundo, mesmo com
 // `steps()`), e isso pesava. Em vez disso, um relógio lento troca o quadro: os pontinhos de "trabalhando"
-// acendem um de cada vez. Só roda enquanto há algo para mostrar; o balão de "esperando" fica parado.
+// acendem um de cada vez, e com algo arrastado por cima ele dá pulinhos de expectativa. Só roda enquanto há
+// algo para mostrar; o balão de "esperando" fica parado.
 const phase = ref(0)
 let phaseTimer: ReturnType<typeof setInterval> | null = null
 watch(
-  () => mood.value === 'working',
+  () => mood.value === 'working' || over.value,
   (on) => {
     if (phaseTimer) clearInterval(phaseTimer)
     phaseTimer = on ? setInterval(() => (phase.value = (phase.value + 1) % 3), 400) : null
@@ -174,7 +179,6 @@ watch(
 // ---------- animações passageiras ----------
 type Anim = '' | 'slap' | 'eat' | 'gulp'
 const anim = ref<Anim>('')
-const over = ref(false)
 const blink = ref(false)
 let blinkTimer: ReturnType<typeof setTimeout> | null = null
 function scheduleBlink() {
@@ -340,7 +344,7 @@ onUnmounted(() => {
       <!-- o pedaço preto que se emenda ao recorte da câmera, com os cantos de baixo arredondados -->
       <path class="plate" :d="`M0 0 H${geo.W} V${geo.H - geo.CORNER} Q${geo.W} ${geo.H} ${geo.W - geo.CORNER} ${geo.H} H${geo.CORNER} Q0 ${geo.H} 0 ${geo.H - geo.CORNER} Z`" />
       <!-- corpo: inclina e se desloca um pouco na direção do cursor -->
-      <g class="body" :style="{ transform: `translate(${look.dx}px, ${look.dy}px) rotate(${look.tilt}deg)`, transformOrigin: `${geo.CX}px ${geo.CY}px` }">
+      <g class="body" :style="{ transform: `translate(${look.dx}px, ${look.dy - (over && phase % 2 ? 5 * geo.K : 0)}px) rotate(${look.tilt}deg)`, transformOrigin: `${geo.CX}px ${geo.CY}px` }">
         <circle :cx="geo.CX" :cy="geo.CY" :r="geo.R" fill="url(#skin)" />
         <circle :cx="geo.CX" :cy="geo.CY" :r="geo.R" fill="url(#shine)" />
         <!-- olhos -->
