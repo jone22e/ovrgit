@@ -101,7 +101,6 @@ onUnmounted(() => offs.forEach((f) => f()))
 
 <template>
   <Modal title="Serviços" :width="720" @close="emit('close')">
-    <p class="faint intro">Comandos que ficam rodando em segundo plano enquanto o Ovseer está aberto: um túnel para o banco, um servidor de desenvolvimento, um watcher. Fechar o app para todos.</p>
 
     <div v-if="editing" class="form">
       <h6>{{ editing.id ? 'Editar serviço' : 'Novo serviço' }}</h6>
@@ -167,7 +166,6 @@ onUnmounted(() => offs.forEach((f) => f()))
 </template>
 
 <style scoped>
-.intro { margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; }
 .form { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); }
 .form h6 { margin: 0 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 .field { display: flex; flex-direction: column; gap: 5px; }

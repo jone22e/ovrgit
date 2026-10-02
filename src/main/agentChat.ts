@@ -8,6 +8,7 @@ import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
+import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import os from 'node:os'
@@ -35,6 +36,8 @@ interface AgentWin {
   lastMode?: AgentMode
   /** Resumo publicado pela janela para o gerenciador de agentes */
   snap?: AgentSnapshot
+  /** Último aviso de serviços em execução enviado (Codex/Antigravity só recebem de novo quando muda) */
+  lastServices?: string
 }
 
 const wins = new Map<string, AgentWin>()
@@ -643,6 +646,34 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   return args
 }
 
+/**
+ * Serviços em execução (menu Serviços), para o agente: nome, portas, pasta e comando. Vazio sem nenhum rodando.
+ * Dica de uso junto: aproveitar as portas, não subir de novo o que já roda, e pedir ao usuário para iniciar
+ * pelo Ovseer o que estiver parado.
+ */
+export function servicesNote(): string {
+  const states = serviceStates()
+  const list = getSettings().services
+  const lines: string[] = []
+  for (const st of states) {
+    if (st.status !== 'running') continue
+    const s = list.find((x) => x.id === st.id)
+    if (!s) continue
+    const ports = st.ports?.length ? st.ports.map((p) => `localhost:${p}`).join(', ') : 'porta ainda não detectada'
+    const cmd = s.command.split('\n').map((l) => l.trim().replace(/\\$/, '')).filter(Boolean).join(' ').slice(0, 200)
+    lines.push(`- ${s.name}: ${ports}${s.cwd ? ` · pasta ${s.cwd}` : ''} · comando: ${cmd}`)
+  }
+  const stopped = list.filter((s) => states.find((x) => x.id === s.id)?.status !== 'running').map((s) => s.name)
+  if (!lines.length && !stopped.length) return ''
+  return [
+    '<running_services>',
+    'Serviços que o usuário mantém rodando neste computador pelo Ovseer (menu Serviços). Use as portas abaixo quando precisar deles (banco, túnel, servidor de desenvolvimento) e não os suba de novo; se precisar de um que está parado, peça ao usuário para iniciá-lo no Ovseer.',
+    ...(lines.length ? ['Em execução:', ...lines] : ['Em execução: nenhum.']),
+    ...(stopped.length ? [`Cadastrados mas parados: ${stopped.join(', ')}.`] : []),
+    '</running_services>'
+  ].join('\n')
+}
+
 /** Orientação de formato do plano para o modo: título sempre; no Plano com Checklist, a seção de checklist no fim */
 export function planFormat(mode: AgentMode): string {
   if (mode === 'checklist') return `${PLAN_TITLE}\n${CHECKLIST_FORMAT}`
@@ -1083,12 +1114,18 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
   const instructions = getSettings().agentInstructions?.trim() ?? ''
+  // serviços rodando no computador (menu Serviços): o agente fica sabendo das portas e não sobe duplicados.
+  // Claude recebe a cada pedido (no prompt de sistema); Codex e Antigravity, no primeiro e quando a lista muda.
+  const services = servicesNote()
+  const servicesChanged = services !== (w.lastServices ?? '')
+  w.lastServices = services
+  const servicesBlock = services && provider !== 'claude' && (servicesChanged || !w.info.sessionId) ? `${services}\n\n` : ''
   // Codex e Antigravity: as instruções do usuário e o formato de perguntas entram no primeiro pedido da sessão
   // (a sessão guarda o histórico)
   const intro =
-    provider !== 'claude' && !w.info.sessionId
+    (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : ''
+      : '') + servicesBlock
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
@@ -1103,7 +1140,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...clean, images: inlineImages.length, instructions })
+      ? claudeArgs({ ...clean, images: inlineImages.length, instructions: [instructions, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
         ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path) })
         : agyArgs({ ...clean, prompt })
