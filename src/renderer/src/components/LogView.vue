@@ -23,11 +23,11 @@ function feed(data: string) {
   if (entries.value.length > MAX_LINES) entries.value.splice(0, entries.value.length - MAX_LINES)
   if (follow.value) nextTick(scrollLog)
 }
-const levels: { id: LogLevel | 'all'; label: string }[] = [
-  { id: 'all', label: 'Tudo' },
-  { id: 'info', label: 'Info+' },
-  { id: 'warn', label: 'Avisos+' },
-  { id: 'error', label: 'Erros' }
+const levels: { id: LogLevel | 'all'; label: string; icon: 'list' | 'info' | 'circleAlert' | 'circleX' }[] = [
+  { id: 'all', label: 'Tudo', icon: 'list' },
+  { id: 'info', label: 'Info e acima', icon: 'info' },
+  { id: 'warn', label: 'Avisos e erros', icon: 'circleAlert' },
+  { id: 'error', label: 'Só erros', icon: 'circleX' }
 ]
 const minLevel = ref<LogLevel | 'all'>('all')
 const RANK: Record<LogLevel, number> = { none: 1, trace: 0, debug: 0, info: 1, warn: 2, error: 3, fatal: 3 }
@@ -92,11 +92,11 @@ onMounted(() => nextTick(scrollLog))
 <template>
   <div class="log">
       <div class="log-bar">
-        <div class="seg">
-          <button v-for="l in levels" :key="l.id" type="button" :class="{ on: minLevel === l.id }" @click="minLevel = l.id">
-            {{ l.label }}
-            <b v-if="l.id === 'warn' && counts.warn" class="cnt warn">{{ counts.warn }}</b>
-            <b v-if="l.id === 'error' && counts.error" class="cnt error">{{ counts.error }}</b>
+        <div class="seg" role="group" aria-label="Nível">
+          <button v-for="l in levels" :key="l.id" type="button" :class="[l.id, { on: minLevel === l.id }]" :title="l.label" :aria-label="l.label" @click="minLevel = l.id">
+            <Icon :name="l.icon" :size="14" />
+            <b v-if="l.id === 'warn' && counts.warn" class="cnt warn">{{ counts.warn > 999 ? '999+' : counts.warn }}</b>
+            <b v-if="l.id === 'error' && counts.error" class="cnt error">{{ counts.error > 999 ? '999+' : counts.error }}</b>
           </button>
         </div>
         <label class="search">
@@ -132,7 +132,14 @@ onMounted(() => nextTick(scrollLog))
 /* modo interativo */
 .log { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .log-bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
-.cnt { margin-left: 4px; padding: 0 5px; border-radius: 999px; font-family: var(--mono); font-size: 10px; }
+/* grupo de ícones: um botão por nível, o escolhido com fundo; o contador de avisos/erros é uma etiqueta pequena */
+.seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border); }
+.seg button { position: relative; width: 32px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); display: grid; place-items: center; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.seg button.warn.on { color: var(--mod); }
+.seg button.error.on { color: var(--del); }
+.cnt { position: absolute; top: -6px; right: -6px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; display: inline-grid; place-items: center; font-family: var(--mono); font-size: 9.5px; font-weight: 700; border: 2px solid var(--bg); line-height: 1; }
 .cnt.warn { background: color-mix(in srgb, var(--mod) 20%, transparent); color: var(--mod); }
 .cnt.error { background: color-mix(in srgb, var(--del) 20%, transparent); color: var(--del); }
 .search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); width: min(320px, 40%); }
