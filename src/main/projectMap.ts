@@ -18,7 +18,16 @@ const MAX_FILES_PER_DIR = 40
 const MAX_GROUPS = 24
 
 const cache = new Map<string, { at: number; text: string }>()
+const designCache = new Map<string, { at: number; text: string }>()
 const TTL_MS = 2 * 60_000
+
+/** Bibliotecas de interface e de estilo reconhecidas pelas dependências */
+const UI_LIBS = /^(tailwindcss|@tailwindcss\/.+|daisyui|bootstrap|bootstrap-vue.*|react-bootstrap|vuetify|quasar|element-plus|element-ui|ant-design-vue|antd|primevue|primereact|naive-ui|@mui\/material|@chakra-ui\/.+|@mantine\/core|@radix-ui\/themes|@headlessui\/.+|@nextui-org\/.+|@heroui\/.+|bulma|styled-components|@emotion\/react|sass|less|stylus|lucide-.+|@heroicons\/.+|@fortawesome\/.+|@phosphor-icons\/.+|@tabler\/icons.*|shadcn.*|class-variance-authority)$/
+const STYLE_EXT = /\.(css|scss|sass|less|styl)$/i
+/** Arquivos de estilo que costumam guardar a identidade visual, do mais ao menos provável */
+const STYLE_RANK = [/^_?(design-)?tokens?\./i, /^_?(theme|themes)\./i, /^_?(variables?|vars)\./i, /^_?(colors?|palette)\./i, /^(globals?|base|root)\./i, /^(main|index|app|styles?)\./i]
+const MAX_STYLE_FILES = 4
+const MAX_VARS = 70
 
 function list(dir: string): { dirs: string[]; files: string[] } {
   const dirs: string[] = []
@@ -94,7 +103,74 @@ export function projectMap(cwd: string): string {
       break
     }
   }
+  const design = designMap(cwd)
+  if (design) out.push(design)
   const text = `<mapa_do_projeto>\n${out.join('\n\n')}\n</mapa_do_projeto>`
   cache.set(cwd, { at: Date.now(), text })
+  return text
+}
+
+/**
+ * Identidade visual do projeto, levantada pelo app: bibliotecas de interface, arquivos de estilo e as variáveis
+ * de cor, tipografia e espaçamento que eles declaram. Vai no mapa da descoberta (para o entendimento já dizer que
+ * design as telas novas seguem) e no pedido do conceito visual (para o designer partir do que existe).
+ * Vazio se o projeto não tem nada de estilo.
+ */
+export function designMap(cwd: string): string {
+  const hit = designCache.get(cwd)
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.text
+  const out: string[] = []
+
+  const pkgRaw = readHead(path.join(cwd, 'package.json'), 200_000)
+  if (pkgRaw) {
+    try {
+      const pkg = JSON.parse(pkgRaw) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+      const libs = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})].filter((d) => UI_LIBS.test(d))
+      if (libs.length) out.push(`Bibliotecas de interface e estilo: ${libs.slice(0, 20).join(', ')}`)
+    } catch {
+      /* package.json inválido */
+    }
+  }
+
+  // arquivos de estilo (e a configuração do Tailwind), até 5 níveis
+  const styles: { rel: string; rank: number }[] = []
+  const walk = (dir: string, depth: number, rel: string) => {
+    const { dirs, files } = list(dir)
+    for (const f of files) {
+      const isTailwind = /^tailwind\.config\.(js|cjs|mjs|ts)$/i.test(f)
+      if (!isTailwind && !STYLE_EXT.test(f)) continue
+      const rank = isTailwind ? 0 : STYLE_RANK.findIndex((r) => r.test(f))
+      if (styles.length < 200) styles.push({ rel: rel ? `${rel}/${f}` : f, rank: rank < 0 ? STYLE_RANK.length : rank })
+    }
+    if (depth < 5) for (const d of dirs) walk(path.join(dir, d), depth + 1, rel ? `${rel}/${d}` : d)
+  }
+  walk(cwd, 0, '')
+  styles.sort((a, b) => a.rank - b.rank || a.rel.split('/').length - b.rel.split('/').length || a.rel.localeCompare(b.rel))
+  const main = styles.filter((s) => s.rank < STYLE_RANK.length).slice(0, MAX_STYLE_FILES)
+  if (styles.length) out.push(`Arquivos de estilo: ${(main.length ? main : styles.slice(0, MAX_STYLE_FILES)).map((s) => s.rel).join(', ')}${styles.length > MAX_STYLE_FILES ? ` (de ${styles.length})` : ''}`)
+
+  // variáveis declaradas nos arquivos principais (CSS: --nome; Sass/Less: $nome, @nome) e as fontes usadas
+  const vars = new Map<string, string>()
+  const fonts = new Set<string>()
+  for (const s of main) {
+    const text = readHead(path.join(cwd, s.rel), 60_000)
+    if (/^tailwind\.config\./i.test(path.basename(s.rel))) {
+      // o trecho do tema diz as cores e fontes próprias do projeto
+      const theme = /theme\s*:\s*\{[\s\S]{0,1800}/.exec(text)
+      if (theme) out.push(`Tema do Tailwind (${s.rel}, começo):\n${theme[0].trim()}`)
+      continue
+    }
+    for (const m of text.matchAll(/(?:^|[\s;{])(--[\w-]+|\$[\w-]+|@[\w-]+)\s*:\s*([^;{}\n]{1,80});/g)) {
+      if (vars.size >= MAX_VARS) break
+      if (/^@(media|import|use|include|apply|tailwind|layer|font-face|keyframes|supports|charset)$/i.test(m[1])) continue
+      if (!vars.has(m[1])) vars.set(m[1], m[2].trim())
+    }
+    for (const m of text.matchAll(/font-family\s*:\s*([^;{}\n]{1,120})/g)) if (fonts.size < 4) fonts.add(m[1].trim())
+  }
+  if (vars.size) out.push(`Variáveis de estilo (cores, tipografia, espaçamento):\n${[...vars].map(([k, v]) => `${k}: ${v}`).join('\n')}`)
+  if (fonts.size) out.push(`Fontes: ${[...fonts].join(' | ')}`)
+
+  const text = out.length ? `Identidade visual existente (as telas novas seguem este design):\n${out.join('\n')}` : ''
+  designCache.set(cwd, { at: Date.now(), text })
   return text
 }

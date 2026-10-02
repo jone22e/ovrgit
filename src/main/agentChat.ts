@@ -8,7 +8,7 @@ import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { artifactsDir, artifactsRule } from '../shared/artifacts'
 import { ARCH_DISCOVERY, CODEX_DISCOVERY, cleanDesignHtml, DESIGN_RULES, type DesignAction, type DesignWindowState } from '../shared/architect'
-import { projectMap } from './projectMap'
+import { designMap, projectMap } from './projectMap'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { serviceStates } from './services'
@@ -1495,7 +1495,9 @@ export async function runDesign(uid: string, o: DesignRunOptions): Promise<void>
   if (!bin) throw new Error(`${PROVIDER_NAME[provider]} não encontrado neste computador.`)
   const model = safeModel(o.model ?? '')
   // anexos como na conversa: imagens em linha (Claude e Codex); o resto, pelo caminho, para ler com as ferramentas
-  const { prompt: withFiles, inlineImages } = composeMessage(provider, String(o.prompt), o.attachments ?? [])
+  // a identidade visual do projeto vai pronta no pedido: o designer parte do que existe, sem gastar tempo procurando
+  const identity = designMap(w.info.cwd)
+  const { prompt: withFiles, inlineImages } = composeMessage(provider, String(o.prompt) + (identity ? `\n\n${identity}` : ''), o.attachments ?? [])
   const prompt = withFiles.slice(0, 400_000)
   let args: string[]
   let input = ''

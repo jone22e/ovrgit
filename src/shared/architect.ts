@@ -112,9 +112,11 @@ Responda exatamente neste formato, em tópicos de uma linha (no máximo 5 por se
 ## Funcionalidades
 ## Usuários
 ## Telas e módulos
+## Design
 ## Decisões e dúvidas
 ## Riscos
 
+Em "Design", diga qual identidade visual as telas vão seguir, a partir da "Identidade visual existente" do mapa: biblioteca de interface, cores e tipografia principais, e os componentes e telas existentes a reaproveitar ou tomar como modelo. Projeto sem design definido: diga isso e proponha uma direção em uma linha. Pedido sem interface: omita a seção.
 Dúvidas e decisões em aberto vão na seção "Decisões e dúvidas" (não use o formato de perguntas ao usuário nesta etapa).
 Na última linha, sozinha, escreva "[interface] sim" se o pedido envolve tela ou front-end, ou "[interface] não" se não envolve.`
 
@@ -173,7 +175,7 @@ Regras do mockup:
 - Um único documento HTML completo e autossuficiente: CSS dentro de <style>, nenhum arquivo externo (sem fontes, imagens, ícones ou scripts de fora), nenhum JavaScript. Ícones, se precisar, em SVG embutido.
 - Conteúdo realista em português do Brasil (nomes, números e textos plausíveis para o domínio), nada de "lorem ipsum".
 - Se houver mais de uma tela, coloque cada uma num <section data-tela="Nome da tela">, uma abaixo da outra, cada qual com um título pequeno acima.
-- Siga a identidade visual do projeto: você pode ler até 5 arquivos de estilo ou de telas existentes para pegar cores, tipografia e componentes. Não altere nenhum arquivo e não rode comandos.
+- Siga a identidade visual do projeto: o pedido traz a seção "Design" do entendimento aprovado e a identidade visual levantada pelo app (bibliotecas, arquivos de estilo, variáveis). Parta disso; você pode ler até 5 arquivos de estilo ou de telas existentes para completar cores, tipografia e componentes. Não altere nenhum arquivo e não rode comandos.
 - Layout responsivo: tem que funcionar em largura de desktop e em 390 px.
 - Enxuto: mostre o essencial de cada tela (até cerca de 400 linhas no total).
 
