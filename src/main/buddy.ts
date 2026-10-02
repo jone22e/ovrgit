@@ -115,8 +115,10 @@ export function showBuddy() {
   })
   win = w
   open = false
-  // acima da barra de menus, em todas as mesas (inclusive sobre apps em tela cheia)
-  w.setAlwaysOnTop(true, 'screen-saver')
+  // Acima da barra de menus (nível "status", 25, logo acima dela), em todas as mesas (inclusive sobre apps em tela
+  // cheia). Não mais alto que isso: o macOS só entrega um arrasto de arquivo a janelas abaixo do nível da imagem
+  // arrastada (500); no nível "screen-saver" o mouse chegava, mas o soltar não.
+  w.setAlwaysOnTop(true, 'status')
   w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   w.on('page-title-updated', (e) => e.preventDefault())
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
