@@ -96,7 +96,10 @@ export async function startService(id: string): Promise<void> {
   lastLines.delete(id)
   lastBuffers.delete(id)
   pty.onData((data) => {
-    r.buffer = (r.buffer + data).slice(-BUFFER_MAX)
+    // corta só quando passa bem do limite: recortar a cada pedaço copiava o buffer inteiro (centenas de KB)
+    // dezenas de vezes por segundo em serviços que escrevem muito
+    r.buffer += data
+    if (r.buffer.length > BUFFER_MAX * 1.5) r.buffer = r.buffer.slice(-BUFFER_MAX)
     const line = tail(data)
     if (line) {
       lastLines.set(id, line)
@@ -174,7 +177,10 @@ async function listeningPorts(pids: number[]): Promise<number[]> {
   return [...set].sort((a, b) => a - b)
 }
 
-/** Enquanto o serviço roda: procura portas a cada 2 s até achar alguma, depois a cada 15 s (podem mudar) */
+/**
+ * Enquanto o serviço roda: procura portas a cada 2 s no primeiro meio minuto (a subida), depois a cada 15 s
+ * (podem mudar). Um serviço que não escuta em porta nenhuma não fica rodando `ps` + `lsof` a cada 2 s para sempre.
+ */
 function pollPorts(id: string, r: Running) {
   const tick = async () => {
     if (running.get(id) !== r) return
@@ -187,7 +193,8 @@ function pollPorts(id: string, r: Running) {
     } catch {
       /* sem lsof/ss: fica sem portas */
     }
-    if (running.get(id) === r) r.poll = setTimeout(tick, r.ports.length ? 15_000 : 2_000)
+    const starting = Date.now() - r.startedAt < 30_000
+    if (running.get(id) === r) r.poll = setTimeout(tick, !r.ports.length && starting ? 2_000 : 15_000)
   }
   r.poll = setTimeout(tick, 1500)
 }
@@ -235,7 +242,7 @@ export function attachService(viewer: WebContents, id: string, cols: number, row
     if (cols > 0 && rows > 0) r.pty.resize(cols, rows)
   }
   const st = serviceStates().find((s) => s.id === id) ?? null
-  return { service: find(id) ?? null, state: st, buffer: r?.buffer ?? lastBuffers.get(id) ?? '' }
+  return { service: find(id) ?? null, state: st, buffer: r ? r.buffer.slice(-BUFFER_MAX) : (lastBuffers.get(id) ?? '') }
 }
 
 export function writeService(id: string, data: string) {

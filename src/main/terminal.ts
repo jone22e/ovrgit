@@ -88,7 +88,9 @@ export async function createTerminal(
   const s: Session = { pty, owner, buffer: '', meta: { title: '', spec: ssh ? { kind: 'ssh', connectionId: ssh.id } : { kind: 'local' }, cwd } }
   sessions.set(id, s)
   pty.onData((data) => {
-    s.buffer = (s.buffer + data).slice(-BUFFER_MAX)
+    // corta só quando passa bem do limite (recortar a cada pedaço copiava o buffer inteiro)
+    s.buffer += data
+    if (s.buffer.length > BUFFER_MAX * 1.5) s.buffer = s.buffer.slice(-BUFFER_MAX)
     if (!s.owner.isDestroyed()) s.owner.send('term:data', id, data)
   })
   pty.onExit(({ exitCode }) => {
@@ -122,7 +124,7 @@ export function adoptTerminal(id: number, owner: WebContents, cols: number, rows
   s.owner = owner
   watchOwner(id, owner)
   if (cols > 0 && rows > 0) s.pty.resize(cols, rows)
-  return { buffer: s.buffer, meta: s.meta }
+  return { buffer: s.buffer.slice(-BUFFER_MAX), meta: s.meta }
 }
 
 export function terminalMeta(id: number): Session['meta'] | null {
