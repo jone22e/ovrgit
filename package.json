@@ -1,7 +1,7 @@
 {
   "name": "ovseer",
   "productName": "Ovseer",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Git client simplificado com IA: Commit, Criar Feature, Pull e Push.",
   "main": "out/main/index.js",
   "scripts": {
