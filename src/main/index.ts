@@ -682,6 +682,10 @@ function registerIpc() {
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('agent:close', (_e, uids: string[]) => agentChat.closeAgentWindows(Array.isArray(uids) ? uids.map(String) : []))
   ipcMain.handle('agent:hide', (_e, uid: string) => agentChat.hideAgentWindow(String(uid)))
+  ipcMain.handle('agent:all', (_e, action: string) => {
+    if (action !== 'show' && action !== 'hide' && action !== 'background' && action !== 'foreground' && action !== 'close') return
+    agentChat.actOnAllAgentWindows(action)
+  })
   ipcMain.handle('agent:background', (_e, uid: string, on: boolean) => agentChat.setAgentBackground(String(uid), !!on))
   ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
   ipcMain.handle('agent:daySummary', () => agentHistory.daySummary(agentChat.openSessionIds()))

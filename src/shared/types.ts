@@ -1080,6 +1080,8 @@ export interface OvseerApi {
   agentClose(uids: string[]): Promise<void>
   /** Esconde a janela do agente sem fechar (a conversa e o agente continuam) */
   agentHide(uid: string): Promise<void>
+  /** Todas as janelas de agente: mostrar, esconder, (tirar do) segundo plano ou fechar */
+  agentAll(action: 'show' | 'hide' | 'background' | 'foreground' | 'close'): Promise<void>
   /** Segundo plano: fechar a janela passa a só escondê-la, e o agente continua */
   agentBackground(uid: string, on: boolean): Promise<void>
   /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
-import { api, openNewAgent, saveSettings, setPane, state, toast } from '../store'
+import { api, ask, openNewAgent, saveSettings, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import AskCard from './AskCard.vue'
@@ -219,6 +219,24 @@ async function arrange() {
   if (gridOpen.value) gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
 }
 
+// ---------- todas as janelas de uma vez (no dropdown do Organizar) ----------
+const hiddenCount = computed(() => snaps.value.filter((a) => a.hidden).length)
+const allBackground = computed(() => snaps.value.length > 0 && snaps.value.every((a) => a.background))
+async function allWindows(action: 'show' | 'hide' | 'background' | 'foreground' | 'close') {
+  gridOpen.value = false
+  if (action === 'close' && running.value.length) {
+    const n = running.value.length
+    const ok = await ask({
+      title: `Fechar as ${snaps.value.length} janelas?`,
+      message: n === 1 ? 'Um agente está trabalhando e será interrompido. As conversas ficam em Conversas.' : `${n} agentes estão trabalhando e serão interrompidos. As conversas ficam em Conversas.`,
+      confirmLabel: 'Fechar todas',
+      danger: true
+    })
+    if (!ok) return
+  }
+  await api.agentAll(action).catch(() => undefined)
+}
+
 // ---------- grid das janelas (colunas × linhas), no dropdown do Organizar ----------
 const gridOpen = ref(false)
 const gridRoot = ref<HTMLElement>()
@@ -275,6 +293,18 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <button class="arrange-more" title="Colunas × linhas do grid" @click="gridOpen = !gridOpen"><Icon name="chevron" :size="11" class="chev" /></button>
           <div v-if="gridOpen" class="pop">
             <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" manage @update:model-value="setGridSize" />
+            <!-- todas as janelas de uma vez -->
+            <div class="all">
+              <h6>Todas as janelas</h6>
+              <div class="all-row">
+                <button class="ghost" :disabled="!hiddenCount" :title="hiddenCount ? `Mostra as ${hiddenCount} janelas escondidas` : 'Nenhuma janela escondida'" @click="allWindows('show')"><Icon name="monitor" :size="12" /> Abrir todas</button>
+                <button class="ghost" :disabled="hiddenCount === snaps.length" title="Esconde todas as janelas; as conversas e os agentes continuam, acompanhados por aqui" @click="allWindows('hide')"><Icon name="minimize" :size="12" /> Esconder todas</button>
+              </div>
+              <div class="all-row">
+                <button class="ghost" :class="{ cur: allBackground }" title="Fechar qualquer janela só a esconde; os agentes não param" @click="allWindows(allBackground ? 'foreground' : 'background')"><Icon name="layers" :size="12" /> Todas em segundo plano <Icon v-if="allBackground" name="check" :size="12" class="ok" /></button>
+                <button class="ghost bad" :title="`Fecha as ${snaps.length} janelas (interrompe os agentes que estiverem trabalhando)`" @click="allWindows('close')"><Icon name="x" :size="12" /> Fechar todas</button>
+              </div>
+            </div>
           </div>
         </span>
       </header>
@@ -476,6 +506,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
 }
+.all { margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.all h6 { margin: 0 0 4px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.all-row { display: flex; gap: 4px; }
+.all-row button { flex: 1; justify-content: flex-start; height: 28px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--text); }
+.all-row button.cur { background: var(--accent-soft); }
+.all-row button .ok { color: var(--accent); margin-left: auto; }
+.all-row button.bad:hover:not(:disabled) { color: var(--del); }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 48px 0 0; }
 .empty p { margin: 0; font-size: 13px; }
 .empty.slim { margin: 24px 0 8px; }

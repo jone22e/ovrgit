@@ -520,6 +520,20 @@ export function revealHiddenAgentWindows() {
   for (const w of wins.values()) if (!w.win.isDestroyed() && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
 }
 
+/** Ações sobre todas as janelas de agente, do dropdown do Organizar */
+export function actOnAllAgentWindows(action: 'show' | 'hide' | 'background' | 'foreground' | 'close') {
+  const all = [...wins.values()].filter((w) => !w.win.isDestroyed())
+  if (action === 'close') return closeAgentWindows(all.map((w) => w.info.uid))
+  for (const w of all) {
+    if (action === 'show') {
+      if (w.win.isMinimized()) w.win.restore()
+      if (!w.win.isVisible()) w.win.show()
+    } else if (action === 'hide') hideAgentWindow(w.info.uid)
+    else w.background = action === 'background'
+  }
+  broadcastSnapshots()
+}
+
 /** Liga ou desliga o segundo plano da janela (fechar passa a só esconder) */
 export function setAgentBackground(uid: string, on: boolean) {
   const w = wins.get(uid)
