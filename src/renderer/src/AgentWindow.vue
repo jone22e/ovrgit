@@ -106,7 +106,7 @@ const pickerDefaults = (() => {
 const provider = ref<CliProvider>('codex')
 const model = ref('')
 const effort = ref<AgentEffort>('high')
-const mode = ref<AgentMode>('safe')
+const mode = ref<AgentMode>('full')
 const thread = ref<HTMLElement>()
 const box = ref<HTMLTextAreaElement>()
 const fatal = ref<string | null>(null)
@@ -129,7 +129,7 @@ const statusTook = computed(() => (statusKind.value === 'done' ? took(turns[turn
 const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', waiting: 'O agente está aguardando a sua resposta', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
-const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[1])
+const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[MODES.length - 1])
 /** Modo em uso quando o usuário ativou o Plano (menu ou /plan): é para ele que a aprovação do plano volta */
 const modeBeforePlan = ref<AgentMode | null>(null)
 function setMode(m: AgentMode) {
@@ -1252,7 +1252,7 @@ interface SlashCommand {
   /** Nomes pelos quais o comando é achado (sem acento) */
   keys: string[]
 }
-const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], checklist: ['checklist', 'check', 'lista'], architect: ['arquiteto', 'architect', 'conceito'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
+const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], checklist: ['checklist', 'check', 'lista'], architect: ['arquiteto', 'architect', 'conceito'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
 const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const slashClosed = ref(false)
 const slashIndex = ref(0)
@@ -1280,7 +1280,7 @@ watch(draft, () => {
 })
 function runSlash(c: SlashCommand) {
   // /plan com o Plano já ligado desliga: volta ao modo que estava antes
-  if (isPlanMode(c.id) && mode.value === c.id) setMode(modeBeforePlan.value ?? 'safe')
+  if (isPlanMode(c.id) && mode.value === c.id) setMode(modeBeforePlan.value ?? 'full')
   else setMode(c.id)
   // só o comando sai do campo: o que já estava digitado antes dele fica
   draft.value = draft.value.replace(SLASH_TAIL, '').trimEnd()

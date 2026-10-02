@@ -99,11 +99,10 @@ export const DEFAULT_EFFORT: Record<CliProvider, AgentEffort> = { claude: 'high'
 export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', codex: '', agy: '' }
 
 /** Modos de permissão do agente, do mais cauteloso para o mais livre. */
-export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChecks' | 'compass' | 'shield' | 'zap'; hint: string }[] = [
+export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChecks' | 'compass' | 'zap'; hint: string }[] = [
   { id: 'plan', label: 'Plano', icon: 'clipboard', hint: 'Só lê o projeto e propõe um plano. Nada é alterado.' },
   { id: 'checklist', label: 'Plano com Checklist', icon: 'listChecks', hint: 'O plano termina com um checklist, marcado durante a implementação.' },
   { id: 'architect', label: 'Arquiteto', icon: 'compass', hint: 'Entendimento rápido, conceito visual, plano e execução, com aprovação em cada etapa.' },
-  { id: 'safe', label: 'Só edições', icon: 'shield', hint: 'Edita arquivos do projeto; outros comandos são negados.' },
   { id: 'full', label: 'Controle Total', icon: 'zap', hint: 'Roda qualquer comando sem perguntar.' }
 ]
 

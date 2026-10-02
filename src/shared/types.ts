@@ -374,12 +374,12 @@ export interface ModelInfo {
   defaultEffort?: AgentEffort
 }
 
-/** plan: só lê e propõe um plano; safe: edita arquivos e roda comandos só dentro do projeto; full: sem perguntas nem sandbox */
+/** plan: só lê e propõe um plano; full: Controle Total, sem perguntas nem sandbox */
 /**
  * `checklist`: como `plan`, mas o plano termina com um checklist que o app marca durante a implementação.
  * `architect`: descoberta rápida → conceito visual → plano com checklist → execução (ver shared/architect.ts).
  */
-export type AgentMode = 'plan' | 'checklist' | 'architect' | 'safe' | 'full'
+export type AgentMode = 'plan' | 'checklist' | 'architect' | 'full'
 
 /** Pedido para abrir a janela exclusiva de um agente */
 export interface AgentChatOpen {

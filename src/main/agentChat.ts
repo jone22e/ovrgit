@@ -664,8 +664,9 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT, planFormat(o.mode)].filter(Boolean).join('\n\n'))
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort)
-  if (o.mode === 'full') args.push('--dangerously-skip-permissions')
-  else args.push('--permission-mode', isPlanMode(o.mode) ? 'plan' : 'acceptEdits')
+  // só há dois comportamentos: planejar (só leitura) ou Controle Total
+  if (isPlanMode(o.mode)) args.push('--permission-mode', 'plan')
+  else args.push('--dangerously-skip-permissions')
   if (o.resume) args.push('--resume', o.resume)
   // outros repositórios do espaço de trabalho: o Claude pode ler e editar neles sem pedir
   for (const d of o.addDirs ?? []) args.push('--add-dir', d)
@@ -748,24 +749,20 @@ criar e apagar arquivos e executar a tarefa normalmente.
 `
 
 export function normalizeMode(m: unknown): AgentMode {
-  return m === 'full' || m === 'plan' || m === 'checklist' || m === 'architect' ? m : 'safe'
+  // qualquer outra coisa (inclusive o antigo "Só edições", de conversas guardadas) vira Controle Total
+  return m === 'plan' || m === 'checklist' || m === 'architect' ? m : 'full'
 }
 
-export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; writableRoots?: string[] }): string[] {
+export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[] }): string[] {
   const args = ['exec']
   if (o.resume) args.push('resume')
   args.push('--json', '--skip-git-repo-check')
   for (const img of o.images ?? []) args.push('-i', img)
   if (o.model) args.push('-m', o.model)
   if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
-  // Controle Total e os modos Plano rodam sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs)
-  // e no Plano o que impede alterações é a instrução de só planejar, não o sandbox
-  if (o.mode === 'full' || isPlanMode(o.mode)) args.push('--dangerously-bypass-approvals-and-sandbox')
-  else {
-    args.push('-c', 'sandbox_mode="workspace-write"')
-    // outros repositórios do espaço de trabalho também podem ser editados dentro do sandbox
-    if (o.writableRoots?.length) args.push('-c', `sandbox_workspace_write.writable_roots=[${o.writableRoots.map((d) => JSON.stringify(d)).join(',')}]`)
-  }
+  // sempre sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs), e nos modos Plano o que impede
+  // alterações é a instrução de só planejar
+  args.push('--dangerously-bypass-approvals-and-sandbox')
   if (o.resume) args.push(o.resume)
   args.push('-') // o pedido vai pelo stdin
   return args
@@ -773,14 +770,14 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
 
 /**
  * Antigravity (`agy`): o prompt vai colado ao próprio -p (ele não lê stdin em modo texto).
- * Modos: plan → --mode plan; safe → --mode accept-edits; full → --dangerously-skip-permissions.
+ * Modos: os de plano → --mode plan; Controle Total → --dangerously-skip-permissions.
  */
 export function agyArgs(o: AgentSendOptions & { resume: string | null; prompt: string }): string[] {
   const args = ['--output-format', 'stream-json', `--print=${o.prompt}`]
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort === 'xhigh' || o.effort === 'ultra' ? 'max' : o.effort === 'minimal' ? 'low' : o.effort)
-  if (o.mode === 'full') args.push('--dangerously-skip-permissions')
-  else args.push('--mode', isPlanMode(o.mode) ? 'plan' : 'accept-edits')
+  if (isPlanMode(o.mode)) args.push('--mode', 'plan')
+  else args.push('--dangerously-skip-permissions')
   if (o.resume) args.push('--conversation', o.resume)
   return args
 }
@@ -1188,7 +1185,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     provider === 'claude'
       ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
-        ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), writableRoots: w.info.extraDirs })
+        ? codexArgs({ ...run, images: inlineImages.map((i) => i.path) })
         : agyArgs({ ...run, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)

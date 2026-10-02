@@ -64,7 +64,7 @@ async function openAgent() {
     } else if (brief.value) firstMessage = brief.value.message
     localStorage.setItem(
       AGENT_PREFS,
-      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: isPlanMode(mode.value) ? (isPlanMode(prefs.mode) ? 'safe' : prefs.mode) : mode.value } satisfies AgentPrefs)
+      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: isPlanMode(mode.value) ? (isPlanMode(prefs.mode) ? 'full' : prefs.mode) : mode.value } satisfies AgentPrefs)
     )
     await api.agentOpen({
       provider: provider.value,

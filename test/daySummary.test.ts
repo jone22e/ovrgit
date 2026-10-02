@@ -8,7 +8,7 @@ vi.mock('electron', () => ({ app: { getPath: () => userData } }))
 
 const now = Date.now()
 const item = (sessionId: string, title: string, status: string) => ({
-  sessionId, title, status, provider: 'codex', model: '', effort: 'high', mode: 'safe', cwd: '/p', project: 'p', createdAt: now, updatedAt: now, turns: 1
+  sessionId, title, status, provider: 'codex', model: '', effort: 'high', mode: 'full', cwd: '/p', project: 'p', createdAt: now, updatedAt: now, turns: 1
 })
 const tool = (detail: string, ok: boolean, output = '') => ({ kind: 'tool', id: detail, name: 'Bash', title: 'Rodou comando', detail, ok, output, open: false })
 const files = (stats: Record<string, { add: number; del: number }>) => ({ kind: 'files', paths: Object.keys(stats), stats })

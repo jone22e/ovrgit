@@ -27,7 +27,7 @@ watch(
 )
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
-const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[1])
+const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[MODES.length - 1])
 const canSend = computed(() => !!(text.value.trim() || pending.length || pastes.length))
 
 // ---------- anexos: os mesmos caminhos da janela do agente (os arquivos ficam guardados para a janela `uid`) ----------

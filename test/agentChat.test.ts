@@ -8,11 +8,11 @@ const j = (o: object) => JSON.stringify(o)
 
 describe('argumentos dos CLIs', () => {
   it('claude: modelo, esforço, permissões e retomada', () => {
-    expect(claudeArgs({ model: 'opus', effort: 'xhigh', mode: 'safe', resume: null })).toEqual([
+    expect(claudeArgs({ model: 'opus', effort: 'xhigh', mode: 'full', resume: null })).toEqual([
       '-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json',
-      '--append-system-prompt', QUESTION_FORMAT, '--model', 'opus', '--effort', 'xhigh', '--permission-mode', 'acceptEdits'
+      '--append-system-prompt', QUESTION_FORMAT, '--model', 'opus', '--effort', 'xhigh', '--dangerously-skip-permissions'
     ])
-    expect(claudeArgs({ model: '', effort: 'high', mode: 'safe', resume: null, instructions: 'Responda em PT' })).toContain(`Responda em PT\n\n${QUESTION_FORMAT}`)
+    expect(claudeArgs({ model: '', effort: 'high', mode: 'full', resume: null, instructions: 'Responda em PT' })).toContain(`Responda em PT\n\n${QUESTION_FORMAT}`)
     const full = claudeArgs({ model: '', effort: 'high', mode: 'full', resume: 'abc-123' })
     expect(full).toContain('--dangerously-skip-permissions')
     expect(full).not.toContain('--model')
@@ -20,8 +20,8 @@ describe('argumentos dos CLIs', () => {
   })
 
   it('codex: exec e exec resume com o pedido pelo stdin', () => {
-    expect(codexArgs({ model: 'gpt-5.6-sol', effort: 'high', mode: 'safe', resume: null })).toEqual([
-      'exec', '--json', '--skip-git-repo-check', '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', '-c', 'sandbox_mode="workspace-write"', '-'
+    expect(codexArgs({ model: 'gpt-5.6-sol', effort: 'high', mode: 'full', resume: null })).toEqual([
+      'exec', '--json', '--skip-git-repo-check', '-m', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', '--dangerously-bypass-approvals-and-sandbox', '-'
     ])
     const r = codexArgs({ model: '', effort: 'low', mode: 'full', resume: 'thread-1' })
     expect(r.slice(0, 2)).toEqual(['exec', 'resume'])
@@ -135,8 +135,8 @@ describe('anexos', () => {
 
   it('argumentos com imagens', async () => {
     const { claudeArgs, codexArgs } = await import('../src/main/agentChat')
-    expect(claudeArgs({ model: '', effort: 'high', mode: 'safe', resume: null, images: 2 })).toContain('--input-format')
-    expect(codexArgs({ model: '', effort: 'high', mode: 'safe', resume: null, images: ['/x/a.png'] })).toEqual(expect.arrayContaining(['-i', '/x/a.png']))
+    expect(claudeArgs({ model: '', effort: 'high', mode: 'full', resume: null, images: 2 })).toContain('--input-format')
+    expect(codexArgs({ model: '', effort: 'high', mode: 'full', resume: null, images: ['/x/a.png'] })).toEqual(expect.arrayContaining(['-i', '/x/a.png']))
   })
 })
 
@@ -148,10 +148,11 @@ describe('modo plano', () => {
     const codexPlan = codexArgs({ model: '', effort: 'high', mode: 'plan', resume: null })
     expect(codexPlan).toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(codexPlan.join(' ')).not.toContain('sandbox_mode')
-    expect(codexArgs({ model: '', effort: 'high', mode: 'safe', resume: null })).toContain('sandbox_mode="workspace-write"')
     expect(normalizeMode('plan')).toBe('plan')
     expect(normalizeMode('checklist')).toBe('checklist')
-    expect(normalizeMode('x')).toBe('safe')
+    // o antigo "Só edições" (de conversas guardadas) e qualquer valor desconhecido viram Controle Total
+    expect(normalizeMode('safe')).toBe('full')
+    expect(normalizeMode('x')).toBe('full')
   })
 
   it('codex: a orientação do modo plano deixa a pergunta "implementar?" para o app', async () => {
