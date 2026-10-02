@@ -290,6 +290,15 @@ const api: OvseerApi = {
     ipcRenderer.on('agent:flash', h)
     return () => ipcRenderer.off('agent:flash', h)
   },
+  designRun: (uid, o) => ipcRenderer.invoke('design:run', uid, o),
+  designCancel: (uid) => ipcRenderer.invoke('design:cancel', uid),
+  designLayout: (uid, on) => ipcRenderer.invoke('design:layout', uid, on),
+  designSave: (uid, html, name) => ipcRenderer.invoke('design:save', uid, html, name),
+  onDesignEvent: (cb) => {
+    const h = (_e: unknown, uid: string, ev: AgentChatEvent) => cb(uid, ev)
+    ipcRenderer.on('agent:design', h)
+    return () => ipcRenderer.off('agent:design', h)
+  },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
   agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
   agentArrange: () => ipcRenderer.invoke('agent:arrange'),

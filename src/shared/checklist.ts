@@ -5,7 +5,8 @@ import type { AgentMode } from './types'
  * implementação marcando cada item quando o agente avisa que o concluiu.
  */
 
-export const isPlanMode = (m: AgentMode | undefined) => m === 'plan' || m === 'checklist'
+/** Modos em que o agente só lê e propõe (a descoberta do Modo Arquiteto é um deles) */
+export const isPlanMode = (m: AgentMode | undefined) => m === 'plan' || m === 'checklist' || m === 'architect'
 
 export interface ChecklistItem {
   text: string

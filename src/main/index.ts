@@ -635,6 +635,13 @@ function registerIpc() {
   ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
   ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
+  // conceito visual do Modo Arquiteto: pedido à parte da conversa, possivelmente em outra IA
+  ipcMain.handle('design:run', (_e, uid: string, o: agentChat.DesignRunOptions) =>
+    agentChat.runDesign(String(uid), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort, prompt: String(o?.prompt ?? '') })
+  )
+  ipcMain.handle('design:layout', (_e, uid: string, on: boolean) => agentChat.setDesignLayout(String(uid), !!on))
+  ipcMain.handle('design:cancel', (_e, uid: string) => agentChat.cancelDesign(String(uid)))
+  ipcMain.handle('design:save', (_e, uid: string, html: string, name: string) => agentChat.saveDesign(String(uid), String(html ?? ''), String(name ?? 'conceito.html')))
   ipcMain.handle('agent:setCwd', (_e, uid: string, cwd: string) => agentChat.setCwd(String(uid), String(cwd ?? '')))
   ipcMain.handle('agent:setExtraDirs', (_e, uid: string, dirs: string[]) => agentChat.setExtraDirs(String(uid), Array.isArray(dirs) ? dirs.map(String) : []))
   // repositórios recentes (os do seletor de projeto) para a janela do agente trocar de pasta antes de começar

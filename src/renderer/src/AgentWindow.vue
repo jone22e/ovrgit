@@ -15,8 +15,10 @@ import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
 import { findArtifacts } from '@shared/artifacts'
+import { ARCH_PHASES, archPlanRequest, designRequest, extractHtml, hasInterface, stripArchMarkers, type ArchPhase, type ArchState } from '@shared/architect'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
+import DesignPanel from './components/DesignPanel.vue'
 import FileCard from './components/FileCard.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
@@ -50,6 +52,15 @@ interface Shown extends AgentAttachment {
 
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
+// Modo Arquiteto: declarados cedo porque a situação da janela (lida por observadores imediatos) depende deles
+/** Estado do Modo Arquiteto desta conversa (fica na vez em que a descoberta começou) */
+const arch = computed<ArchState | null>(() => turns.find((t) => t.arch)?.arch ?? null)
+/** Painel de design: aberto, desenhando agora, HTML parcial, atividade e erro */
+const designOpen = ref(false)
+const designRunning = ref(false)
+const designLive = ref('')
+const designActivity = ref('')
+const designError = ref<string | null>(null)
 const pending = reactive<Shown[]>([])
 /**
  * Arrasto de arquivos sobre a janela. O aviso liga a cada `dragenter` e `dragover` (com o arquivo por cima, o
@@ -105,10 +116,12 @@ const providerName = computed(() => PROVIDER_LABEL[provider.value])
 /** Situação do agente no cabeçalho: cinza sem conversa, pulsando trabalhando, check verde ao terminar, × vermelho se falhou,
  *  âmbar enquanto um cartão (perguntas do agente ou aprovação do plano) espera a resposta do usuário. */
 const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() => {
-  if (running.value) return 'live'
+  if (running.value || designRunning.value) return 'live'
   if (!turns.length) return 'idle'
   if (turns[turns.length - 1].error) return 'error'
-  return showAsk.value || showPlanAsk.value ? 'waiting' : 'done'
+  // o conceito visual esperando aprovação também é "precisa de você"
+  const conceptWaiting = arch.value?.phase === 'concept' && arch.value.design?.approved === undefined
+  return showAsk.value || showPlanAsk.value || conceptWaiting ? 'waiting' : 'done'
 })
 const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', waiting: 'aguardando resposta', done: 'concluído', error: 'falhou' })[statusKind.value])
 /** Quanto tempo a última tarefa levou, mostrado discretamente ao lado do "concluído" */
@@ -238,7 +251,7 @@ function md(text: string, card: boolean, stable = true) {
     const hit = mdCache.get(key)
     if (hit !== undefined) return hit
   }
-  const { text: rest, questions: qs } = splitQuestions(text.replace(MARKERS, ''))
+  const { text: rest, questions: qs } = splitQuestions(stripArchMarkers(text.replace(MARKERS, '')))
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
   const html = withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
   if (stable) {
@@ -308,7 +321,7 @@ const planDone = computed(() => {
   if (!t || t.running || running.value || t.error || !isPlanMode(t.mode) || questions.value.length) return false
   return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
 })
-const showPlanAsk = computed(() => askOpen.value && planDone.value)
+const showPlanAsk = computed(() => askOpen.value && planDone.value && !(turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase !== 'discovery'))
 /** Texto do plano pronto: o maior bloco de texto da última resposta (os outros são comentários entre as leituras) */
 const planText = computed(() => {
   if (!planDone.value) return ''
@@ -344,6 +357,22 @@ const askModel = computed<AgentAsk | null>(() => {
       total: questions.value.length,
       current: decided[qi.value] ?? null
     }
+  if (showPlanAsk.value && discoveryDone.value) {
+    // descoberta do Modo Arquiteto: aprovar o entendimento e seguir para o conceito visual ou direto para o plano
+    const ui = hasInterface(lastText.value)
+    return {
+      kind: 'plan',
+      title: 'O entendimento está certo?',
+      see: 'Ver resumo',
+      stay: { label: 'Não, ajustar o entendimento', detail: 'Fecha este cartão; escreva o que mudar e o resumo é refeito.' },
+      adjustHint: `Não, e diga ao ${providerName.value} o que entendeu errado`,
+      options: [
+        { mode: 'architect' as AgentMode, label: 'Sim, desenhar o conceito visual', detail: 'Abre o modo de design ao lado da conversa, com um mockup do que foi entendido.', pill: ui === false ? undefined : 'Recomendado' },
+        { mode: 'checklist' as AgentMode, label: 'Sim, ir direto ao plano completo', detail: 'Sem conceito visual: o plano avançado com checklist é o próximo passo.', pill: ui === false ? 'Recomendado' : undefined }
+      ],
+      plan: planText.value
+    }
+  }
   if (showPlanAsk.value)
     return {
       kind: 'plan',
@@ -360,6 +389,8 @@ const askModel = computed<AgentAsk | null>(() => {
 /** Implementa o plano: troca o modo e pede na mesma sessão (o agente lembra o plano que acabou de escrever) */
 async function startPlan(m: AgentMode) {
   planOpen.value = false
+  if (discoveryDone.value) return approveDiscovery(m === 'architect')
+  if (arch.value) arch.value.phase = 'execute'
   // Plano com Checklist: os itens do plano viram o checklist da implementação, marcado conforme o agente avisa
   const items = turns[turns.length - 1]?.mode === 'checklist' ? parseChecklist(planText.value) : []
   mode.value = m
@@ -746,6 +777,8 @@ interface Payload {
   body: string
   /** Pedido do app (ex.: o aviso de pressa): vai para o agente sem aparecer como mensagem na conversa */
   silent?: boolean
+  /** Instruções do app que acompanham a mensagem: vão para o agente, não aparecem na conversa */
+  hidden?: string
   attachments: Shown[]
 }
 const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
@@ -784,13 +817,18 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
+  // Modo Arquiteto: a primeira vez neste modo abre a descoberta; o estado da conversa fica guardado nela
+  const discovery = mode.value === 'architect'
+  if (discovery && !arch.value) turn.arch = { phase: 'discovery' }
+  else if (discovery && arch.value) arch.value.phase = 'discovery'
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
   try {
     await api.agentSend(
       uid,
-      reminder ? `${p.body}\n\n${reminder}` : p.body,
+      [p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
+      // (na descoberta o processo principal troca para um modelo rápido e esforço baixo só nessa chamada)
       { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
@@ -801,6 +839,208 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
     running.value = false
     flushQueue()
   }
+}
+
+// ---------- Modo Arquiteto: descoberta → conceito → plano → execução ----------
+/** Texto da última resposta (para ler o marcador de interface) */
+const lastText = computed(() => (turns[turns.length - 1]?.blocks ?? []).flatMap((b) => (b.kind === 'text' ? [b.text] : [])).join('\n'))
+/** A última vez foi a descoberta e terminou: o cartão pergunta se o entendimento está certo */
+const discoveryDone = computed(() => planDone.value && turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase === 'discovery')
+/** Etapas da faixa do topo: feita, atual ou por vir */
+const archSteps = computed(() => {
+  const a = arch.value
+  if (!a) return []
+  const order: ArchPhase[] = ['discovery', 'concept', 'plan', 'execute']
+  const cur = order.indexOf(a.phase)
+  const allDone = a.phase === 'execute' && !running.value && !!checklist.value && checklistPending.value === 0
+  return ARCH_PHASES.map((p, i) => ({
+    ...p,
+    state: allDone || i < cur ? 'done' : i === cur ? 'now' : 'next',
+    skipped: p.id === 'concept' && (a.design?.approved === 'skipped' || (!a.design && cur > 1))
+  }))
+})
+/** Etapa atual, com o número (para o cartão) */
+const archNow = computed(() => {
+  const i = Math.max(0, archSteps.value.findIndex((s) => s.state === 'now'))
+  const done = archSteps.value.length && archSteps.value.every((s) => s.state === 'done')
+  return done ? { label: 'Concluído', n: 4 } : { label: archSteps.value[i]?.label ?? '', n: i + 1 }
+})
+/** Cartão do arquiteto: recolhido mostra só a etapa atual; aberto, as quatro com o que cada uma faz */
+const archOpen = ref(false)
+const ARCH_ABOUT: Record<ArchPhase, string> = {
+  discovery: 'Primeira leitura do pedido, em segundos, para conferir o entendimento.',
+  concept: 'Mockup das telas no painel de design, com revisões até aprovar.',
+  plan: 'Plano completo de implementação, com checklist.',
+  execute: 'Implementação, marcando o checklist.'
+}
+/** Etapa do plano sem plano pronto nem em andamento (interrompido, ou conversa reaberta): oferece pedir de novo */
+const archCanReplan = computed(() => arch.value?.phase === 'plan' && !running.value && (!planDone.value || !parseChecklist(planText.value).length))
+/** O que se espera agora, em uma frase, ao lado das etapas */
+const archHint = computed(() => {
+  const a = arch.value
+  if (!a) return ''
+  if (a.phase === 'discovery') return running.value ? 'Interpretando o pedido…' : discoveryDone.value ? 'Confira se o entendimento está certo' : 'Ajuste o entendimento pela conversa'
+  if (a.phase === 'concept') return designRunning.value ? 'Desenhando o conceito…' : a.design?.versions.length ? 'Revise o layout ou aprove o conceito' : 'Conceito visual'
+  if (a.phase === 'plan') return running.value ? 'Escrevendo o plano completo…' : archCanReplan.value ? 'O plano completo ainda não foi escrito' : 'Aprove o plano para começar a execução'
+  if (running.value) return checklist.value ? `Implementando · ${checklistDone.value} de ${checklist.value.length} etapas` : 'Implementando…'
+  return checklist.value && checklistPending.value === 0 ? 'Concluído' : 'Execução'
+})
+/** Largura da conversa (em %) quando o painel de design está aberto; o divisor arrasta e a escolha fica guardada */
+const SPLIT_KEY = 'ovseer.design.split'
+const SPLIT_DEFAULT = 38
+const readSplit = () => {
+  const n = Number(localStorage.getItem(SPLIT_KEY))
+  return n >= 20 && n <= 75 ? n : SPLIT_DEFAULT
+}
+const designSplit = ref(readSplit())
+const splitting = ref(false)
+function startSplit() {
+  splitting.value = true
+  const move = (e: MouseEvent) => {
+    const w = window.innerWidth
+    // nenhum dos dois lados fica menor do que o que dá para usar
+    const px = Math.min(Math.max(e.clientX, 320), w - 420)
+    designSplit.value = Math.round((px / w) * 1000) / 10
+  }
+  const up = () => {
+    splitting.value = false
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    localStorage.setItem(SPLIT_KEY, String(designSplit.value))
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
+function resetSplit() {
+  designSplit.value = SPLIT_DEFAULT
+  localStorage.removeItem(SPLIT_KEY)
+}
+/** Entendimento aprovado: guarda o resumo e segue para o conceito visual ou direto para o plano */
+async function approveDiscovery(concept: boolean) {
+  const a = arch.value
+  if (!a) return
+  a.brief = stripArchMarkers(planText.value).trim()
+  a.hasUi = hasInterface(lastText.value)
+  askOpen.value = false
+  if (!concept) return startArchPlan()
+  a.phase = 'concept'
+  if (!a.design) {
+    // a IA do design é própria: por padrão o Claude (desenha bem em HTML), no modelo que ele usa por último
+    const d = pickerDefaults?.claude
+    a.design = { provider: 'claude', model: d?.model ?? DEFAULT_MODEL.claude, effort: d?.effort ?? DEFAULT_EFFORT.claude, versions: [], current: 0 }
+  }
+  openDesign()
+  drawDesign()
+}
+/** Etapa 3: pede o plano avançado à conversa principal, no modo Plano com Checklist e no modelo do campo */
+async function startArchPlan(conceptFile?: string) {
+  const a = arch.value
+  if (a) a.phase = 'plan'
+  setMode('checklist')
+  const req = archPlanRequest(conceptPath(conceptFile))
+  await dispatch({ id: crypto.randomUUID(), body: req.visible, hidden: req.hidden, attachments: [] })
+}
+
+// ---------- painel de design: à parte da conversa, com a sua própria IA ----------
+let designText = ''
+let designNote = ''
+let designLiveTimer: ReturnType<typeof setTimeout> | undefined
+function openDesign() {
+  if (!arch.value?.design || designOpen.value) return
+  designOpen.value = true
+  api.designLayout(uid, true).catch(() => undefined)
+}
+function closeDesign() {
+  if (!designOpen.value) return
+  designOpen.value = false
+  api.designLayout(uid, false).catch(() => undefined)
+}
+/** Pede uma versão do conceito: a primeira parte do resumo aprovado; as revisões levam o HTML atual e o ajuste */
+async function drawDesign(note = '') {
+  const a = arch.value
+  const d = a?.design
+  if (!a || !d || designRunning.value) return
+  const request = turns.find((t) => t.arch)?.user ?? ''
+  const cur = d.versions[d.current]
+  designText = ''
+  designNote = note
+  designLive.value = ''
+  designActivity.value = ''
+  designError.value = null
+  designRunning.value = true
+  try {
+    await api.designRun(uid, {
+      provider: d.provider,
+      model: d.model,
+      effort: d.effort as AgentEffort,
+      prompt: designRequest({ request, brief: a.brief ?? '', currentHtml: note && cur ? cur.html : undefined, note, history: d.versions.slice(0, d.current + 1).map((v) => v.note) })
+    })
+  } catch (e) {
+    designRunning.value = false
+    designError.value = clean(e)
+  }
+}
+function onDesignEvent(ev: AgentChatEvent) {
+  const d = arch.value?.design
+  if (!d || !designRunning.value) return
+  if (ev.type === 'text') {
+    designText += ev.delta
+    // a prévia acompanha, sem redesenhar a cada pedaço
+    if (!designLiveTimer) designLiveTimer = setTimeout(() => ((designLiveTimer = undefined), (designLive.value = extractHtml(designText))), 700)
+  } else if (ev.type === 'tool') {
+    designActivity.value = nowLabel(ev)
+  } else if (ev.type === 'done') {
+    clearTimeout(designLiveTimer)
+    designLiveTimer = undefined
+    designRunning.value = false
+    designActivity.value = ''
+    const html = extractHtml(designText)
+    if (ev.ok && html) {
+      d.versions.push({ html, note: designNote, at: Date.now() })
+      d.current = d.versions.length - 1
+    } else designError.value = ev.ok ? 'A resposta veio sem o HTML do conceito.' : (ev.error ?? 'Falhou.')
+    designLive.value = ''
+    // as versões ficam no estado do arquiteto, dentro da vez da descoberta: a gravação da conversa já as leva
+  }
+}
+offs.push(api.onDesignEvent((u, ev) => u === uid && onDesignEvent(ev)))
+/** Texto editado direto na tela do conceito: vira uma versão nova, sem passar pela IA */
+function designEdited(html: string) {
+  const d = arch.value?.design
+  if (!d || designRunning.value) return
+  d.versions.push({ html, note: 'Edição direta do texto', at: Date.now() })
+  d.current = d.versions.length - 1
+}
+function setDesignAi(p: CliProvider, m: string, e: AgentEffort) {
+  const d = arch.value?.design
+  if (d) Object.assign(d, { provider: p, model: m, effort: e })
+}
+/** Conceito aprovado: salva o HTML em tmp/ do projeto e pede o plano avançado à conversa, apontando para ele */
+async function approveDesign() {
+  const d = arch.value?.design
+  const v = d?.versions[d.current]
+  if (!d || !v || designRunning.value) return
+  try {
+    d.file = await api.designSave(uid, v.html, `conceito-${(sessionId.value ?? uid).slice(0, 8)}.html`)
+  } catch (e) {
+    designError.value = clean(e)
+    return
+  }
+  d.approved = d.current
+  await startArchPlan(d.file)
+}
+/** Caminho do conceito como o agente e a conversa veem: relativo à pasta do projeto, quando está dentro dela */
+function conceptPath(file?: string): string | undefined {
+  if (!file) return undefined
+  const root = (info.value?.cwd ?? '').replace(/[\\/]+$/, '')
+  return root && file.startsWith(root) ? file.slice(root.length + 1).replace(/\\/g, '/') : file
+}
+function skipDesign() {
+  const d = arch.value?.design
+  if (!d || designRunning.value) return
+  d.approved = 'skipped'
+  closeDesign()
+  startArchPlan()
 }
 
 /** Desde quando o agente trabalha nesta vez: o início dela ou, se veio de um "agora", o da vez que ela continuou */
@@ -1012,7 +1252,7 @@ interface SlashCommand {
   /** Nomes pelos quais o comando é achado (sem acento) */
   keys: string[]
 }
-const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], checklist: ['checklist', 'check', 'lista'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
+const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], checklist: ['checklist', 'check', 'lista'], architect: ['arquiteto', 'architect', 'conceito'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
 const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const slashClosed = ref(false)
 const slashIndex = ref(0)
@@ -1480,7 +1720,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 <template>
   <div
     class="agent"
-    :style="fontStyle"
+    :class="{ 'with-design': designOpen && arch?.design, splitting }"
+    :style="[fontStyle, { '--split': `${designSplit}%` }]"
     @dragenter.prevent="onDragMove"
     @dragover.prevent="onDragMove"
     @dragleave="onDragLeave"
@@ -1537,6 +1778,28 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small></span>
       </span>
     </header>
+
+    <DesignPanel
+      v-if="designOpen && arch?.design"
+      class="design-side"
+      :design="arch.design"
+      :running="designRunning"
+      :live="designLive"
+      :activity="designActivity"
+      :error="designError"
+      :known="known"
+      @revise="drawDesign"
+      @retry="drawDesign(designNote)"
+      @approve="approveDesign"
+      @skip="skipDesign"
+      @cancel="api.designCancel(uid)"
+      @close="closeDesign"
+      @select="(i) => arch?.design && (arch.design.current = i)"
+      @ai="setDesignAi"
+      @edited="designEdited"
+    />
+    <!-- divisor entre a conversa e o design: arrastar muda a largura de cada lado; dois cliques voltam ao padrão -->
+    <div v-if="designOpen && arch?.design" class="design-divider" role="separator" aria-orientation="vertical" title="Arraste para ajustar; dois cliques voltam ao padrão" @mousedown.prevent="startSplit" @dblclick="resetSplit" />
 
     <main ref="thread" class="thread" @scroll="onScroll">
       <p v-if="fatal" class="fatal">{{ fatal }}</p>
@@ -1671,6 +1934,35 @@ onUnmounted(() => offs.forEach((f) => f()))
         </div>
       </article>
     </main>
+
+    <!-- Modo Arquiteto: cartão da janela, encostado no campo (o mesmo desenho do cartão do checklist): a etapa atual,
+         o que se espera agora, as quatro etapas em segmentos e o painel de design -->
+    <section v-if="arch" class="archcard" :class="{ open: archOpen }">
+      <div class="ac-head">
+        <button type="button" class="ghost ac-main" :title="archOpen ? 'Recolher as etapas' : 'Mostrar as etapas'" @click="archOpen = !archOpen">
+          <span class="ac-icon"><Icon name="compass" :size="14" /></span>
+          <span class="ac-title">
+            <strong>{{ archNow.label }} <small>· etapa {{ archNow.n }} de 4</small></strong>
+            <small class="ellipsis">{{ archHint }}</small>
+          </span>
+          <span class="ac-segs" aria-hidden="true"><i v-for="st in archSteps" :key="st.id" :class="[st.state, { skipped: st.skipped }]" :title="st.label" /></span>
+          <Icon name="chevron" :size="12" class="ac-chev" />
+        </button>
+        <!-- o plano foi interrompido (ou a conversa foi reaberta nesta etapa): dá para pedir de novo -->
+        <button v-if="archCanReplan" type="button" class="small primary ac-btn" @click="startArchPlan(typeof arch.design?.approved === 'number' ? arch.design.file : undefined)">Gerar o plano</button>
+        <button v-if="arch.design" type="button" class="ghost ac-btn ac-design" :class="{ on: designOpen }" :title="designOpen ? 'Fechar o painel de design' : 'Abrir o painel de design'" @click="designOpen ? closeDesign() : openDesign()">
+          <Icon name="layers" :size="13" /> Design
+        </button>
+      </div>
+      <ol v-if="archOpen" class="ac-steps">
+        <li v-for="(st, i) in archSteps" :key="st.id" :class="[st.state, { skipped: st.skipped }]">
+          <span class="ac-num"><Icon v-if="st.state === 'done' && !st.skipped" name="check" :size="11" /><template v-else>{{ i + 1 }}</template></span>
+          <span class="ac-text"><strong>{{ st.label }}</strong><small>{{ ARCH_ABOUT[st.id] }}</small></span>
+          <small v-if="st.skipped" class="ac-state">pulado</small>
+          <small v-else-if="st.state === 'now'" class="ac-state now">agora</small>
+        </li>
+      </ol>
+    </section>
 
     <!-- Plano com Checklist: faixa fixa da janela, encostada no campo; some quando a conversa não tem checklist -->
     <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen, live: checklistTurn?.running, halted: checklistStopped }">
@@ -1845,15 +2137,66 @@ onUnmounted(() => offs.forEach((f) => f()))
 
 <style scoped>
 .agent { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+/* painel de design aberto: conversa | divisor | design; só o cabeçalho atravessa tudo */
+.agent.with-design { display: grid; grid-template-columns: minmax(320px, var(--split, 38%)) 7px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto auto; }
+.agent.with-design > .bar { grid-column: 1 / -1; }
+.agent.with-design > .thread { grid-column: 1; grid-row: 2; min-height: 0; }
+.agent.with-design > .archcard { grid-column: 1; grid-row: 3; }
+.agent.with-design > .checklist { grid-column: 1; grid-row: 4; }
+.agent.with-design > .composer { grid-column: 1; grid-row: 5; }
+.agent.with-design > .design-divider { grid-column: 2; grid-row: 2 / 6; }
+.agent.with-design > .design-side { grid-column: 3; grid-row: 2 / 6; border-left: 0; }
+/* divisor: uma linha fina que engrossa e ganha cor ao passar o mouse ou arrastar */
+.design-divider { position: relative; cursor: col-resize; background: transparent; }
+.design-divider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--border); transition: background 0.12s, width 0.12s, left 0.12s; }
+.design-divider:hover::before, .agent.splitting .design-divider::before { left: 2px; width: 3px; background: var(--accent); }
+/* arrastando: a prévia não engole o mouse e nada é selecionado */
+.agent.splitting { cursor: col-resize; user-select: none; }
+.agent.splitting :deep(iframe) { pointer-events: none; }
+/* cartão do Modo Arquiteto: da mesma família do cartão do checklist, encostado no campo */
+.archcard { flex: none; margin: 0 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); overflow: hidden; }
+.ac-head { display: flex; align-items: center; gap: 6px; padding-right: 8px; min-width: 0; }
+.ac-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 8px 0 12px; border-radius: 0; justify-content: flex-start; text-align: left; }
+.ac-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex: none; }
+.ac-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; line-height: 1.2; }
+.ac-title strong { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-title strong small { font-weight: 400; color: var(--faint); font-size: 11.5px; }
+.ac-title > small { font-size: 11.5px; color: var(--muted); }
+/* as quatro etapas em segmentos: feitas, a atual (pulsando) e as por vir */
+.ac-segs { display: inline-flex; gap: 3px; flex: none; }
+.ac-segs i { width: 18px; height: 5px; border-radius: 3px; background: var(--panel-2); }
+.ac-segs i.done { background: var(--add); }
+.ac-segs i.now { background: var(--accent); }
+.ac-segs i.skipped { background: color-mix(in srgb, var(--faint) 45%, var(--panel-2)); }
+.ac-chev { color: var(--faint); transform: rotate(-90deg); transition: transform 0.15s; flex: none; }
+.archcard.open .ac-chev { transform: rotate(90deg); }
+.ac-btn { height: 28px; flex: none; }
+.ac-design { padding: 0 10px; gap: 6px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--muted); border: 1px solid var(--border); }
+.ac-design:hover { color: var(--text); }
+.ac-design.on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.ac-steps { list-style: none; margin: 0; padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--border); }
+.ac-steps li { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px; border-radius: 8px; }
+.ac-steps li.now { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ac-num { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; flex: none; box-sizing: border-box; font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted); border: 1.5px solid var(--border); }
+.ac-steps li.done .ac-num { background: var(--add); border-color: var(--add); color: var(--bg); }
+.ac-steps li.now .ac-num { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ac-steps li.skipped .ac-num { border-style: dashed; background: transparent; color: var(--faint); }
+.ac-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.ac-text strong { font-size: 12.5px; font-weight: 600; }
+.ac-text small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.ac-steps li.done .ac-text strong, .ac-steps li.next .ac-text strong { font-weight: 500; }
+.ac-steps li.next .ac-text strong { color: var(--muted); }
+.ac-state { flex: none; font-size: 11px; color: var(--faint); }
+.ac-state.now { color: var(--accent); font-weight: 500; }
 .bar {
   height: var(--titlebar); display: flex; align-items: center; gap: 8px; padding: 0 14px; flex: none;
   border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
 }
 /* modo Plano (roxo) e Controle total (dourado): manchas suaves de luz espalhadas pelo cabeçalho, nas cores dos chips */
-.bar.mode-plan, .bar.mode-checklist { --mode-tint: var(--hunk); }
+.bar.mode-plan, .bar.mode-checklist, .bar.mode-architect { --mode-tint: var(--hunk); }
 /* o dourado aparece mais que o roxo: entra mais diluído */
 .bar.mode-full { --mode-tint: color-mix(in srgb, var(--mod) 43%, transparent); }
-.bar.mode-plan, .bar.mode-checklist, .bar.mode-full {
+.bar.mode-plan, .bar.mode-checklist, .bar.mode-architect, .bar.mode-full {
   background:
     radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 28%, transparent), transparent 70%),
     radial-gradient(ellipse 30% 140% at 42% 110%, color-mix(in srgb, var(--mode-tint) 16%, transparent), transparent 70%),
@@ -2131,7 +2474,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
 /* classes do modo com prefixo: "checklist" sem prefixo pegava os estilos do painel do checklist e desalinhava o botão */
 .chip.m-full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
-.chip.m-plan, .chip.m-checklist { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
+.chip.m-plan, .chip.m-checklist, .chip.m-architect { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
 .chip.on { background: var(--hover); }
 .chip .chev { transform: rotate(-90deg); color: var(--faint); }
 .mode-menu { position: relative; flex: none; }

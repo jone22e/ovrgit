@@ -68,8 +68,8 @@ function submit() {
 
   <div v-else class="ask">
     <div class="ask-head">
-      <p class="ask-q">Deseja iniciar a implementação do plano?</p>
-      <button type="button" class="ghost small see-plan" title="Abrir o plano para leitura" @click="emit('seePlan')"><Icon name="clipboard" :size="12" /> Ver plano</button>
+      <p class="ask-q">{{ ask.title ?? 'Deseja iniciar a implementação do plano?' }}</p>
+      <button type="button" class="ghost small see-plan" title="Abrir para leitura" @click="emit('seePlan')"><Icon name="clipboard" :size="12" /> {{ ask.see ?? 'Ver plano' }}</button>
       <button type="button" class="ghost nav" title="Fechar: continue pelo campo de mensagem" @click="emit('close')"><Icon name="x" :size="13" /></button>
     </div>
     <div class="ask-opts">
@@ -83,14 +83,14 @@ function submit() {
       <button type="button" class="ghost ask-opt" @click="emit('close')">
         <span class="num">{{ ask.options.length + 1 }}</span>
         <span class="opt-body">
-          <span class="opt-label">Não, continuar planejando</span>
-          <span class="opt-detail">Fecha este cartão; a conversa segue no modo Plano.</span>
+          <span class="opt-label">{{ ask.stay?.label ?? 'Não, continuar planejando' }}</span>
+          <span class="opt-detail">{{ ask.stay?.detail ?? 'Fecha este cartão; a conversa segue no modo Plano.' }}</span>
         </span>
       </button>
     </div>
     <form class="ask-other" @submit.prevent="submit">
       <Icon name="pencil" :size="13" class="pen" />
-      <input v-model="other" type="text" :placeholder="`Não, e diga ao ${agent} o que ajustar no plano`" maxlength="2000" />
+      <input v-model="other" type="text" :placeholder="ask.adjustHint ?? `Não, e diga ao ${agent} o que ajustar no plano`" maxlength="2000" />
       <button v-if="other.trim()" type="submit" class="small primary">Enviar</button>
     </form>
   </div>

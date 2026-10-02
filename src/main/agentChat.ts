@@ -2,11 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, Notification, screen, shell } from 'electron'
-import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
 import { artifactsDir, artifactsRule } from '../shared/artifacts'
+import { ARCH_DISCOVERY, DESIGN_RULES } from '../shared/architect'
+import { projectMap } from './projectMap'
 import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { serviceStates } from './services'
@@ -43,6 +45,10 @@ interface AgentWin {
   lastWorkspace?: string
   /** Pedido de título em andamento: uma conversa nova (ou outro pedido) invalida o resultado do anterior */
   titleToken?: symbol
+  /** Processo do conceito visual (Modo Arquiteto), separado da conversa e possivelmente de outra IA */
+  designChild?: ChildProcessWithoutNullStreams | null
+  /** Tamanho da janela antes de abrir o painel de design (para voltar ao fechar) */
+  beforeDesign?: Electron.Rectangle | null
 }
 
 const wins = new Map<string, AgentWin>()
@@ -204,6 +210,10 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
+  })
+  // a prévia do conceito visual (Modo Arquiteto) é um iframe com HTML vindo de uma IA: ele nunca navega para fora
+  win.webContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame && !/^about:(srcdoc|blank)/.test(e.url)) e.preventDefault()
   })
   // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
   // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
@@ -693,6 +703,8 @@ export function servicesNote(): string {
 /** Orientação de formato do plano para o modo: título sempre; no Plano com Checklist, a seção de checklist no fim */
 export function planFormat(mode: AgentMode): string {
   if (mode === 'checklist') return `${PLAN_TITLE}\n${CHECKLIST_FORMAT}`
+  // Modo Arquiteto: nesta conversa só a descoberta roda neste modo (o plano avançado vai como "checklist")
+  if (mode === 'architect') return ARCH_DISCOVERY
   return mode === 'plan' ? PLAN_TITLE : ''
 }
 
@@ -736,7 +748,7 @@ criar e apagar arquivos e executar a tarefa normalmente.
 `
 
 export function normalizeMode(m: unknown): AgentMode {
-  return m === 'full' || m === 'plan' || m === 'checklist' ? m : 'safe'
+  return m === 'full' || m === 'plan' || m === 'checklist' || m === 'architect' ? m : 'safe'
 }
 
 export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; writableRoots?: string[] }): string[] {
@@ -1165,13 +1177,19 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       : provider === 'agy'
         ? `<plan_format>\n${planFormat(clean.mode)}\n</plan_format>\n\n`
         : ''
-  const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
+  // descoberta do Modo Arquiteto: o mapa do projeto vai pronto no pedido, para o agente não gastar tempo explorando
+  // (o mapa vai depois do pedido: é o pedido que dá nome à conversa e ao plano)
+  const map = clean.mode === 'architect' ? `\n\n${projectMap(w.info.cwd)}` : ''
+  const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text + map, attachments)
+  // descoberta do Modo Arquiteto: modelo rápido e esforço baixo só nesta chamada (o usuário espera a resposta em
+  // segundos); o modelo da janela, e o "último usado", continuam sendo os do campo
+  const run = clean.mode === 'architect' ? { ...clean, model: provider === 'claude' ? 'haiku' : clean.model, effort: 'low' as AgentEffort } : clean
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...clean, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
+      ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
-        ? codexArgs({ ...clean, images: inlineImages.map((i) => i.path), writableRoots: w.info.extraDirs })
-        : agyArgs({ ...clean, prompt })
+        ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), writableRoots: w.info.extraDirs })
+        : agyArgs({ ...run, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)
   const child = spawn(shellMode ? `"${bin}"` : bin, args, {
@@ -1454,6 +1472,141 @@ export async function generateTitle(provider: CliProvider, request: string, answ
   } catch {
     return null
   }
+}
+
+// ---------- conceito visual do Modo Arquiteto: um pedido à parte da conversa, que pode ir para outra IA ----------
+
+export interface DesignRunOptions {
+  provider: CliProvider
+  model: string
+  effort: AgentEffort
+  /** Pedido completo (resumo aprovado e, nas revisões, o HTML atual e o que ajustar) */
+  prompt: string
+}
+
+/**
+ * Pede uma versão do conceito visual. É um pedido só, sem sessão (cada revisão leva o HTML atual junto): não
+ * mexe na conversa principal nem no contexto dela, e por isso pode rodar em outra IA. Só leitura do projeto.
+ * A resposta chega à janela em pedaços, pelo canal `agent:design`.
+ */
+export async function runDesign(uid: string, o: DesignRunOptions): Promise<void> {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  if (w.designChild) throw new Error('O conceito ainda está sendo desenhado. Aguarde ou interrompa.')
+  const provider = o.provider
+  const bin = await findBinary(BIN[provider])
+  if (!bin) throw new Error(`${PROVIDER_NAME[provider]} não encontrado neste computador.`)
+  const model = safeModel(o.model ?? '')
+  const prompt = String(o.prompt).slice(0, 400_000)
+  let args: string[]
+  let input = ''
+  if (provider === 'claude') {
+    // regras do design no prompt de sistema; só ferramentas de leitura; sem gravar sessão (não é uma conversa).
+    // Sem o "modo plano" do Claude: nele o modelo tende a devolver um plano, e aqui a resposta é o HTML.
+    args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
+    args.push('--append-system-prompt', DESIGN_RULES, '--tools', 'Read,Glob,Grep', '--no-session-persistence')
+    if (model) args.push('--model', model)
+    if (o.effort) args.push('--effort', o.effort)
+    input = claudeInputMessage(prompt, [])
+  } else if (provider === 'codex') {
+    // --ephemeral: não grava sessão; sandbox somente leitura: o design não altera o projeto
+    args = ['exec', '--ephemeral', '--json', '--skip-git-repo-check', '-c', 'sandbox_mode="read-only"']
+    if (model) args.push('-m', model)
+    if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
+    args.push('-')
+    input = `${DESIGN_RULES}\n\n${prompt}`
+  } else {
+    args = agyArgs({ model, effort: o.effort, mode: 'plan', resume: null, prompt: `${DESIGN_RULES}\n\n${prompt}` })
+  }
+  const send = (ev: AgentChatEvent) => !w.win.isDestroyed() && w.win.webContents.send('agent:design', uid, ev)
+  const shellMode = needsShell(bin)
+  const child = spawn(shellMode ? `"${bin}"` : bin, args, { cwd: w.info.cwd, shell: shellMode, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } })
+  w.designChild = child
+  const claudeSt: ClaudeParseState = { cwd: w.info.cwd, streamed: 0, done: false }
+  const codexSt: CodexParseState = { emitted: new Map(), error: null, done: false }
+  const agySt: AgyParseState = { cwd: w.info.cwd, done: false, tools: new Set() }
+  const parse = (line: string) =>
+    provider === 'claude' ? parseClaudeLine(line, claudeSt) : provider === 'codex' ? parseCodexLine(line, codexSt) : parseAgyLine(line, agySt)
+  const isDone = () => (provider === 'claude' ? claudeSt.done : provider === 'codex' ? codexSt.done : agySt.done)
+  let buf = ''
+  let stderr = ''
+  const handle = (line: string) => {
+    if (!line.trim()) return
+    for (const ev of parse(line)) {
+      // da resposta do design interessam o texto (o HTML), o que ele está lendo e o fim
+      if (ev.type === 'text' || ev.type === 'tool' || ev.type === 'thinking' || ev.type === 'done') send(ev)
+      if (ev.type === 'done' && provider === 'claude') child.stdin.end()
+    }
+  }
+  child.stdout.on('data', (d: Buffer) => {
+    buf += d.toString('utf8')
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    lines.forEach(handle)
+  })
+  child.stderr.on('data', (d: Buffer) => {
+    stderr = (stderr + d.toString('utf8')).slice(-20000)
+  })
+  child.stdin.on('error', () => undefined)
+  child.on('error', (e) => {
+    w.designChild = null
+    send({ type: 'done', ok: false, error: e.message })
+  })
+  child.on('close', (code, signal) => {
+    if (buf.trim()) handle(buf)
+    w.designChild = null
+    if (!isDone()) {
+      const tail = stderr.trim().split('\n').filter(Boolean).slice(-3).join(' ')
+      let error = tail || `${PROVIDER_NAME[provider]} saiu com código ${code}`
+      if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
+      if (child.killed || signal || code === 130 || code === 143) error = 'Interrompido.'
+      send({ type: 'done', ok: false, error })
+    }
+  })
+  if (provider === 'claude') child.stdin.write(input)
+  else child.stdin.end(input)
+}
+
+/**
+ * O painel de design abre ao lado da conversa: a janela alarga para caber os dois (dentro da tela em que está)
+ * e volta ao tamanho de antes quando o painel fecha.
+ */
+export function setDesignLayout(uid: string, on: boolean) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) return
+  if (on) {
+    if (w.beforeDesign) return
+    const b = w.win.getBounds()
+    const area = screen.getDisplayMatching(b).workArea
+    const width = Math.min(area.width, Math.max(b.width, 1320))
+    if (width <= b.width) return
+    w.beforeDesign = b
+    // cresce para a direita; se não couber, desloca para a esquerda até caber na tela
+    const x = Math.max(area.x, Math.min(b.x, area.x + area.width - width))
+    w.win.setBounds({ x, y: b.y, width, height: b.height }, true)
+  } else if (w.beforeDesign) {
+    w.win.setBounds(w.beforeDesign, true)
+    w.beforeDesign = null
+  }
+}
+
+export function cancelDesign(uid: string) {
+  const w = wins.get(uid)
+  if (w?.designChild) terminate(w.designChild, 'codex')
+}
+
+/**
+ * Salva o conceito aprovado em tmp/ do projeto (fora do código), para o plano e a execução lerem; devolve o
+ * caminho. `name` é só o nome do arquivo.
+ */
+export function saveDesign(uid: string, html: string, name: string): string {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  const dir = artifactsDir(w.info.cwd)
+  mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, name.replace(/[^\w.-]+/g, '-').replace(/^\.+/, '') || 'conceito.html')
+  writeFileSync(file, String(html).slice(0, 5_000_000))
+  return file
 }
 
 /** Zera a janela para uma conversa nova com o mesmo agente: encerra a resposta em curso e esquece a sessão do CLI. */

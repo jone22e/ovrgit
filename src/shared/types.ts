@@ -1,4 +1,5 @@
 import type { ChecklistItem } from './checklist'
+import type { ArchState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
 
 export interface FileChange {
@@ -374,8 +375,11 @@ export interface ModelInfo {
 }
 
 /** plan: só lê e propõe um plano; safe: edita arquivos e roda comandos só dentro do projeto; full: sem perguntas nem sandbox */
-/** `checklist`: como `plan`, mas o plano termina com um checklist que o app marca durante a implementação */
-export type AgentMode = 'plan' | 'checklist' | 'safe' | 'full'
+/**
+ * `checklist`: como `plan`, mas o plano termina com um checklist que o app marca durante a implementação.
+ * `architect`: descoberta rápida → conceito visual → plano com checklist → execução (ver shared/architect.ts).
+ */
+export type AgentMode = 'plan' | 'checklist' | 'architect' | 'safe' | 'full'
 
 /** Pedido para abrir a janela exclusiva de um agente */
 export interface AgentChatOpen {
@@ -480,6 +484,8 @@ export interface AgentTurn {
   costUsd?: number
   /** Modo em que o pedido foi enviado (em `plan`, ao terminar o app pergunta se deseja implementar) */
   mode?: AgentMode
+  /** Modo Arquiteto: estado da conversa (etapa, resumo aprovado e conceito visual), guardado na vez da descoberta */
+  arch?: ArchState
   /** Implementação de um plano com checklist: os itens, marcados conforme o agente avisa que concluiu */
   checklist?: ChecklistItem[]
 }
@@ -519,7 +525,17 @@ export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 /** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
 export type AgentAsk =
   | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number; /** Opção já escolhida nesta pergunta */ current?: string | null }
-  | { kind: 'plan'; options: { mode: AgentMode; label: string; detail: string; /** Selo ao lado da opção ("Padrão", "Modo anterior") */ pill?: string }[]; /** Texto do plano, em Markdown */ plan: string }
+  | {
+      kind: 'plan'
+      options: { mode: AgentMode; label: string; detail: string; /** Selo ao lado da opção ("Padrão", "Modo anterior") */ pill?: string }[]
+      /** Texto do plano, em Markdown */
+      plan: string
+      /** Textos próprios do cartão (a descoberta do Modo Arquiteto usa o mesmo cartão com outra pergunta) */
+      title?: string
+      see?: string
+      stay?: { label: string; detail: string }
+      adjustHint?: string
+    }
 
 /** Verificações vistas nos comandos da última resposta do agente (ausente: não rodou) */
 export interface AgentChecks {
@@ -1028,6 +1044,13 @@ export interface OvseerApi {
   agentAct(uid: string, action: AgentAction): Promise<void>
   /** Na janela do agente: ações vindas do gerenciador */
   onAgentAct(cb: (uid: string, action: AgentAction) => void): () => void
+  /** Conceito visual do Modo Arquiteto: pede uma versão (pedido à parte da conversa, em qualquer IA), interrompe e salva o aprovado */
+  designRun(uid: string, o: { provider: CliProvider; model: string; effort: AgentEffort; prompt: string }): Promise<void>
+  designCancel(uid: string): Promise<void>
+  /** Alarga a janela do agente para caber o painel de design ao lado da conversa (e volta ao fechar) */
+  designLayout(uid: string, on: boolean): Promise<void>
+  designSave(uid: string, html: string, name: string): Promise<string>
+  onDesignEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   /** A janela foi trazida para a frente pelo gerenciador ou pela lista de conversas: pisca a borda */
   onAgentFlash(cb: (uid: string) => void): () => void
   /** Traz a janela do agente para a frente */

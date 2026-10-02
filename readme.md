@@ -62,6 +62,9 @@ modelo local pelo Ollama.
   e vai sendo marcado conforme o agente conclui cada item (também nas respostas seguintes). Uma etapa pode ser
   concluída, falhar ou ser dispensada; se o agente parar com etapas em aberto, o painel avisa e oferece continuar,
   marcar como feita ou dispensar.
+- Modo Arquiteto, em quatro etapas com aprovação em cada uma: descoberta (um resumo do pedido em segundos, com o
+  mapa do projeto pronto), conceito visual (mockup num painel de design ao lado da conversa, com IA própria,
+  versões, comentário num elemento e edição de texto), plano completo com checklist e execução.
 - Perguntas do agente viram cartões com opções.
 - Anexos: arquivos, imagens e conteúdo colado.
 - Enviar uma mensagem com o agente trabalhando, para redirecionar no meio da tarefa.
