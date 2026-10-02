@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import type { AgentAction, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
+import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
 import { api, openNewAgent, saveSettings, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
@@ -27,6 +27,43 @@ const needYou = computed(() => [...pinnedFirst(byStatus('waiting'), (a, b) => a.
 const running = computed(() => pinnedFirst(byStatus('live'), (a, b) => a.since - b.since))
 const done = computed(() => pinnedFirst(byStatus('done'), (a, b) => b.since - a.since))
 const idle = computed(() => pinnedFirst(byStatus('idle')))
+
+// ---------- fixadas sem janela aberta: continuam na lista depois de fechar o app; o clique reabre a conversa ----------
+const pinnedHistory = ref<AgentHistoryItem[]>([])
+async function loadPinned() {
+  pinnedHistory.value = (await api.agentHistory().catch(() => [])).filter((h) => h.pinned)
+}
+const closedPinned = computed(() =>
+  pinnedHistory.value.filter((h) => !state.agentWindows.includes(h.sessionId)).sort((a, b) => b.updatedAt - a.updatedAt)
+)
+onMounted(loadPinned)
+// janela aberta ou fechada, ou conversa fixada/solta por uma janela: a lista de fixadas muda
+watch(() => [state.agentWindows.join(','), snaps.value.map((a) => `${a.uid}:${a.pinned ? 1 : 0}`).join(',')], loadPinned)
+const reopenError = (e: unknown) => (state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+const reopening = ref<string | null>(null)
+async function reopen(h: AgentHistoryItem) {
+  if (reopening.value) return
+  reopening.value = h.sessionId
+  try {
+    if (!(await api.agentFocus(h.sessionId))) await api.agentOpen({ provider: h.provider, model: h.model, effort: h.effort, mode: h.mode, cwd: h.cwd, resumeId: h.sessionId })
+  } catch (e) {
+    reopenError(e)
+  } finally {
+    reopening.value = null
+  }
+}
+/** Reabre todas as fixadas, uma de cada vez (cada janela acha o seu lugar no grid) */
+async function reopenAllPinned() {
+  for (const h of [...closedPinned.value]) await reopen(h)
+}
+async function unpin(h: AgentHistoryItem) {
+  await api.agentPin(h.sessionId, false).catch(() => undefined)
+  pinnedHistory.value = pinnedHistory.value.filter((x) => x.sessionId !== h.sessionId)
+  toast('Conversa solta.')
+}
+/** Situação gravada da conversa fechada (fechada não trabalha: "rodando" vira interrompida) */
+const closedStatus = (h: AgentHistoryItem) => (h.status === 'live' ? 'stopped' : h.status === 'waiting' || h.status === 'done' || h.status === 'error' ? h.status : '')
+const CLOSED_LABEL: Record<string, string> = { stopped: 'interrompida ao fechar', waiting: 'aguardando a sua resposta', done: 'concluída', error: 'falhou', '': '' }
 
 // relógio para os "há 3 min" andarem sozinhos
 const now = ref(Date.now())
@@ -241,7 +278,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
         </span>
       </header>
 
-      <div v-if="!snaps.length" class="empty">
+      <div v-if="!snaps.length" class="empty" :class="{ slim: closedPinned.length }">
         <p class="faint">Nenhum agente aberto.</p>
         <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       </div>
@@ -376,6 +413,27 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
+
+      <!-- fixadas sem janela aberta (por exemplo, depois de fechar e abrir o app): o clique reabre a conversa -->
+      <section v-if="closedPinned.length">
+        <h3 class="sec">
+          <span class="sec-title"><Icon name="pin" :size="11" /> Fixadas</span>
+          <span class="sec-actions">
+            <button v-if="closedPinned.length > 1" class="ghost link accent" title="Reabre todas as conversas fixadas, cada uma na sua janela" @click="reopenAllPinned">Abrir as {{ closedPinned.length }} →</button>
+          </span>
+        </h3>
+        <div v-for="h in closedPinned" :key="h.sessionId" class="item closed" :title="'Reabrir a conversa'" @click="reopen(h)">
+          <span class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />
+          <span class="text">
+            <strong class="ellipsis light">{{ h.title }}</strong>
+            <small class="faint ellipsis">{{ h.project }}{{ h.extraDirs?.length ? ` +${h.extraDirs.length}` : '' }} · {{ h.model }}{{ CLOSED_LABEL[closedStatus(h)] ? ` · ${CLOSED_LABEL[closedStatus(h)]}` : '' }}</small>
+          </span>
+          <span v-if="reopening === h.sessionId" class="spinner" />
+          <small class="faint when">{{ ago(h.updatedAt) }}</small>
+          <button class="ghost icon small pin pinned" title="Soltar a conversa (sai desta lista; continua em Conversas)" @click.stop="unpin(h)"><Icon name="pin" :size="13" /></button>
+          <Icon name="external" :size="13" class="go" />
+        </div>
+      </section>
     </div>
 
     <Modal v-if="planOf" :title="planOf.a.title" :width="760" @close="planUid = null">
@@ -410,6 +468,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 48px 0 0; }
 .empty p { margin: 0; font-size: 13px; }
+.empty.slim { margin: 24px 0 8px; }
+.sec-title { display: inline-flex; align-items: center; gap: 6px; }
 .empty button { gap: 6px; }
 
 .sec { display: flex; align-items: baseline; justify-content: space-between; margin: 18px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
