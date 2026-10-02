@@ -41,6 +41,8 @@ interface AgentWin {
   lastServices?: string
   /** Última nota de espaço de trabalho enviada (Codex e Antigravity só recebem de novo quando muda) */
   lastWorkspace?: string
+  /** Pedido de título em andamento: uma conversa nova (ou outro pedido) invalida o resultado do anterior */
+  titleToken?: symbol
 }
 
 const wins = new Map<string, AgentWin>()
@@ -1196,6 +1198,26 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   let stderr = ''
   let answer = ''
   const firstTurn = !w.info.sessionId
+  // título antecipado: sai do primeiro pedido assim que ele é enviado, sem esperar a resposta terminar.
+  // Na hora vale o pedido resumido; em segundos chega o título da IA (uma chamada separada e barata).
+  const applyTitle = (t: string) => {
+    w.info.title = t
+    if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+    if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t, false)
+    emit(w, { type: 'title', title: t })
+    broadcastWindows()
+  }
+  let earlyTitle: Promise<string | null> | null = null
+  if (firstTurn && !w.info.title && !w.info.renamed && text.trim()) {
+    const token = (w.titleToken = Symbol('title'))
+    const stillMine = () => w.titleToken === token && !w.info.renamed && !w.win.isDestroyed()
+    applyTitle(shortTitle(text))
+    earlyTitle = generateTitle(provider, text, '').then((t) => {
+      if (!t || !stillMine()) return null
+      applyTitle(t)
+      return t
+    })
+  }
   const handle = (line: string) => {
     if (!line.trim()) return
     for (const ev of parse(line)) {
@@ -1212,18 +1234,25 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         if (provider === 'claude') child.stdin.end()
       }
       if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then(({ stats, repos }) => emit(w, { type: 'files', paths: ev.paths, stats, repos }))
-      if (ev.type === 'done' && ev.ok && firstTurn && !w.info.title && !w.info.renamed) {
-        // título dado pela IA depois da primeira resposta; enquanto isso vale o pedido resumido
-        w.info.title = shortTitle(text)
-        if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
-        emit(w, { type: 'title', title: w.info.title })
-        generateTitle(provider, text, answer).then((t) => {
-          if (!t || w.info.renamed || w.win.isDestroyed()) return
-          w.info.title = t
-          w.win.setTitle(title(w.info))
-          if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t, false)
-          emit(w, { type: 'title', title: t })
-        })
+      if (ev.type === 'done' && ev.ok && firstTurn && !w.info.renamed) {
+        const token = w.titleToken
+        const withAnswer = () =>
+          generateTitle(provider, text, answer).then((t) => {
+            if (t && w.titleToken === token && !w.info.renamed && !w.win.isDestroyed()) applyTitle(t)
+          })
+        if (earlyTitle) {
+          // o título antecipado já chegou (ou está chegando): agora que a sessão tem id, grava no histórico;
+          // se a IA não conseguiu titular só pelo pedido (devolveu null), tenta com a resposta
+          earlyTitle.then((t) => {
+            if (w.titleToken !== token || w.info.renamed) return
+            if (!t) withAnswer()
+            else if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t, false)
+          })
+        } else if (!w.info.title) {
+          // pedido sem texto (só anexos): o título sai depois da primeira resposta, como antes
+          applyTitle(shortTitle(text))
+          withAnswer()
+        }
       }
       emit(w, ev)
     }
@@ -1388,7 +1417,10 @@ const shortTitle = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 9
 export async function generateTitle(provider: CliProvider, request: string, answer: string): Promise<string | null> {
   const bin = await findBinary(BIN[provider])
   if (!bin) return null
-  const prompt = `Dê um título curto para a conversa abaixo: até 6 palavras, em português do Brasil, sem aspas, sem ponto final, sem explicação. Responda só o título.\n\nPedido do usuário:\n${request.slice(0, 1500)}\n\nResposta do agente (resumo):\n${answer.slice(0, 1500)}`
+  // sem resposta ainda (título antecipado): titula só pelo pedido, sem tentar atendê-lo
+  const prompt =
+    `Dê um título curto para a conversa abaixo: até 6 palavras, em português do Brasil, sem aspas, sem ponto final, sem explicação. Responda só o título${answer ? '' : '; não execute nem responda o pedido'}.\n\nPedido do usuário:\n${request.slice(0, 1500)}` +
+    (answer ? `\n\nResposta do agente (resumo):\n${answer.slice(0, 1500)}` : '')
   try {
     let text = ''
     if (provider === 'claude') {
@@ -1439,6 +1471,7 @@ export async function newChat(uid: string) {
   w.info.firstMessage = undefined
   w.info.title = ''
   w.info.renamed = false
+  w.titleToken = undefined // um título ainda a caminho era da conversa anterior
   w.info.running = false
   w.info.mode = 'full' // conversa nova sempre começa em Controle Total
   w.turnDone = true
