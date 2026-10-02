@@ -340,6 +340,10 @@ async function startPlan(m: AgentMode) {
 /** Checklist em andamento (ou o último), para o cartão fixo e o gerenciador */
 const checklist = computed(() => [...turns].reverse().find((t) => t.checklist?.length)?.checklist ?? null)
 const checklistDone = computed(() => checklist.value?.filter((i) => i.done).length ?? 0)
+const checklistTurn = computed(() => [...turns].reverse().find((t) => t.checklist?.length) ?? null)
+/** Painel do checklist (parte da janela, entre a conversa e o campo): recolhe para uma linha com o progresso */
+const checklistOpen = ref(true)
+const checklistNext = computed(() => checklist.value?.findIndex((i) => !i.done) ?? -1)
 /** Ajuste ao plano: continua em modo plano com o que o usuário escreveu */
 async function adjustPlan(raw: string) {
   const text = raw.trim()
@@ -1428,22 +1432,6 @@ onUnmounted(() => offs.forEach((f) => f()))
             </button>
           </div>
         </div>
-        <!-- Plano com Checklist: os itens do plano, marcados conforme o agente avisa que concluiu -->
-        <div v-if="t.checklist?.length" class="checklist" :class="{ complete: t.checklist.every((i) => i.done) }">
-          <div class="cl-head">
-            <Icon name="list" :size="13" />
-            <strong>Checklist</strong>
-            <span class="cl-count">{{ t.checklist.filter((i) => i.done).length }} de {{ t.checklist.length }}</span>
-            <span class="cl-bar"><i :style="{ width: `${(t.checklist.filter((i) => i.done).length / t.checklist.length) * 100}%` }" /></span>
-          </div>
-          <ol>
-            <li v-for="(it, n) in t.checklist" :key="n" :class="{ done: it.done, next: !it.done && t.running && t.checklist.slice(0, n).every((x) => x.done) }">
-              <span class="cl-box"><Icon v-if="it.done" name="check" :size="11" /></span>
-              <span class="cl-text">{{ it.text }}</span>
-            </li>
-          </ol>
-          <p v-if="!t.running && !t.checklist.every((i) => i.done)" class="cl-note faint">O agente terminou sem confirmar os itens em aberto.</p>
-        </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
             <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
@@ -1528,6 +1516,24 @@ onUnmounted(() => offs.forEach((f) => f()))
       </article>
     </main>
 
+    <!-- Plano com Checklist: painel fixo da janela, acima do campo; some quando a conversa não tem checklist -->
+    <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen }">
+      <button type="button" class="ghost cl-head" :title="checklistOpen ? 'Recolher o checklist' : 'Mostrar o checklist'" @click="checklistOpen = !checklistOpen">
+        <Icon name="list" :size="13" />
+        <strong>Checklist</strong>
+        <span class="cl-count">{{ checklistDone }} de {{ checklist.length }}</span>
+        <span class="cl-bar"><i :style="{ width: `${(checklistDone / checklist.length) * 100}%` }" /></span>
+        <span v-if="!checklistOpen && checklistNext >= 0" class="cl-now ellipsis">{{ checklist[checklistNext].text }}</span>
+        <Icon name="chevron" :size="12" class="cl-chev" />
+      </button>
+      <ol v-if="checklistOpen">
+        <li v-for="(it, n) in checklist" :key="n" :class="{ done: it.done, next: n === checklistNext && checklistTurn?.running }">
+          <span class="cl-box"><Icon v-if="it.done" name="check" :size="11" /></span>
+          <span class="cl-text">{{ it.text }}</span>
+        </li>
+      </ol>
+      <p v-if="checklistOpen && checklistTurn && !checklistTurn.running && checklistDone < checklist.length" class="cl-note faint">O agente terminou sem confirmar os itens em aberto.</p>
+    </section>
     <footer class="composer" :class="{ drop: dragging }">
       <div v-if="slashItems.length" class="slash">
         <button v-for="(c, i) in slashItems" :key="c.id" type="button" class="ghost slash-opt" :class="{ cur: i === slashIndex }" @mousedown.prevent @mouseenter="slashIndex = i" @click="runSlash(c)">
@@ -1716,22 +1722,26 @@ onUnmounted(() => offs.forEach((f) => f()))
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
-/* checklist da implementação: cartão discreto na cor do plano; o item da vez fica em destaque */
-.checklist { padding: 10px 14px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--hunk) 35%, var(--border)); background: color-mix(in srgb, var(--hunk) 6%, var(--panel)); }
+/* painel do checklist: parte da janela, entre a conversa e o campo; recolhido vira uma linha com o progresso */
+.checklist { flex: none; margin: 0 16px 8px; padding: 0 0 10px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--hunk) 35%, var(--border)); background: color-mix(in srgb, var(--hunk) 6%, var(--panel)); max-height: 40vh; overflow: auto; }
+.checklist.collapsed { padding-bottom: 0; }
 .checklist.complete { border-color: color-mix(in srgb, var(--add) 40%, var(--border)); background: color-mix(in srgb, var(--add) 6%, var(--panel)); }
-.cl-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--hunk); }
+.cl-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 14px; border-radius: 14px; justify-content: flex-start; font-size: 12.5px; color: var(--hunk); background: inherit; }
 .checklist.complete .cl-head { color: var(--add); }
-.cl-count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-.cl-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.cl-count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); flex: none; }
+.cl-bar { flex: 0 0 120px; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
 .cl-bar i { display: block; height: 100%; background: currentColor; transition: width 0.3s; }
-.checklist ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cl-now { flex: 1; min-width: 0; font-size: 12px; color: var(--text); font-weight: 500; text-align: left; }
+.cl-chev { margin-left: auto; color: var(--faint); transform: rotate(90deg); transition: transform 0.15s; flex: none; }
+.checklist.collapsed .cl-chev { transform: rotate(-90deg); }
+.checklist ol { list-style: none; margin: 0; padding: 2px 14px 0; display: flex; flex-direction: column; gap: 4px; }
 .checklist li { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.4; color: var(--text); }
 .checklist li.done .cl-text { color: var(--muted); text-decoration: line-through; }
 .checklist li.next .cl-text { font-weight: 600; }
 .cl-box { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-top: 2px; border-radius: 5px; border: 1.5px solid var(--faint); flex: none; color: var(--bg); }
 .checklist li.done .cl-box { background: var(--add); border-color: var(--add); }
 .checklist li.next .cl-box { border-color: var(--hunk); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hunk) 25%, transparent); }
-.cl-note { margin: 8px 0 0; font-size: 12px; }
+.cl-note { margin: 8px 14px 0; font-size: 12px; }
 .user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 /* hora e copiar: aparecem ao passar o mouse na mensagem */
 .user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }
