@@ -30,6 +30,8 @@ const running = new Map<string, Running>()
 /** Última execução de cada serviço (para "saiu com código X" na lista) */
 const exits = new Map<string, number | null>()
 const lastLines = new Map<string, string>()
+/** Saída da última execução, para a janela do terminal aberta depois de o processo sair */
+const lastBuffers = new Map<string, string>()
 let setup: { icon: string; background: () => string } | null = null
 const windows = new Map<string, BrowserWindow>()
 
@@ -53,14 +55,17 @@ function broadcast() {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('services:changed', states)
 }
 
-/** Shell de login (carrega o PATH do usuário: nvm, brew…) rodando o comando do serviço */
+/**
+ * Shell de login e interativo rodando o comando do serviço. O `-i` importa: o nvm (e muita coisa) só entra no
+ * PATH pelo ~/.zshrc, que o zsh lê apenas em shells interativos; só com `-l` o `npm` não era encontrado.
+ */
 function shellFor(command: string): { file: string; args: string[] } {
   if (process.platform === 'win32') {
     const pwsh = path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe')
     return { file: existsSync(pwsh) ? pwsh : 'powershell.exe', args: ['-NoLogo', '-Command', command] }
   }
   const shell = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : '/bin/zsh'
-  return { file: shell, args: ['-l', '-c', command] }
+  return { file: shell, args: ['-l', '-i', '-c', command] }
 }
 
 /** Última linha não vazia da saída, sem códigos de cor */
@@ -89,6 +94,7 @@ export async function startService(id: string): Promise<void> {
   pollPorts(id, r)
   exits.delete(id)
   lastLines.delete(id)
+  lastBuffers.delete(id)
   pty.onData((data) => {
     r.buffer = (r.buffer + data).slice(-BUFFER_MAX)
     const line = tail(data)
@@ -104,6 +110,7 @@ export async function startService(id: string): Promise<void> {
     running.delete(id)
     exits.set(id, exitCode)
     const bye = `\r\n\x1b[2m[processo encerrado${exitCode === null ? '' : ` com código ${exitCode}`}]\x1b[0m\r\n`
+    lastBuffers.set(id, (r.buffer + bye).slice(-BUFFER_MAX))
     for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, bye)
     broadcast()
   })
@@ -228,7 +235,7 @@ export function attachService(viewer: WebContents, id: string, cols: number, row
     if (cols > 0 && rows > 0) r.pty.resize(cols, rows)
   }
   const st = serviceStates().find((s) => s.id === id) ?? null
-  return { service: find(id) ?? null, state: st, buffer: r?.buffer ?? '' }
+  return { service: find(id) ?? null, state: st, buffer: r?.buffer ?? lastBuffers.get(id) ?? '' }
 }
 
 export function writeService(id: string, data: string) {
