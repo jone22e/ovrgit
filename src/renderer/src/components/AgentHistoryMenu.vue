@@ -134,9 +134,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 
 <template>
   <div ref="root" class="hist-menu">
-    <button class="ghost trigger" :class="{ on: open }" :disabled="!state.repo" title="Conversas anteriores com agentes neste projeto" @click="open = !open">
-      <Icon name="history" :size="15" />
-      <span class="trigger-label">Conversas</span>
+    <button class="ghost icon trigger" :class="{ on: open }" :disabled="!state.repo" title="Conversas anteriores com agentes neste projeto" @click="open = !open">
+      <Icon name="history" />
     </button>
     <div v-if="open" class="pop">
       <header>
@@ -186,9 +185,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 
 <style scoped>
 .hist-menu { position: relative; -webkit-app-region: no-drag; }
-.trigger { height: 32px; padding: 0 10px 0 8px; gap: 6px; border-radius: var(--radius); font-size: 12.5px; color: var(--text); }
 .trigger.on { color: var(--accent); background: var(--accent-soft); }
-@media (max-width: 760px) { .trigger-label { display: none; } .trigger { width: 32px; padding: 0; } }
 .pop {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(420px, calc(100vw - 24px));
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
