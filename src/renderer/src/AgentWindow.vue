@@ -12,7 +12,7 @@ import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
 import { summaryOf } from '@shared/summary'
-import { applyMarkers, CHECKLIST_PROGRESS, isPlanMode, parseChecklist } from '@shared/checklist'
+import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
 import { findArtifacts } from '@shared/artifacts'
 import AgentLogo from './components/AgentLogo.vue'
@@ -224,7 +224,7 @@ const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error
 /** Markdown da resposta. Os blocos ```question saem do texto: viram o cartão de perguntas enquanto ele está
  * ativo; em vezes já respondidas, ficam como texto comum (pergunta em negrito e opções em lista). */
 /** Marcadores do checklist ("[ok] 3"): o cartão já mostra; na conversa só poluem */
-const MARKERS = /^[ \t]*(?:\[(?:ok|x|concluído|concluido|done|falhou|erro|failed)\]|✅|❌)[ \t]*(?:item\s*|etapa\s*|passo\s*)?#?\d{1,2}[ \t]*$\n?/gim
+const MARKERS = /^[ \t]*(?:\[(?:ok|x|concluído|concluido|done|falhou|erro|failed|pulado|pulada|dispensado|dispensada|skipped|n\/a)\]|✅|❌)[ \t]*(?:item\s*|etapa\s*|passo\s*)?#?\d{1,2}[ \t]*$\n?/gim
 function md(text: string, card: boolean) {
   const { text: rest, questions: qs } = splitQuestions(text.replace(MARKERS, ''))
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
@@ -346,6 +346,33 @@ const checklistTurn = computed(() => [...turns].reverse().find((t) => t.checklis
 /** Painel do checklist (parte da janela, entre a conversa e o campo): recolhe para uma linha com o progresso */
 const checklistOpen = ref(true)
 const checklistNext = computed(() => checklist.value?.findIndex((i) => !i.done) ?? -1)
+/** Etapas ainda em aberto (nem concluídas nem dispensadas) */
+const checklistPending = computed(() => checklist.value?.filter((i) => !i.done).length ?? 0)
+/** O agente parou e ficaram etapas em aberto: o painel explica e oferece continuar, marcar ou dispensar */
+const checklistStopped = computed(() => !!checklist.value && checklistPending.value > 0 && !running.value)
+/** Continua de onde parou: a mensagem aparece na conversa; a lista do que falta vai junto (ver dispatch) */
+function continueChecklist() {
+  if (!checklistStopped.value) return
+  // direto ao agente, sem passar pelo campo: o que estiver digitado ou anexado ali fica como está
+  dispatch({ id: crypto.randomUUID(), body: 'Continue o checklist: resolva as etapas em aberto, uma a uma.', attachments: [] })
+}
+/** O usuário encerra uma etapa por conta própria: feita por fora, ou dispensada */
+function resolveItem(it: ChecklistItem, how: 'done' | 'skipped') {
+  it.done = true
+  if (how === 'skipped') {
+    it.state = 'skipped'
+    it.note = 'dispensada por você'
+  } else {
+    delete it.state
+    delete it.note
+  }
+}
+/** Reabre uma etapa encerrada (por engano, ou para o agente refazer) */
+function reopenItem(it: ChecklistItem) {
+  it.done = false
+  delete it.state
+  delete it.note
+}
 /** Ajuste ao plano: continua em modo plano com o que o usuário escreveu */
 async function adjustPlan(raw: string) {
   const text = raw.trim()
@@ -426,8 +453,10 @@ function apply(ev: AgentChatEvent) {
     const last = t.blocks[t.blocks.length - 1]
     if (last?.kind === 'text') last.text += ev.delta
     else if (ev.delta.trim()) t.blocks.push({ kind: 'text', text: ev.delta.replace(/^\n+/, '') })
-    // implementação de um checklist: "[ok] N" no texto marca o item
-    if (t.checklist?.length) applyMarkers(t.checklist, t.blocks.flatMap((b) => (b.kind === 'text' ? [b.text] : [])).join('\n'))
+    // "[ok] N", "[pulado] N", "[falhou] N" no texto marcam o item: na resposta que implementa o plano e também nas
+    // seguintes, enquanto o checklist da conversa tiver etapas em aberto
+    const list = t.checklist?.length ? t.checklist : checklist.value
+    if (list?.length) applyMarkers(list, t.blocks.flatMap((b) => (b.kind === 'text' ? [b.text] : [])).join('\n'))
   } else if (ev.type === 'thinking') {
     t.thinking = true
     t.activity = 'thinking'
@@ -698,16 +727,18 @@ function takePayload(text = draft.value): Payload | null {
 }
 
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
-async function dispatch(p: Payload, since?: number, checklistItems?: { text: string; done: boolean }[]) {
+async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistItem[]) {
   if (!info.value) return
   const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
+  // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
+  const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
   try {
     await api.agentSend(
       uid,
-      p.body,
+      reminder ? `${p.body}\n\n${reminder}` : p.body,
       { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
@@ -1585,26 +1616,52 @@ onUnmounted(() => offs.forEach((f) => f()))
     </main>
 
     <!-- Plano com Checklist: faixa fixa da janela, encostada no campo; some quando a conversa não tem checklist -->
-    <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen, live: checklistTurn?.running }">
+    <section v-if="checklist" class="checklist" :class="{ complete: checklistDone === checklist.length, collapsed: !checklistOpen, live: checklistTurn?.running, halted: checklistStopped }">
       <span class="cl-progress"><i :style="{ width: `${(checklistDone / checklist.length) * 100}%` }" /></span>
       <button type="button" class="ghost cl-head" :title="checklistOpen ? 'Recolher o checklist' : 'Mostrar o checklist'" @click="checklistOpen = !checklistOpen">
-        <span class="cl-icon"><Icon :name="checklistDone === checklist.length ? 'check' : 'listChecks'" :size="14" /></span>
+        <span class="cl-icon"><Icon :name="checklistDone === checklist.length ? 'check' : checklistStopped ? 'alert' : 'listChecks'" :size="14" /></span>
         <span class="cl-title">
           <strong>Checklist do plano</strong>
-          <small>{{ checklistDone === checklist.length ? 'Todas as etapas concluídas' : checklistNext >= 0 && !checklistOpen ? checklist[checklistNext].text : `${checklistDone} de ${checklist.length} etapas` }}</small>
+          <small>{{
+            checklistDone === checklist.length
+              ? 'Todas as etapas encerradas'
+              : checklistStopped
+                ? `O agente parou com ${checklistPending} ${checklistPending === 1 ? 'etapa em aberto' : 'etapas em aberto'}`
+                : checklistNext >= 0 && !checklistOpen
+                  ? checklist[checklistNext].text
+                  : `${checklistDone} de ${checklist.length} etapas`
+          }}</small>
         </span>
-        <span class="cl-segs" aria-hidden="true"><i v-for="(it, n) in checklist" :key="n" :class="{ done: it.done, next: n === checklistNext && checklistTurn?.running }" /></span>
+        <span class="cl-segs" aria-hidden="true"><i v-for="(it, n) in checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', next: n === checklistNext && running }" /></span>
         <span class="cl-pct">{{ Math.round((checklistDone / checklist.length) * 100) }}%</span>
         <Icon name="chevron" :size="12" class="cl-chev" />
       </button>
       <ol v-if="checklistOpen">
-        <li v-for="(it, n) in checklist" :key="n" :class="{ done: it.done, next: n === checklistNext && checklistTurn?.running }">
-          <span class="cl-num"><Icon v-if="it.done" name="check" :size="11" /><template v-else>{{ n + 1 }}</template></span>
-          <span class="cl-text">{{ it.text }}</span>
-          <small v-if="n === checklistNext && checklistTurn?.running" class="cl-state">em andamento</small>
-          <small v-else-if="!it.done && checklistTurn && !checklistTurn.running" class="cl-state open">não confirmada</small>
+        <li v-for="(it, n) in checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', next: n === checklistNext && running }">
+          <span class="cl-num"><Icon v-if="it.done && !it.state" name="check" :size="11" /><Icon v-else-if="it.state === 'skipped'" name="forward" :size="10" /><Icon v-else-if="it.state === 'failed'" name="x" :size="11" /><template v-else>{{ n + 1 }}</template></span>
+          <span class="cl-text">
+            {{ it.text }}
+            <small v-if="it.note" class="cl-note">{{ it.note }}</small>
+          </span>
+          <small v-if="n === checklistNext && running" class="cl-state">em andamento</small>
+          <small v-else-if="it.state === 'skipped'" class="cl-state muted">dispensada</small>
+          <small v-else-if="it.state === 'failed'" class="cl-state bad">falhou</small>
+          <small v-else-if="!it.done && !running" class="cl-state open">em aberto</small>
+          <!-- com o agente parado, você encerra a etapa por conta própria, ou reabre uma já encerrada -->
+          <span v-if="!running" class="cl-acts">
+            <template v-if="!it.done">
+              <button type="button" class="ghost icon" title="Marcar como feita (você fez por fora, ou já estava pronta)" @click="resolveItem(it, 'done')"><Icon name="check" :size="12" /></button>
+              <button type="button" class="ghost icon" title="Dispensar: esta etapa não é mais necessária" @click="resolveItem(it, 'skipped')"><Icon name="forward" :size="12" /></button>
+            </template>
+            <button v-else type="button" class="ghost icon" title="Reabrir esta etapa" @click="reopenItem(it)"><Icon name="undo" :size="12" /></button>
+          </span>
         </li>
       </ol>
+      <!-- o agente parou com etapas em aberto: o que aconteceu e o que dá para fazer -->
+      <div v-if="checklistOpen && checklistStopped" class="cl-foot">
+        <span>O agente encerrou a resposta sem concluir {{ checklistPending === 1 ? 'esta etapa' : 'estas etapas' }}. Peça para continuar, ou encerre você mesmo cada uma (feita ou dispensada).</span>
+        <button type="button" class="small primary" @click="continueChecklist"><Icon name="play" :size="11" /> Continuar o checklist</button>
+      </div>
     </section>
     <footer class="composer" :class="{ drop: dragging }">
       <div v-if="slashItems.length" class="slash">
@@ -1829,6 +1886,24 @@ onUnmounted(() => offs.forEach((f) => f()))
 .checklist li.next .cl-num { border-color: var(--cl); color: var(--cl); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cl) 22%, transparent); }
 .cl-state { flex: none; font-size: 11px; color: var(--cl); font-weight: 500; }
 .cl-state.open { color: var(--mod); }
+.cl-state.muted { color: var(--faint); }
+.cl-state.bad { color: var(--del); }
+/* parou com etapas em aberto: o painel fica âmbar e ganha o rodapé com a ação */
+.checklist.halted { --cl: var(--mod); border-color: color-mix(in srgb, var(--mod) 40%, var(--border)); max-height: 58vh; }
+.cl-note { display: block; margin-top: 1px; font-size: 11.5px; color: var(--faint); font-weight: 400; }
+.checklist li.skipped .cl-text { color: var(--faint); }
+.checklist li.skipped .cl-num { color: var(--faint); border-style: dashed; }
+.checklist li.failed .cl-num { color: var(--del); border-color: color-mix(in srgb, var(--del) 60%, var(--border)); }
+.cl-segs i.skipped { background: color-mix(in srgb, var(--faint) 55%, var(--panel-2)); }
+.cl-segs i.failed { background: var(--del); }
+/* ações por etapa: discretas, aparecem ao passar o mouse na linha */
+.cl-acts { display: inline-flex; gap: 2px; flex: none; opacity: 0; transition: opacity 0.1s; }
+.checklist li:hover .cl-acts, .cl-acts:focus-within { opacity: 1; }
+.cl-acts .icon { width: 24px; height: 24px; border-radius: 6px; color: var(--muted); }
+.cl-acts .icon:hover { color: var(--text); background: var(--hover); }
+.cl-foot { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--mod) 6%, transparent); font-size: 12px; line-height: 1.4; color: var(--muted); }
+.cl-foot span { flex: 1; min-width: 0; }
+.cl-foot .small { height: 28px; gap: 6px; flex: none; }
 .user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 /* hora e copiar: aparecem ao passar o mouse na mensagem */
 .user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }

@@ -1,3 +1,4 @@
+import type { ChecklistItem } from './checklist'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
 
 export interface FileChange {
@@ -480,7 +481,7 @@ export interface AgentTurn {
   /** Modo em que o pedido foi enviado (em `plan`, ao terminar o app pergunta se deseja implementar) */
   mode?: AgentMode
   /** Implementação de um plano com checklist: os itens, marcados conforme o agente avisa que concluiu */
-  checklist?: { text: string; done: boolean }[]
+  checklist?: ChecklistItem[]
 }
 
 export interface GridSize {
@@ -583,7 +584,7 @@ export interface AgentSnapshot {
   checks?: AgentChecks
   ask?: AgentAsk
   /** Checklist da implementação em andamento (ou da última), para o gerenciador */
-  checklist?: { text: string; done: boolean }[]
+  checklist?: ChecklistItem[]
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean

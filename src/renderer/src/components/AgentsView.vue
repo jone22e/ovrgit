@@ -332,9 +332,9 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </span>
             <!-- checklist do plano: feito (verde), em andamento (girando) e a fazer -->
             <ol v-if="a.checklist?.length" class="cl" @click.stop>
-              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, now: !it.done && a.checklist.slice(0, n).every((x) => x.done) }" :title="it.text">
+              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', now: !it.done && a.checklist.slice(0, n).every((x) => x.done) }" :title="it.note ? `${it.text} — ${it.note}` : it.text">
                 <span v-if="!it.done && a.checklist.slice(0, n).every((x) => x.done) && !stalled(a)" class="cl-spin" />
-                <span v-else class="cl-box"><Icon v-if="it.done" name="check" :size="9" /></span>
+                <span v-else class="cl-box"><Icon v-if="it.done && !it.state" name="check" :size="9" /></span>
                 <span class="ellipsis">{{ it.text }}</span>
               </li>
             </ol>
@@ -375,8 +375,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </div>
             <p v-if="a.summary" class="result">{{ a.summary }}</p>
             <ol v-if="a.checklist?.length" class="cl card-cl">
-              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, open: !it.done }">
-                <span class="cl-box"><Icon v-if="it.done" name="check" :size="10" /></span><span>{{ it.text }}</span>
+              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', open: !it.done }" :title="it.note">
+                <span class="cl-box"><Icon v-if="it.done && !it.state" name="check" :size="10" /></span><span>{{ it.text }}{{ it.state === 'skipped' ? ' · dispensada' : it.state === 'failed' ? ' · falhou' : '' }}</span>
               </li>
             </ol>
             <div v-if="chips(a).length" class="chips">
@@ -527,6 +527,9 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .cl li.done .cl-box { background: var(--add); border-color: var(--add); }
 .cl li.now .cl-box { border-color: var(--hunk); }
 .cl li.open .cl-box { border-color: var(--mod); }
+/* dispensada: encerrada sem ter sido feita */
+.cl li.skipped { color: var(--faint); }
+.cl li.skipped .cl-box { border-style: dashed; }
 /* item em andamento: o mesmo arco girando do indicador da linha, em tamanho de marcador */
 .cl-spin { width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; flex: none; border: 2px solid color-mix(in srgb, var(--hunk) 25%, transparent); border-top-color: var(--hunk); border-right-color: var(--hunk); animation: turn 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .cl-spin { animation: none; } }
