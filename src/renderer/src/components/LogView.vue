@@ -109,9 +109,10 @@ onMounted(() => nextTick(scrollLog))
       </div>
       <div ref="logEl" class="log-list" @scroll="onLogScroll">
         <p v-if="!shown.length" class="faint none">{{ entries.length ? 'Nenhuma linha com esse filtro.' : 'Sem saída ainda.' }}</p>
-        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json }]" @click="e.json && toggle(e.n)">
-          <span class="time mono">{{ e.time ?? '' }}</span>
-          <span class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] }}</span>
+        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json, plain: e.level === 'none' && !e.time }]" @click="e.json && toggle(e.n)">
+          <!-- sem hora nem nível: a mensagem ocupa a linha inteira, como saída comum -->
+          <span v-if="!(e.level === 'none' && !e.time)" class="time mono">{{ e.time ?? '' }}</span>
+          <span v-if="!(e.level === 'none' && !e.time)" class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] || '·' }}</span>
           <span class="msg">
             <span class="text">{{ e.message }}</span>
             <span v-if="e.fields && !expanded.has(e.n)" class="chips">
@@ -148,6 +149,8 @@ onMounted(() => nextTick(scrollLog))
 .log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
 .none { margin: 20px 0; text-align: center; }
 .row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
+.row.plain .msg { grid-column: 1 / 4; }
+.row.plain .text { color: var(--muted); }
 .row-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
 /* copiar: discreto, só ao passar o mouse na linha */
 .copy { width: 22px; height: 22px; border-radius: 6px; color: var(--faint); opacity: 0; transition: opacity 0.1s; }
