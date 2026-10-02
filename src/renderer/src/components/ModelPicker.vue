@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, effortsFor, modelLabel } from '@shared/models'
 import type { AgentEffort, CliProvider, KnownModels, ModelInfo } from '@shared/types'
 import AgentLogo from './AgentLogo.vue'
@@ -135,8 +135,80 @@ watch(
 
 const label = computed(() => modelLabel(provider.value, model.value, catalog.value))
 
+// ---------- lista de modelos com busca ----------
+const listOpen = ref(false)
+const selRoot = ref<HTMLElement>()
+const listEl = ref<HTMLElement>()
+const searchEl = ref<HTMLInputElement>()
+const query = ref('')
+const listIndex = ref(0)
+const listStyle = ref<Record<string, string>>({})
+const plainText = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const descOf = (id: string) => catalog.value.find((m) => m.id === id)?.description ?? CLAUDE_ALIASES.find((m) => m.id === id)?.label.split(': ')[1]
+/** Grupos filtrados pela busca (nome, id ou descrição; palavras em qualquer ordem) */
+const filteredGroups = computed(() => {
+  const words = plainText(query.value).split(/\s+/).filter(Boolean)
+  if (!words.length) return groups.value
+  return groups.value
+    .map((g) => ({ label: g.label, items: g.items.filter((m) => words.every((w) => plainText(`${m.label} ${m.id} ${descOf(m.id) ?? ''}`).includes(w))) }))
+    .filter((g) => g.items.length)
+})
+const flatIds = computed(() => filteredGroups.value.flatMap((g) => g.items.map((m) => m.id)))
+const flatIndex = (id: string) => flatIds.value.indexOf(id)
+/** Índices das duas opções fixas do fim ("Padrão da conta", "Outro") */
+const extraIndex = (n: number) => flatIds.value.length + n
+function placeList() {
+  const r = selRoot.value?.getBoundingClientRect()
+  if (!r) return
+  const below = window.innerHeight - r.bottom - 12
+  const up = below < 260 && r.top > below
+  listStyle.value = {
+    left: `${r.left}px`,
+    width: `${r.width}px`,
+    ...(up ? { bottom: `${window.innerHeight - r.top + 6}px`, maxHeight: `${Math.min(420, r.top - 12)}px` } : { top: `${r.bottom + 6}px`, maxHeight: `${Math.min(420, below)}px` })
+  }
+}
+function toggleList() {
+  listOpen.value = !listOpen.value
+  if (!listOpen.value) return
+  query.value = ''
+  listIndex.value = customMode.value ? extraIndex(1) : model.value ? Math.max(0, flatIndex(model.value)) : extraIndex(0)
+  placeList()
+  nextTick(() => {
+    searchEl.value?.focus()
+    listEl.value?.querySelector('.cur')?.scrollIntoView({ block: 'nearest' })
+  })
+}
+function pick(id: string) {
+  choice.value = id
+  listOpen.value = false
+}
+function onListKey(e: KeyboardEvent) {
+  const n = flatIds.value.length + 2
+  if (e.key === 'Escape') return (listOpen.value = false)
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    listIndex.value = (listIndex.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n
+    nextTick(() => listEl.value?.querySelector('.cur')?.scrollIntoView({ block: 'nearest' }))
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    const i = listIndex.value
+    pick(i < flatIds.value.length ? flatIds.value[i] : i === extraIndex(0) ? '' : CUSTOM)
+  }
+}
+watch(query, () => (listIndex.value = 0))
+watch(listOpen, (o) => {
+  if (o) window.addEventListener('resize', placeList)
+  else window.removeEventListener('resize', placeList)
+})
+
 const onDoc = (e: MouseEvent) => {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) open.value = false
+  const t = e.target as Node
+  if (listOpen.value && !selRoot.value?.contains(t) && !listEl.value?.contains(t)) {
+    listOpen.value = false
+    return
+  }
+  if (open.value && root.value && !root.value.contains(t) && !listEl.value?.contains(t)) open.value = false
 }
 onMounted(() => document.addEventListener('mousedown', onDoc))
 onUnmounted(() => document.removeEventListener('mousedown', onDoc))
@@ -170,14 +242,48 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       <p v-if="providers && lockProvider" class="faint hint lock">Conversa já iniciada: para usar o outro provedor, abra um agente novo.</p>
 
       <label class="lbl">Modelo</label>
-      <select v-model="choice" class="sel">
-        <optgroup v-for="g in groups" :key="g.label" :label="g.label">
-          <option v-for="m in g.items" :key="m.id" :value="m.id">{{ m.label }}</option>
-        </optgroup>
-        <option value="">Padrão da conta</option>
-        <option :value="CUSTOM">Outro (digitar o ID)…</option>
-      </select>
-      <p v-if="selected?.description" class="faint hint desc">{{ selected.description }}</p>
+      <!-- seletor de modelo: botão com o atual; a lista (com busca) vai para o body para não ser cortada -->
+      <div ref="selRoot" class="sel-wrap">
+        <button type="button" class="sel" :class="{ on: listOpen }" @click="toggleList">
+          <span class="sel-name ellipsis">{{ customMode ? 'Outro (digitar o ID)' : model ? label : 'Padrão da conta' }}</span>
+          <Icon name="chevron" :size="12" class="sel-chev" />
+        </button>
+        <Teleport to="body">
+          <div v-if="listOpen" ref="listEl" class="mlist" :style="listStyle" role="listbox">
+            <label class="mlist-search">
+              <Icon name="search" :size="13" class="faint" />
+              <input ref="searchEl" v-model="query" type="text" placeholder="Buscar modelo" spellcheck="false" autocomplete="off" @keydown="onListKey" />
+            </label>
+            <div class="mlist-items">
+              <template v-for="g in filteredGroups" :key="g.label">
+                <h6>{{ g.label }}</h6>
+                <button
+                  v-for="m in g.items"
+                  :key="m.id"
+                  type="button"
+                  class="ghost mrow"
+                  :class="{ cur: flatIndex(m.id) === listIndex, sel: !customMode && model === m.id }"
+                  @mouseenter="listIndex = flatIndex(m.id)"
+                  @click="pick(m.id)"
+                >
+                  <span class="mrow-name ellipsis">{{ m.label }}</span>
+                  <Icon v-if="!customMode && model === m.id" name="check" :size="13" class="ok" />
+                </button>
+              </template>
+              <p v-if="!filteredGroups.length" class="faint none">Nenhum modelo com esse nome.</p>
+              <hr class="sep" />
+              <button type="button" class="ghost mrow" :class="{ cur: listIndex === extraIndex(0), sel: !customMode && !model }" @mouseenter="listIndex = extraIndex(0)" @click="pick('')">
+                <span class="mrow-name ellipsis">Padrão da conta</span>
+                <Icon v-if="!customMode && !model" name="check" :size="13" class="ok" />
+              </button>
+              <button type="button" class="ghost mrow" :class="{ cur: listIndex === extraIndex(1), sel: customMode }" @mouseenter="listIndex = extraIndex(1)" @click="pick(CUSTOM)">
+                <span class="mrow-name ellipsis">Outro (digitar o ID)…</span>
+                <Icon v-if="customMode" name="check" :size="13" class="ok" />
+              </button>
+            </div>
+          </div>
+        </Teleport>
+      </div>
       <input
         v-if="customMode"
         :value="custom"
@@ -237,7 +343,28 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 .prov span, .prov { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prov.active { border-color: var(--accent); background: var(--accent-soft); }
 .lbl { font-size: 11.5px; color: var(--muted); }
-.sel { height: 34px; padding: 0 10px; }
+.sel-wrap { position: relative; }
+.sel { width: 100%; height: 36px; padding: 0 10px 0 12px; justify-content: space-between; gap: 8px; text-align: left; }
+.sel.on { border-color: var(--accent); }
+.sel-name { font-size: 13px; font-weight: 600; }
+.sel-chev { transform: rotate(90deg); color: var(--faint); flex: none; }
+/* a lista vive no body (Teleport): posição fixa a partir do botão */
+.mlist {
+  position: fixed; z-index: 80; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4); animation: rise 0.1s ease-out;
+}
+.mlist-search { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
+.mlist-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 13px; color: var(--text); }
+.mlist-search input:focus { box-shadow: none; }
+.mlist-items { overflow: auto; padding: 6px; min-height: 0; }
+.mlist h6 { margin: 8px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.mrow { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; justify-content: flex-start; color: var(--text); text-align: left; }
+.mrow.cur { background: var(--hover); }
+.mrow.sel .mrow-name { color: var(--accent); }
+.mrow-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; }
+.mrow .ok { color: var(--accent); flex: none; }
+.mlist .sep { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+.mlist .none { margin: 10px 10px 8px; font-size: 12.5px; }
 .custom { height: 32px; font-size: 12.5px; }
 .eff-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 4px; }
 .eff-name { font-size: 13px; color: var(--accent); }
