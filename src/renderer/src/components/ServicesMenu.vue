@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Service, ServiceState } from '@shared/types'
-import { api, state, toast } from '../store'
+import { api, openTerminalTab, state, toast } from '../store'
 import Icon from './Icon.vue'
 
 /** Ícone dos serviços na barra do topo: contador dos ativos e um menu com play/stop, portas e terminal. */
@@ -99,7 +99,7 @@ onUnmounted(() => {
         </span>
         <button v-if="stateOf(s.id)?.status === 'running'" type="button" class="ghost icon small" title="Parar" :disabled="busy === s.id" @click="stop(s)"><Icon name="stop" :size="13" /></button>
         <button v-else type="button" class="ghost icon small play" title="Iniciar" :disabled="busy === s.id" @click="start(s)"><Icon name="play" :size="13" /></button>
-        <button type="button" class="ghost icon small" title="Ver o terminal" @click="api.serviceOpenWindow(s.id)"><Icon name="terminal" :size="13" /></button>
+        <button type="button" class="ghost icon small" title="Ver o terminal (aba no painel)" @click="(open = false), openTerminalTab({ kind: 'service', serviceId: s.id })"><Icon name="terminal" :size="13" /></button>
       </div>
       </div>
       <button type="button" class="ghost item" @click="manage"><Icon name="settings" :size="13" /> Gerenciar serviços…</button>

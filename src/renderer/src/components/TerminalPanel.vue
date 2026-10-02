@@ -7,9 +7,10 @@ import '@xterm/xterm/css/xterm.css'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { alpha } from '@shared/themes'
 import type { Snippet, SshConnection, TerminalSpec } from '@shared/types'
-import { api, saveSettings, setShowTerminal, setTerminalMax, state } from '../store'
+import { api, openTerminalTab, saveSettings, setShowTerminal, setTerminalMax, state } from '../store'
 import { currentTheme } from '../theme'
 import Icon from './Icon.vue'
+import LogView from './LogView.vue'
 
 /**
  * Terminal com abas. Cada aba é uma sessão: local (shell do sistema na pasta do projeto) ou SSH (conexão salva).
@@ -25,6 +26,8 @@ interface Tab {
   cwd?: string
   /** Fixada: volta com o mesmo nome e na mesma pasta ao reabrir o painel ou o app */
   pinned?: boolean
+  /** Modo interativo: a saída lida linha a linha (nível, hora, campos) em vez do terminal */
+  log?: boolean
 }
 /** Aba como fica guardada entre uma abertura e outra */
 interface SavedTab {
@@ -100,10 +103,22 @@ async function loadFont() {
 // ---------- abas ----------
 function titleFor(spec: TerminalSpec) {
   if (spec.kind === 'ssh') return connections.value.find((c) => c.id === spec.connectionId)?.name ?? 'SSH'
+  if (spec.kind === 'service') return state.settings?.services.find((x) => x.id === spec.serviceId)?.name ?? 'Serviço'
   return state.repo?.name ?? 'Terminal'
 }
+const isService = (t: Tab | null | undefined) => t?.spec.kind === 'service'
+const serviceIdOf = (t: Tab) => (t.spec.kind === 'service' ? t.spec.serviceId : null)
 
 async function openTab(spec: TerminalSpec, opts: { connect?: boolean; pinned?: boolean; title?: string } = {}) {
+  // serviço: uma aba só por serviço
+  if (spec.kind === 'service') {
+    const dup = tabs.find((t) => serviceIdOf(t) === spec.serviceId)
+    if (dup) {
+      active.value = dup.uid
+      focusActive()
+      return
+    }
+  }
   const cwd = spec.kind === 'local' ? (spec.cwd ?? state.repo?.root) : undefined
   const tab: Tab = { uid: crypto.randomUUID(), title: opts.title || titleFor(spec), spec, termId: null, exited: false, cwd, pinned: opts.pinned }
   tabs.push(tab)
@@ -147,13 +162,22 @@ async function openTab(spec: TerminalSpec, opts: { connect?: boolean; pinned?: b
   term.onData((data) => {
     const t = tabs.find((x) => x.uid === tab.uid)
     if (!t) return
+    const sid = serviceIdOf(t)
+    if (sid) {
+      if (t.exited) {
+        if (data === '\r') api.serviceStart(sid).catch(() => undefined)
+        return
+      }
+      return api.serviceWrite(sid, data)
+    }
     if (t.exited) {
       if (data === '\r') restart(t)
       return
     }
     if (t.termId !== null) api.termWrite(t.termId, data)
   })
-  if (opts.connect === false) {
+  if (spec.kind === 'service') await attachServiceTab(tab)
+  else if (opts.connect === false) {
     // aba restaurada: não conecta sozinha (evita pedir senha ao abrir o app)
     tab.exited = true
     term.write(`\x1b[2m[${tab.spec.kind === 'ssh' ? 'desconectado' : 'terminal fechado'} — pressione Enter para ${tab.spec.kind === 'ssh' ? 'conectar' : 'abrir'}]\x1b[0m\r\n`)
@@ -223,6 +247,20 @@ async function removeSnippet(id: string) {
   await saveSettings({ snippets: (state.settings?.snippets ?? []).filter((x) => x.id !== id).map((x) => ({ ...x })) })
 }
 
+/** Aba de serviço: mostra o que já passou e passa a receber a saída ao vivo; parado, deixa o aviso para iniciar */
+async function attachServiceTab(tab: Tab) {
+  const sid = serviceIdOf(tab)
+  const s = sessions.get(tab.uid)
+  if (!sid || !s) return
+  s.fit.fit()
+  const r = await api.serviceAttach(sid, s.term.cols, s.term.rows)
+  if (r.service) tab.title = r.service.name
+  s.term.reset()
+  if (r.buffer) s.term.write(r.buffer)
+  tab.exited = r.state?.status !== 'running'
+  if (tab.exited) s.term.write(`\x1b[2m[serviço ${r.state?.status === 'exited' ? 'encerrado' : 'parado'} — pressione Enter para iniciar]\x1b[0m\r\n`)
+}
+
 async function start(tab: Tab) {
   const s = sessions.get(tab.uid)
   if (!s) return
@@ -260,7 +298,7 @@ async function closeTab(uid: string) {
   const tab = tabs[i]
   // fixada: fechar encerra o terminal, mas a aba volta quando o painel ou o app reabrir
   if (tab.pinned) closedPinned.push(toSaved(tab))
-  if (tab.termId !== null) api.termKill(tab.termId)
+  if (tab.termId !== null && !isService(tab)) api.termKill(tab.termId)
   sessions.get(uid)?.term.dispose()
   sessions.delete(uid)
   hosts.delete(uid)
@@ -268,6 +306,82 @@ async function closeTab(uid: string) {
   if (active.value === uid) active.value = tabs[Math.min(i, tabs.length - 1)]?.uid ?? null
   if (!tabs.length) setShowTerminal(false)
   else focusActive()
+}
+
+// ---------- modo interativo (leitura linha a linha) ----------
+const logView = ref<InstanceType<typeof LogView>>()
+/** Texto do terminal da aba (sem cores), para o modo interativo começar com o histórico */
+function termText(tab: Tab): string {
+  const s = sessions.get(tab.uid)
+  if (!s) return ''
+  const buf = s.term.buffer.active
+  const lines: string[] = []
+  for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? '')
+  return lines.join('\n')
+}
+function toggleLog(tab: Tab) {
+  tab.log = !tab.log
+  if (tab.log) nextTick(() => logView.value?.reset(termText(tab)))
+  else focusActive()
+}
+/** Saída nova da aba ativa em modo interativo também vai para a leitura */
+function feedLog(uid: string, data: string) {
+  const tab = tabs.find((t) => t.uid === uid)
+  if (tab?.log && active.value === uid) logView.value?.feed(data)
+}
+
+// ---------- desacoplar / acoplar ----------
+/** A aba vai para uma janela própria: o processo principal troca o dono da sessão; aqui a aba sai sem matar nada */
+async function detach(tab: Tab) {
+  const sid = serviceIdOf(tab)
+  if (sid) await api.serviceOpenWindow(sid)
+  else if (tab.termId !== null) await api.termDetach(tab.termId, { title: tab.title, spec: { ...tab.spec }, cwd: tab.cwd })
+  else return
+  const i = tabs.findIndex((t) => t.uid === tab.uid)
+  sessions.get(tab.uid)?.term.dispose()
+  sessions.delete(tab.uid)
+  hosts.delete(tab.uid)
+  if (i >= 0) tabs.splice(i, 1)
+  if (active.value === tab.uid) active.value = tabs[Math.min(i, tabs.length - 1)]?.uid ?? null
+  if (!tabs.length) setShowTerminal(false)
+  else focusActive()
+}
+/** Uma janela desacoplada pediu para voltar: cria a aba sobre a sessão que já existe e adota a saída */
+async function adopt(id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }) {
+  setShowTerminal(true)
+  const tab: Tab = { uid: crypto.randomUUID(), title: meta.title || titleFor(meta.spec), spec: meta.spec, termId: id, exited: false, cwd: meta.cwd }
+  tabs.push(tab)
+  active.value = tab.uid
+  await nextTick()
+  const el = hosts.get(tab.uid)
+  if (!el) return
+  await loadFont()
+  const term = new Terminal({ fontFamily: fontFamily(), fontSize: fontSize(), fontWeight: fontWeight(), fontWeightBold: fontWeightBold(), lineHeight: 1.15, cursorBlink: true, scrollback: 5000, theme: themeFromCss() })
+  const fit = new FitAddon()
+  const search = new SearchAddon()
+  term.loadAddon(fit)
+  term.loadAddon(search)
+  term.loadAddon(new WebLinksAddon((_e, uri) => api.openExternal(uri)))
+  term.open(el)
+  sessions.set(tab.uid, { term, fit, search, el })
+  term.onData((data) => {
+    const t = tabs.find((x) => x.uid === tab.uid)
+    if (!t) return
+    if (t.exited) {
+      if (data === '\r') restart(t)
+      return
+    }
+    if (t.termId !== null) api.termWrite(t.termId, data)
+  })
+  fit.fit()
+  const r = await api.termAdopt(id, term.cols, term.rows)
+  if (r?.buffer) term.write(r.buffer)
+  if (!r) {
+    tab.termId = null
+    tab.exited = true
+    term.write('\x1b[2m[terminal encerrado — pressione Enter para abrir outro]\x1b[0m\r\n')
+  }
+  term.focus()
 }
 
 // ---------- fixar ----------
@@ -306,7 +420,9 @@ function refit() {
   const s = tab && sessions.get(tab.uid)
   if (!s || !s.el.offsetParent) return
   s.fit.fit()
-  if (tab!.termId !== null) api.termResize(tab!.termId, s.term.cols, s.term.rows)
+  const sid = serviceIdOf(tab!)
+  if (sid) api.serviceResize(sid, s.term.cols, s.term.rows)
+  else if (tab!.termId !== null) api.termResize(tab!.termId, s.term.cols, s.term.rows)
 }
 
 function setHost(uid: string, el: unknown) {
@@ -370,10 +486,33 @@ const onDoc = (e: MouseEvent) => {
 
 // ---------- ciclo de vida ----------
 onMounted(async () => {
+  offs.push(api.onTermAttach((id, meta) => void adopt(id, meta)))
+  offs.push(api.onServiceAttachPanel((id) => openTerminalTab({ kind: 'service', serviceId: id })))
+  offs.push(
+    api.onServiceData((sid, data) => {
+      const tab = tabs.find((t) => serviceIdOf(t) === sid)
+      if (!tab) return
+      sessions.get(tab.uid)?.term.write(data)
+      feedLog(tab.uid, data)
+    }),
+    api.onServicesChanged((states) => {
+      for (const tab of tabs) {
+        const sid = serviceIdOf(tab)
+        if (!sid) continue
+        const st = states.find((x) => x.id === sid)
+        const running = st?.status === 'running'
+        // começou de novo: reata para ver a saída do processo novo
+        if (running && tab.exited) attachServiceTab(tab)
+        else if (!running && !tab.exited) tab.exited = true
+      }
+    })
+  )
   offs.push(
     api.onTermData((id, data) => {
       const tab = tabs.find((t) => t.termId === id)
-      if (tab) sessions.get(tab.uid)?.term.write(data)
+      if (!tab) return
+      sessions.get(tab.uid)?.term.write(data)
+      feedLog(tab.uid, data)
     }),
     api.onTermExit((id) => {
       const tab = tabs.find((t) => t.termId === id)
@@ -420,7 +559,7 @@ function readSavedTabs(): SavedTab[] {
   }
 }
 watch(
-  () => JSON.stringify([...tabs.map(toSaved), ...closedPinned]),
+  () => JSON.stringify([...tabs.filter((t) => !isService(t)).map(toSaved), ...closedPinned]),
   (json) => {
     try {
       localStorage.setItem(TABS_KEY, json)
@@ -509,18 +648,18 @@ onUnmounted(() => {
           @drop.prevent="onDrop"
           @dragend="onDragEnd"
           role="tab"
-          :title="t.spec.kind === 'ssh' ? `SSH · ${t.title}` : t.pinned ? `Terminal fixado · ${t.cwd ?? t.title}` : `Terminal local · ${t.title}`"
+          :title="t.spec.kind === 'service' ? `Serviço · ${t.title}` : t.spec.kind === 'ssh' ? `SSH · ${t.title}` : t.pinned ? `Terminal fixado · ${t.cwd ?? t.title}` : `Terminal local · ${t.title}`"
           @click="selectTab(t.uid)"
           @mousedown.middle.prevent="closeTab(t.uid)"
         >
           <!-- ativa: × à esquerda e ícone do tipo numa caixinha à direita; inativa: ícone à esquerda (vira × no hover) -->
           <!-- ícone e × no mesmo espaço fixo: trocar um pelo outro não muda a largura da aba -->
           <span class="slot">
-            <Icon :name="t.pinned ? 'pin' : t.spec.kind === 'ssh' ? 'server' : 'terminal'" :size="13" class="lead" :class="{ pinned: t.pinned }" />
+            <Icon :name="t.pinned ? 'pin' : t.spec.kind === 'ssh' ? 'server' : t.spec.kind === 'service' ? 'play' : 'terminal'" :size="13" class="lead" :class="{ pinned: t.pinned, live: t.spec.kind === 'service' && !t.exited }" />
             <button class="ghost close" title="Fechar aba" @click.stop="closeTab(t.uid)"><Icon name="x" :size="11" /></button>
           </span>
           <span class="name ellipsis">{{ t.title }}</span>
-          <span class="kind-box"><Icon :name="t.spec.kind === 'ssh' ? 'server' : 'terminal'" :size="12" /></span>
+          <span class="kind-box" :class="{ live: t.spec.kind === 'service' && !t.exited }"><Icon :name="t.spec.kind === 'ssh' ? 'server' : t.spec.kind === 'service' ? 'play' : 'terminal'" :size="12" /></span>
         </div>
       </div>
       <button class="ghost icon small" title="Novo terminal local" @click="openTab({ kind: 'local' })"><Icon name="plus" :size="14" /></button>
@@ -604,7 +743,16 @@ onUnmounted(() => {
       >
         <Icon name="pin" :size="13" />
       </button>
-      <button v-if="activeTab" class="ghost icon small" title="Reiniciar esta aba" @click="restart(activeTab)"><Icon name="refresh" :size="13" /></button>
+      <button v-if="activeTab" class="ghost icon small" :class="{ on: activeTab.log }" :title="activeTab.log ? 'Voltar ao terminal' : 'Modo interativo: a saída lida linha a linha (nível, hora, campos), com filtro e busca'" @click="toggleLog(activeTab)"><Icon name="listChecks" :size="13" /></button>
+      <template v-if="activeTab && isService(activeTab)">
+        <button v-if="!activeTab.exited" class="ghost icon small stop" title="Parar o serviço" @click="api.serviceStop(serviceIdOf(activeTab)!)"><Icon name="stop" :size="13" /></button>
+        <button v-else class="ghost icon small play" title="Iniciar o serviço" @click="api.serviceStart(serviceIdOf(activeTab)!)"><Icon name="play" :size="13" /></button>
+        <button class="ghost icon small" title="Desacoplar: o terminal do serviço vai para uma janela própria" @click="detach(activeTab)"><Icon name="external" :size="13" /></button>
+      </template>
+      <template v-else>
+        <button v-if="activeTab && activeTab.termId !== null && !activeTab.exited" class="ghost icon small" title="Desacoplar: esta aba vai para uma janela própria (a sessão continua a mesma)" @click="detach(activeTab)"><Icon name="external" :size="13" /></button>
+        <button v-if="activeTab" class="ghost icon small" title="Reiniciar esta aba" @click="restart(activeTab)"><Icon name="refresh" :size="13" /></button>
+      </template>
       <button
         class="ghost icon small"
         :title="state.terminalMax ? 'Restaurar o tamanho do terminal' : 'Maximizar o terminal'"
@@ -615,7 +763,8 @@ onUnmounted(() => {
       <button class="ghost icon small" title="Fechar o terminal (Ctrl+`)" @click="setShowTerminal(false)"><Icon name="x" :size="14" /></button>
     </header>
     <div ref="body" class="body">
-      <div v-for="t in tabs" v-show="t.uid === active" :key="t.uid" :ref="(el) => setHost(t.uid, el)" class="host" />
+      <div v-for="t in tabs" v-show="t.uid === active && !t.log" :key="t.uid" :ref="(el) => setHost(t.uid, el)" class="host" />
+      <LogView v-if="activeTab?.log" :key="activeTab.uid" ref="logView" class="log-host" />
     </div>
   </section>
 </template>
@@ -700,4 +849,11 @@ h6 { margin: 8px 8px 2px; font-size: 10.5px; text-transform: uppercase; letter-s
 .host { position: absolute; inset: 6px 0 10px 10px; user-select: text; }
 .host :deep(.xterm) { height: 100%; -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
 .host :deep(.xterm-viewport) { background: transparent !important; }
+/* modo interativo ocupa o lugar do terminal */
+.log-host { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.small.on { color: var(--accent); background: var(--accent-soft); }
+/* aba de serviço rodando: ícone verde */
+.lead.live, .kind-box.live { color: var(--add); }
+.small.stop { color: var(--del); }
+.small.play { color: var(--add); }
 </style>

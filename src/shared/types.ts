@@ -231,7 +231,7 @@ export interface Snippet {
  * local: shell na pasta do projeto, com um comando inicial opcional (ex.: "agy" para fazer login).
  * `cwd`: pasta própria da aba (terminal fixado), usada no lugar da pasta do projeto aberto.
  */
-export type TerminalSpec = { kind: 'local'; command?: string; cwd?: string } | { kind: 'ssh'; connectionId: string }
+export type TerminalSpec = { kind: 'local'; command?: string; cwd?: string } | { kind: 'ssh'; connectionId: string } | { kind: 'service'; serviceId: string }
 
 export interface AwsStatus {
   /** Versão do AWS CLI, ou null se não instalado */
@@ -884,8 +884,12 @@ export interface OvseerApi {
   servicesStates(): Promise<ServiceState[]>
   serviceStart(id: string): Promise<void>
   serviceStop(id: string): Promise<void>
-  /** Abre (ou traz à frente) a janela com o terminal do serviço */
+  /** Abre (ou traz à frente) a janela com o terminal do serviço (desacoplado) */
   serviceOpenWindow(id: string): Promise<void>
+  /** Da janela do serviço: volta como aba do painel do app */
+  serviceReattach(id: string): Promise<boolean>
+  /** No app: um serviço quer aparecer como aba do painel */
+  onServiceAttachPanel(cb: (id: string) => void): () => void
   onServicesChanged(cb: (states: ServiceState[]) => void): () => void
   /** Na janela do serviço: saída acumulada e ao vivo, entrada e tamanho do terminal */
   serviceAttach(id: string, cols: number, rows: number): Promise<{ service: Service | null; state: ServiceState | null; buffer: string }>
@@ -1025,6 +1029,15 @@ export interface OvseerApi {
   termWrite(id: number, data: string): void
   termResize(id: number, cols: number, rows: number): void
   termKill(id: number): Promise<void>
+  /** Desacopla a aba: a sessão vai para uma janela própria (continua a mesma) */
+  termDetach(id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }): Promise<void>
+  /** Esta janela passa a mostrar a sessão; devolve o que já passou */
+  termAdopt(id: number, cols: number, rows: number): Promise<{ buffer: string; meta: { title: string; spec: TerminalSpec; cwd?: string } } | null>
+  termMeta(id: number): Promise<{ title: string; spec: TerminalSpec; cwd?: string } | null>
+  /** Da janela desacoplada: pede ao painel para adotar a sessão de volta */
+  termReattach(id: number): Promise<boolean>
+  /** No painel: uma sessão desacoplada quer voltar */
+  onTermAttach(cb: (id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }) => void): () => void
   onTermData(cb: (id: number, data: string) => void): () => void
   onTermExit(cb: (id: number, code: number) => void): () => void
   updateState(): Promise<UpdateState>

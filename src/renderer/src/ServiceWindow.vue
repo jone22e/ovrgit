@@ -5,9 +5,9 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { alpha } from '@shared/themes'
-import { parseLogLine, type LogEntry, type LogLevel } from '@shared/logs'
 import type { Service, ServiceState, Settings } from '@shared/types'
 import Icon from './components/Icon.vue'
+import LogView from './components/LogView.vue'
 import { applyTheme, currentTheme } from './theme'
 
 /**
@@ -90,71 +90,21 @@ const folder = computed(() => (service.value?.cwd ? service.value.cwd.replace(/^
 
 // ---------- modo interativo: leitura amigável das linhas ----------
 const view = ref<'term' | 'log'>((localStorage.getItem('ovseer.service.view') as 'term' | 'log') || 'term')
+const logView = ref<InstanceType<typeof LogView>>()
+/** Saída acumulada (sem cor), para o modo interativo começar com o histórico quando é ligado depois */
+let history = ''
 watch(view, (v) => {
   localStorage.setItem('ovseer.service.view', v)
   if (v === 'term') nextTick(() => (fit?.fit(), term?.focus()))
-  else nextTick(() => follow.value && scrollLog())
+  else nextTick(() => logView.value?.reset(history))
 })
-const MAX_LINES = 4000
-const entries = ref<(LogEntry & { n: number })[]>([])
-let seq = 0
-let partial = ''
-/** Alimenta as linhas a partir do texto bruto (pedaços podem cortar uma linha ao meio) */
 function feed(data: string) {
-  const text = partial + data.replace(/\r\n?/g, '\n')
-  const parts = text.split('\n')
-  partial = parts.pop() ?? ''
-  const add = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++ }))
-  if (!add.length) return
-  entries.value.push(...add)
-  if (entries.value.length > MAX_LINES) entries.value.splice(0, entries.value.length - MAX_LINES)
-  if (view.value === 'log' && follow.value) nextTick(scrollLog)
+  history = (history + data).slice(-400_000)
+  logView.value?.feed(data)
 }
-const levels: { id: LogLevel | 'all'; label: string }[] = [
-  { id: 'all', label: 'Tudo' },
-  { id: 'info', label: 'Info+' },
-  { id: 'warn', label: 'Avisos+' },
-  { id: 'error', label: 'Erros' }
-]
-const minLevel = ref<LogLevel | 'all'>('all')
-const RANK: Record<LogLevel, number> = { none: 1, trace: 0, debug: 0, info: 1, warn: 2, error: 3, fatal: 3 }
-const MIN: Record<string, number> = { all: -1, info: 1, warn: 2, error: 3 }
-const query = ref('')
-const plain = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-const shown = computed(() => {
-  const min = MIN[minLevel.value]
-  const words = plain(query.value).split(/\s+/).filter(Boolean)
-  return entries.value.filter((e) => RANK[e.level] >= min && (!words.length || words.every((w) => plain(e.raw).includes(w))))
-})
-const counts = computed(() => {
-  const c = { warn: 0, error: 0 }
-  for (const e of entries.value) {
-    if (e.level === 'warn') c.warn++
-    else if (e.level === 'error' || e.level === 'fatal') c.error++
-  }
-  return c
-})
-const expanded = ref(new Set<number>())
-const toggle = (n: number) => (expanded.value.has(n) ? expanded.value.delete(n) : expanded.value.add(n))
-const logEl = ref<HTMLElement>()
-const follow = ref(true)
-function scrollLog() {
-  const el = logEl.value
-  if (el) el.scrollTop = el.scrollHeight
-}
-function onLogScroll() {
-  const el = logEl.value
-  if (!el) return
-  follow.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-}
-const pretty = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2))
-const short = (v: unknown) => {
-  const s = typeof v === 'string' ? v : JSON.stringify(v)
-  return s.length > 60 ? `${s.slice(0, 57)}…` : s
-}
-const LEVEL_LABEL: Record<LogLevel, string> = { trace: 'trace', debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'fatal', none: '' }
 function clearAll() {
-  entries.value = []
+  history = ''
+  logView.value?.reset('')
   term?.clear()
 }
 
@@ -167,8 +117,8 @@ async function attach() {
   st.value = r.state
   document.title = r.service ? `${r.service.name} · Serviço` : 'Serviço'
   term.reset()
-  entries.value = []
-  partial = ''
+  history = ''
+  logView.value?.reset('')
   if (r.buffer) {
     term.write(r.buffer)
     feed(r.buffer)
@@ -234,7 +184,7 @@ onMounted(async () => {
   offs.push(() => clearInterval(tick))
   await attach()
   if (view.value === 'term') term.focus()
-  else nextTick(scrollLog)
+  else nextTick(() => logView.value?.reset(history))
 })
 onUnmounted(() => offs.forEach((f) => f()))
 </script>
@@ -261,6 +211,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button type="button" :class="{ on: view === 'log' }" title="Modo interativo: cada linha lida (JSON e texto) com nível, hora e campos; filtro e busca" @click="view = 'log'"><Icon name="listChecks" :size="12" /> Interativo</button>
       </div>
       <button type="button" class="ghost icon head-btn" title="Limpar a tela" @click="clearAll"><Icon name="trash" :size="13" /></button>
+      <button type="button" class="ghost icon head-btn" title="Acoplar: este terminal volta como aba do painel do Ovseer" @click="api.serviceReattach(id)"><Icon name="panelBottom" :size="13" /></button>
       <button v-if="running" type="button" class="small stop" title="Parar o serviço" @click="stop"><Icon name="stop" :size="12" /> Parar</button>
       <button v-else type="button" class="small primary" title="Iniciar o serviço" @click="start"><Icon name="play" :size="12" /> Iniciar</button>
     </header>
@@ -268,39 +219,7 @@ onUnmounted(() => offs.forEach((f) => f()))
     <!-- o terminal fica montado mesmo escondido: guarda a saída e o cursor -->
     <div v-show="view === 'term'" ref="host" class="term" />
 
-    <div v-if="view === 'log'" class="log">
-      <div class="log-bar">
-        <div class="seg">
-          <button v-for="l in levels" :key="l.id" type="button" :class="{ on: minLevel === l.id }" @click="minLevel = l.id">
-            {{ l.label }}
-            <b v-if="l.id === 'warn' && counts.warn" class="cnt warn">{{ counts.warn }}</b>
-            <b v-if="l.id === 'error' && counts.error" class="cnt error">{{ counts.error }}</b>
-          </button>
-        </div>
-        <label class="search">
-          <Icon name="search" :size="13" class="faint" />
-          <input v-model="query" type="text" placeholder="Buscar nas linhas" spellcheck="false" />
-        </label>
-        <span class="spacer" />
-        <small class="faint">{{ shown.length === entries.length ? `${entries.length} linhas` : `${shown.length} de ${entries.length} linhas` }}</small>
-        <button v-if="!follow" type="button" class="small" title="Voltar a acompanhar o fim" @click="(follow = true), scrollLog()"><Icon name="down" :size="12" /> Seguir</button>
-      </div>
-      <div ref="logEl" class="log-list" @scroll="onLogScroll">
-        <p v-if="!shown.length" class="faint none">{{ entries.length ? 'Nenhuma linha com esse filtro.' : 'Sem saída ainda.' }}</p>
-        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json }]" @click="e.json && toggle(e.n)">
-          <span class="time mono">{{ e.time ?? '' }}</span>
-          <span class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] }}</span>
-          <span class="msg">
-            <span class="text">{{ e.message }}</span>
-            <span v-if="e.fields && !expanded.has(e.n)" class="chips">
-              <span v-for="(v, k) in e.fields" :key="k" class="chip" :title="pretty(v)"><b>{{ k }}</b>{{ short(v) }}</span>
-            </span>
-            <pre v-if="e.fields && expanded.has(e.n)" class="mono detail">{{ pretty(e.fields) }}</pre>
-          </span>
-          <Icon v-if="e.json" name="chevron" :size="11" class="chev" />
-        </div>
-      </div>
-    </div>
+    <LogView v-if="view === 'log'" ref="logView" />
   </div>
 </template>
 
@@ -308,11 +227,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 .svc { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
 .bar {
   height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 14px; flex: none;
-  border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
+  border-bottom: 1px solid var(--border); background: var(--panel);
 }
-:root[data-platform='darwin'] .bar { padding-left: 86px; }
-:root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
-.bar button { -webkit-app-region: no-drag; }
+/* a janela tem a barra de título do sistema: o cabeçalho não precisa de margem para os botões dela */
 .tile { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--panel-2); color: var(--muted); flex: none; }
 .tile.running { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .tile.exited { color: var(--mod); background: color-mix(in srgb, var(--mod) 14%, transparent); }
@@ -326,14 +243,14 @@ onUnmounted(() => offs.forEach((f) => f()))
 .state.running .dot { background: var(--add); box-shadow: 0 0 0 3px color-mix(in srgb, var(--add) 25%, transparent); }
 .state.exited { color: var(--mod); }
 .state.exited .dot { background: var(--mod); }
-.ports { display: inline-flex; gap: 4px; flex: none; -webkit-app-region: no-drag; }
+.ports { display: inline-flex; gap: 4px; flex: none; }
 .port {
   height: 24px; padding: 0 9px; border-radius: 999px; font-family: var(--mono); font-size: 12px; font-weight: 700;
   color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); border: 1px solid color-mix(in srgb, var(--add) 40%, transparent);
 }
 .port:hover { background: color-mix(in srgb, var(--add) 24%, transparent); }
 .spacer { flex: 1; }
-.seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border); -webkit-app-region: no-drag; }
+.seg { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border); }
 .seg button { height: 26px; padding: 0 10px; gap: 6px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
 .head-btn { width: 28px; height: 28px; border-radius: 8px; color: var(--muted); flex: none; }
@@ -353,7 +270,13 @@ onUnmounted(() => offs.forEach((f) => f()))
 .search input:focus { box-shadow: none; }
 .log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
 .none { margin: 20px 0; text-align: center; }
-.row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 14px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
+.row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
+.row-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+/* copiar: discreto, só ao passar o mouse na linha */
+.copy { width: 22px; height: 22px; border-radius: 6px; color: var(--faint); opacity: 0; transition: opacity 0.1s; }
+.row:hover .copy, .copy.done { opacity: 1; }
+.copy:hover { color: var(--text); }
+.copy.done { color: var(--add); }
 .row.json { cursor: pointer; }
 .row:hover { background: var(--hover); }
 .row.open { background: var(--panel); }
@@ -366,13 +289,4 @@ onUnmounted(() => offs.forEach((f) => f()))
 .lvl.error, .lvl.fatal { color: var(--del); }
 .lvl.debug, .lvl.trace { color: var(--faint); }
 .msg { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.row.warn .text { color: color-mix(in srgb, var(--mod) 70%, var(--text)); }
-.row.error .text, .row.fatal .text { color: color-mix(in srgb, var(--del) 70%, var(--text)); }
-.chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip { display: inline-flex; gap: 4px; align-items: baseline; max-width: 100%; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip b { color: var(--text); font-weight: 600; }
-.detail { margin: 2px 0 4px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.chev { color: var(--faint); transform: rotate(90deg); margin-top: 4px; transition: transform 0.15s; }
-.row.open .chev { transform: rotate(-90deg); }
-</style>
+.text { white-sp

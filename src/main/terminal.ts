@@ -7,11 +7,17 @@ import type { SshConnection } from '../shared/types'
 
 interface Session {
   pty: IPty
+  /** Janela que mostra o terminal (muda ao desacoplar/acoplar) */
   owner: WebContents
+  /** Saída recente, para a janela que adotar a sessão mostrar o que já passou */
+  buffer: string
+  /** Nome e origem da aba, para a janela desacoplada e para voltar ao painel */
+  meta: { title: string; spec: unknown; cwd?: string }
 }
 
 const sessions = new Map<number, Session>()
 let nextId = 1
+const BUFFER_MAX = 400_000
 
 /** Shell padrão do sistema: zsh/bash no Mac/Linux, PowerShell no Windows. */
 function defaultShell(): { file: string; args: string[] } {
@@ -79,16 +85,48 @@ export async function createTerminal(
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer' } as Record<string, string>
   })
   const id = nextId++
-  sessions.set(id, { pty, owner })
+  const s: Session = { pty, owner, buffer: '', meta: { title: '', spec: ssh ? { kind: 'ssh', connectionId: ssh.id } : { kind: 'local' }, cwd } }
+  sessions.set(id, s)
   pty.onData((data) => {
-    if (!owner.isDestroyed()) owner.send('term:data', id, data)
+    s.buffer = (s.buffer + data).slice(-BUFFER_MAX)
+    if (!s.owner.isDestroyed()) s.owner.send('term:data', id, data)
   })
   pty.onExit(({ exitCode }) => {
     sessions.delete(id)
-    if (!owner.isDestroyed()) owner.send('term:exit', id, exitCode)
+    if (!s.owner.isDestroyed()) s.owner.send('term:exit', id, exitCode)
   })
-  owner.once('destroyed', () => killTerminal(id))
+  watchOwner(id, owner)
   return id
+}
+
+/** A janela dona fechou com a sessão ainda nela: encerra. Depois de uma transferência, o dono antigo não conta. */
+function watchOwner(id: number, owner: WebContents) {
+  owner.once('destroyed', () => {
+    const s = sessions.get(id)
+    if (s && s.owner === owner) killTerminal(id)
+  })
+}
+
+export function setTerminalMeta(id: number, meta: Partial<Session['meta']>) {
+  const s = sessions.get(id)
+  if (s) s.meta = { ...s.meta, ...meta }
+}
+
+/**
+ * Outra janela passa a mostrar a sessão (desacoplar para uma janela própria, ou acoplar de volta ao painel):
+ * a saída vai para ela daqui em diante; devolve o que já passou e os dados da aba.
+ */
+export function adoptTerminal(id: number, owner: WebContents, cols: number, rows: number): { buffer: string; meta: Session['meta'] } | null {
+  const s = sessions.get(id)
+  if (!s) return null
+  s.owner = owner
+  watchOwner(id, owner)
+  if (cols > 0 && rows > 0) s.pty.resize(cols, rows)
+  return { buffer: s.buffer, meta: s.meta }
+}
+
+export function terminalMeta(id: number): Session['meta'] | null {
+  return sessions.get(id)?.meta ?? null
 }
 
 export function writeTerminal(id: number, data: string) {

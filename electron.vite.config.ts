@@ -11,13 +11,14 @@ export default defineConfig({
   },
   renderer: {
     server: { port: 15173 },
-    // três páginas: o app principal, a janela exclusiva de cada agente de IA e a janela do terminal de um serviço
+    // páginas: o app principal, a janela de cada agente de IA, a do terminal de um serviço e a de um terminal desacoplado
     build: {
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
           agent: resolve('src/renderer/agent.html'),
-          service: resolve('src/renderer/service.html')
+          service: resolve('src/renderer/service.html'),
+          terminal: resolve('src/renderer/terminal.html')
         }
       }
     },

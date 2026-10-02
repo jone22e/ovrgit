@@ -1,0 +1,171 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { parseLogLine, type LogEntry, type LogLevel } from '@shared/logs'
+import Icon from './Icon.vue'
+
+/**
+ * Modo interativo de leitura de saída: cada linha (JSON ou texto) vira um registro com hora, nível, mensagem e
+ * campos; filtro por nível, contadores, busca, cópia e acompanhamento do fim. Quem usa alimenta com `feed` e
+ * zera (ou recomeça de um histórico) com `reset`.
+ */
+const MAX_LINES = 4000
+const entries = ref<(LogEntry & { n: number })[]>([])
+let seq = 0
+let partial = ''
+/** Alimenta as linhas a partir do texto bruto (pedaços podem cortar uma linha ao meio) */
+function feed(data: string) {
+  const text = partial + data.replace(/\r\n?/g, '\n')
+  const parts = text.split('\n')
+  partial = parts.pop() ?? ''
+  const add = parts.filter((l) => l.trim()).map((l) => ({ ...parseLogLine(l), n: seq++ }))
+  if (!add.length) return
+  entries.value.push(...add)
+  if (entries.value.length > MAX_LINES) entries.value.splice(0, entries.value.length - MAX_LINES)
+  if (follow.value) nextTick(scrollLog)
+}
+const levels: { id: LogLevel | 'all'; label: string }[] = [
+  { id: 'all', label: 'Tudo' },
+  { id: 'info', label: 'Info+' },
+  { id: 'warn', label: 'Avisos+' },
+  { id: 'error', label: 'Erros' }
+]
+const minLevel = ref<LogLevel | 'all'>('all')
+const RANK: Record<LogLevel, number> = { none: 1, trace: 0, debug: 0, info: 1, warn: 2, error: 3, fatal: 3 }
+const MIN: Record<string, number> = { all: -1, info: 1, warn: 2, error: 3 }
+const query = ref('')
+const plain = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const shown = computed(() => {
+  const min = MIN[minLevel.value]
+  const words = plain(query.value).split(/\s+/).filter(Boolean)
+  return entries.value.filter((e) => RANK[e.level] >= min && (!words.length || words.every((w) => plain(e.raw).includes(w))))
+})
+const counts = computed(() => {
+  const c = { warn: 0, error: 0 }
+  for (const e of entries.value) {
+    if (e.level === 'warn') c.warn++
+    else if (e.level === 'error' || e.level === 'fatal') c.error++
+  }
+  return c
+})
+const expanded = ref(new Set<number>())
+const toggle = (n: number) => (expanded.value.has(n) ? expanded.value.delete(n) : expanded.value.add(n))
+const logEl = ref<HTMLElement>()
+const follow = ref(true)
+function scrollLog() {
+  const el = logEl.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+function onLogScroll() {
+  const el = logEl.value
+  if (!el) return
+  follow.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+}
+const pretty = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2))
+const short = (v: unknown) => {
+  const s = typeof v === 'string' ? v : JSON.stringify(v)
+  return s.length > 60 ? `${s.slice(0, 57)}…` : s
+}
+const LEVEL_LABEL: Record<LogLevel, string> = { trace: 'trace', debug: 'debug', info: 'info', warn: 'warn', error: 'error', fatal: 'fatal', none: '' }
+const copied = ref<number | null>(null)
+/** Copia a linha original (o JSON inteiro ou o texto) */
+async function copyLine(e: LogEntry & { n: number }) {
+  try {
+    await navigator.clipboard.writeText(e.raw)
+    copied.value = e.n
+    setTimeout(() => copied.value === e.n && (copied.value = null), 1200)
+  } catch {
+    /* sem área de transferência */
+  }
+}
+/** Recomeça (opcionalmente a partir de um histórico já acumulado) */
+function reset(history = '') {
+  entries.value = []
+  partial = ''
+  expanded.value.clear()
+  if (history) feed(history)
+  nextTick(scrollLog)
+}
+defineExpose({ feed, reset })
+onMounted(() => nextTick(scrollLog))
+</script>
+
+<template>
+  <div class="log">
+      <div class="log-bar">
+        <div class="seg">
+          <button v-for="l in levels" :key="l.id" type="button" :class="{ on: minLevel === l.id }" @click="minLevel = l.id">
+            {{ l.label }}
+            <b v-if="l.id === 'warn' && counts.warn" class="cnt warn">{{ counts.warn }}</b>
+            <b v-if="l.id === 'error' && counts.error" class="cnt error">{{ counts.error }}</b>
+          </button>
+        </div>
+        <label class="search">
+          <Icon name="search" :size="13" class="faint" />
+          <input v-model="query" type="text" placeholder="Buscar nas linhas" spellcheck="false" />
+        </label>
+        <span class="spacer" />
+        <small class="faint">{{ shown.length === entries.length ? `${entries.length} linhas` : `${shown.length} de ${entries.length} linhas` }}</small>
+        <button v-if="!follow" type="button" class="small" title="Voltar a acompanhar o fim" @click="(follow = true), scrollLog()"><Icon name="down" :size="12" /> Seguir</button>
+      </div>
+      <div ref="logEl" class="log-list" @scroll="onLogScroll">
+        <p v-if="!shown.length" class="faint none">{{ entries.length ? 'Nenhuma linha com esse filtro.' : 'Sem saída ainda.' }}</p>
+        <div v-for="e in shown" :key="e.n" class="row" :class="[e.level, { open: expanded.has(e.n), json: e.json }]" @click="e.json && toggle(e.n)">
+          <span class="time mono">{{ e.time ?? '' }}</span>
+          <span class="lvl" :class="e.level">{{ LEVEL_LABEL[e.level] }}</span>
+          <span class="msg">
+            <span class="text">{{ e.message }}</span>
+            <span v-if="e.fields && !expanded.has(e.n)" class="chips">
+              <span v-for="(v, k) in e.fields" :key="k" class="chip" :title="pretty(v)"><b>{{ k }}</b>{{ short(v) }}</span>
+            </span>
+            <pre v-if="e.fields && expanded.has(e.n)" class="mono detail">{{ pretty(e.fields) }}</pre>
+          </span>
+          <span class="row-acts" @click.stop>
+            <button type="button" class="ghost icon copy" :class="{ done: copied === e.n }" :title="copied === e.n ? 'Copiado' : 'Copiar a linha'" @click="copyLine(e)"><Icon :name="copied === e.n ? 'check' : 'clipboard'" :size="11" /></button>
+            <Icon v-if="e.json" name="chevron" :size="11" class="chev" />
+          </span>
+        </div>
+      </div>
+  </div>
+</template>
+
+<style scoped>
+/* modo interativo */
+.log { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.log-bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
+.cnt { margin-left: 4px; padding: 0 5px; border-radius: 999px; font-family: var(--mono); font-size: 10px; }
+.cnt.warn { background: color-mix(in srgb, var(--mod) 20%, transparent); color: var(--mod); }
+.cnt.error { background: color-mix(in srgb, var(--del) 20%, transparent); color: var(--del); }
+.search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); width: min(320px, 40%); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12.5px; color: var(--text); }
+.search input:focus { box-shadow: none; }
+.log-list { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 12px; font-size: 12.5px; }
+.none { margin: 20px 0; text-align: center; }
+.row { display: grid; grid-template-columns: 62px 44px minmax(0, 1fr) 44px; gap: 8px; align-items: start; padding: 4px 8px; border-radius: 6px; line-height: 1.45; }
+.row-acts { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; }
+/* copiar: discreto, só ao passar o mouse na linha */
+.copy { width: 22px; height: 22px; border-radius: 6px; color: var(--faint); opacity: 0; transition: opacity 0.1s; }
+.row:hover .copy, .copy.done { opacity: 1; }
+.copy:hover { color: var(--text); }
+.copy.done { color: var(--add); }
+.row.json { cursor: pointer; }
+.row:hover { background: var(--hover); }
+.row.open { background: var(--panel); }
+.row.warn { background: color-mix(in srgb, var(--mod) 6%, transparent); }
+.row.error, .row.fatal { background: color-mix(in srgb, var(--del) 7%, transparent); }
+.time { color: var(--faint); font-size: 11.5px; padding-top: 1px; }
+.lvl { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding-top: 2px; color: var(--faint); }
+.lvl.info { color: var(--accent); }
+.lvl.warn { color: var(--mod); }
+.lvl.error, .lvl.fatal { color: var(--del); }
+.lvl.debug, .lvl.trace { color: var(--faint); }
+.msg { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.row.warn .text { color: color-mix(in srgb, var(--mod) 70%, var(--text)); }
+.row.error .text, .row.fatal .text { color: color-mix(in srgb, var(--del) 70%, var(--text)); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-flex; gap: 4px; align-items: baseline; max-width: 100%; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip b { color: var(--text); font-weight: 600; }
+.detail { margin: 2px 0 4px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.chev { color: var(--faint); transform: rotate(90deg); transition: transform 0.15s; }
+.row.open .chev { transform: rotate(-90deg); }
+</style>

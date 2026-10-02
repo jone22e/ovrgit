@@ -108,6 +108,12 @@ function select(a: AgentSnapshot | undefined) {
   nextTick(() => root.value?.querySelector(`[data-uid="${a.uid}"]`)?.scrollIntoView({ block: 'nearest' }))
 }
 /** Clique num concluído: abre (ou fecha) o resumo; nos outros, traz a janela */
+/** Clique no cartão aberto do concluído, fora de botões, campos e texto selecionável: fecha o cartão */
+function onCardClick(e: MouseEvent) {
+  const t = e.target as HTMLElement
+  if (t.closest('button, input, textarea, a, select, .mini, .ask-in') || window.getSelection()?.toString()) return
+  selUid.value = null
+}
 function clickDone(a: AgentSnapshot) {
   if (selUid.value === a.uid) selUid.value = null
   else select(a)
@@ -315,7 +321,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           </span>
         </h3>
         <template v-for="a in done" :key="a.uid">
-          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel">
+          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
             <div class="row">
               <span class="dot done" />
               <strong class="ellipsis grow">{{ a.title }}</strong>

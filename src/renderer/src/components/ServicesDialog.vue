@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Service, ServiceState } from '@shared/types'
-import { api, saveSettings, state, toast } from '../store'
+import { api, openTerminalTab, saveSettings, state, toast } from '../store'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
 
@@ -75,7 +75,11 @@ async function stop(s: Service) {
     busy.value = null
   }
 }
-const openTerminal = (s: Service) => api.serviceOpenWindow(s.id)
+/** Terminal do serviço: nasce acoplado, como aba do painel (lá dá para desacoplar numa janela) */
+function openTerminal(s: Service) {
+  emit('close')
+  openTerminalTab({ kind: 'service', serviceId: s.id })
+}
 
 const since = (ms?: number) => {
   if (!ms) return ''
@@ -149,7 +153,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="acts">
           <button v-if="stateOf(s.id)?.status === 'running'" type="button" class="ghost icon" title="Parar" :disabled="busy === s.id" @click="stop(s)"><Icon name="stop" :size="14" /></button>
           <button v-else type="button" class="ghost icon play" title="Iniciar" :disabled="busy === s.id" @click="start(s)"><Icon name="play" :size="14" /></button>
-          <button type="button" class="ghost icon" title="Ver o terminal do serviço em outra janela" @click="openTerminal(s)"><Icon name="terminal" :size="14" /></button>
+          <button type="button" class="ghost icon" title="Ver o terminal do serviço (aba no painel; dá para desacoplar lá)" @click="openTerminal(s)"><Icon name="terminal" :size="14" /></button>
           <button type="button" class="ghost icon" title="Editar" @click="openEdit(s)"><Icon name="pencil" :size="13" /></button>
           <button type="button" class="ghost icon" title="Remover" @click="remove(s)"><Icon name="trash" :size="13" /></button>
         </span>

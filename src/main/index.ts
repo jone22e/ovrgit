@@ -27,7 +27,7 @@ import * as agentHistory from './agentHistory'
 import { getUsage } from './usage'
 import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
-import { createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, writeTerminal } from './terminal'
+import { adoptTerminal, createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, setTerminalMeta, terminalMeta, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
 import { analysisHash, analyze, taskContext, cancelAnalysis, commitMessage, detectProviders, listModels } from './ai'
 import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
@@ -211,6 +211,38 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/** Janelas de terminal desacoplado, por sessão (guardadas: uma BrowserWindow sem referência é coletada e fecha) */
+const terminalWindows = new Map<number, BrowserWindow>()
+/** Janela própria de um terminal desacoplado do painel */
+function openTerminalWindow(id: number) {
+  const meta = terminalMeta(id)
+  const w = new BrowserWindow({
+    width: 900,
+    height: 560,
+    minWidth: 480,
+    minHeight: 280,
+    title: `${meta?.title || 'Terminal'} · Terminal`,
+    icon,
+    show: false,
+    backgroundColor: initialBackground(),
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
+    }
+  })
+  terminalWindows.set(id, w)
+  w.on('closed', () => terminalWindows.delete(id))
+  w.once('ready-to-show', () => w.show())
+  w.on('page-title-updated', (e) => e.preventDefault())
+  const load = () =>
+    process.env.ELECTRON_RENDERER_URL
+      ? w.loadURL(`${process.env.ELECTRON_RENDERER_URL}/terminal.html?id=${id}`)
+      : w.loadFile(path.join(__dirname, '../renderer/terminal.html'), { query: { id: String(id) } })
+  load().catch((e) => console.error('Janela do terminal não carregou:', e))
+}
+
 function registerIpc() {
   ipcMain.handle('project:open', async () => {
     const res = await dialog.showOpenDialog(win!, {
@@ -247,6 +279,24 @@ function registerIpc() {
     // terminal fixado abre na pasta dele; se ela não existe mais, cai na do projeto
     const own = spec?.kind === 'local' && typeof spec.cwd === 'string' && existsSync(spec.cwd) ? spec.cwd : null
     return createTerminal(e.sender, own ?? root ?? os.homedir(), cols, rows)
+  })
+  // desacoplar: a aba vira uma janela própria (a sessão continua a mesma); acoplar: volta ao painel
+  ipcMain.handle('term:detach', (_e, id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }) => {
+    setTerminalMeta(Number(id), { title: String(meta?.title ?? ''), spec: meta?.spec, cwd: meta?.cwd })
+    openTerminalWindow(Number(id))
+  })
+  ipcMain.handle('term:adopt', (e, id: number, cols: number, rows: number) => adoptTerminal(Number(id), e.sender, Number(cols) || 0, Number(rows) || 0))
+  ipcMain.handle('term:meta', (_e, id: number) => terminalMeta(Number(id)))
+  ipcMain.handle('term:reattach', (e, id: number) => {
+    const meta = terminalMeta(Number(id))
+    if (!meta || !win || win.isDestroyed()) return false
+    win.webContents.send('term:attach', Number(id), meta)
+    win.show()
+    win.focus()
+    const from = BrowserWindow.fromWebContents(e.sender)
+    // a janela desacoplada fecha depois que o painel adotar a sessão (senão o fechamento mataria o terminal)
+    setTimeout(() => from && !from.isDestroyed() && from.close(), 400)
+    return true
   })
   ipcMain.handle('ssh:listKeys', () => listSshKeys())
   ipcMain.handle('ssh:importConfig', () => sshImport.readSshConfig())
@@ -641,6 +691,15 @@ function registerIpc() {
   ipcMain.handle('services:start', (_e, id: string) => services.startService(String(id)))
   ipcMain.handle('services:stop', (_e, id: string) => services.stopService(String(id)))
   ipcMain.handle('services:openWindow', (_e, id: string) => services.openServiceWindow(String(id)))
+  ipcMain.handle('services:reattach', (e, id: string) => {
+    if (!win || win.isDestroyed()) return false
+    win.webContents.send('services:attachPanel', String(id))
+    win.show()
+    win.focus()
+    const from = BrowserWindow.fromWebContents(e.sender)
+    setTimeout(() => from && !from.isDestroyed() && from.close(), 300)
+    return true
+  })
   ipcMain.handle('services:attach', (e, id: string, cols: number, rows: number) => services.attachService(e.sender, String(id), Number(cols) || 0, Number(rows) || 0))
   ipcMain.on('services:write', (_e, id: string, data: string) => services.writeService(String(id), String(data)))
   ipcMain.on('services:resize', (_e, id: string, cols: number, rows: number) => services.resizeService(String(id), Number(cols) || 0, Number(rows) || 0))

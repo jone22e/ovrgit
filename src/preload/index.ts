@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, ServiceState, Settings, UpdateState } from '../shared/types'
+import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, ServiceState, Settings, TerminalSpec, UpdateState } from '../shared/types'
 
 const api: OvseerApi = {
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -98,6 +98,15 @@ const api: OvseerApi = {
   termWrite: (id, data) => ipcRenderer.send('term:write', id, data),
   termResize: (id, cols, rows) => ipcRenderer.send('term:resize', id, cols, rows),
   termKill: (id) => ipcRenderer.invoke('term:kill', id),
+  termDetach: (id, meta) => ipcRenderer.invoke('term:detach', id, meta),
+  termAdopt: (id, cols, rows) => ipcRenderer.invoke('term:adopt', id, cols, rows),
+  termMeta: (id) => ipcRenderer.invoke('term:meta', id),
+  termReattach: (id) => ipcRenderer.invoke('term:reattach', id),
+  onTermAttach: (cb) => {
+    const h = (_e: unknown, id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }) => cb(id, meta)
+    ipcRenderer.on('term:attach', h)
+    return () => ipcRenderer.off('term:attach', h)
+  },
   onTermData: (cb) => {
     const h = (_e: unknown, id: number, data: string) => cb(id, data)
     ipcRenderer.on('term:data', h)
@@ -116,6 +125,12 @@ const api: OvseerApi = {
   serviceStart: (id) => ipcRenderer.invoke('services:start', id),
   serviceStop: (id) => ipcRenderer.invoke('services:stop', id),
   serviceOpenWindow: (id) => ipcRenderer.invoke('services:openWindow', id),
+  serviceReattach: (id) => ipcRenderer.invoke('services:reattach', id),
+  onServiceAttachPanel: (cb) => {
+    const h = (_e: unknown, id: string) => cb(id)
+    ipcRenderer.on('services:attachPanel', h)
+    return () => ipcRenderer.off('services:attachPanel', h)
+  },
   onServicesChanged: (cb) => {
     const h = (_e: unknown, states: ServiceState[]) => cb(states)
     ipcRenderer.on('services:changed', h)
