@@ -6,6 +6,7 @@ import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, Agent
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
+import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
@@ -143,13 +144,13 @@ export async function openAgentLikeLast(focused: BrowserWindow | null, projectRo
   const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
   if (!existsSync(cwd)) return null
   // repetir o último agente nunca começa no modo Plano
-  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: base.mode === 'plan' ? 'safe' : base.mode, cwd })
+  return openAgentWindow({ provider: base.provider, model: base.model, effort: base.effort, mode: isPlanMode(base.mode) ? 'safe' : base.mode, cwd })
 }
 
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
 export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
   // conversa reaberta nunca volta no modo Plano (só começa nele quando escolhido no diálogo)
-  if (opts.resumeId && opts.mode === 'plan') opts = { ...opts, mode: 'safe' }
+  if (opts.resumeId && isPlanMode(opts.mode)) opts = { ...opts, mode: 'safe' }
   const uid = crypto.randomUUID()
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
@@ -633,13 +634,19 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   // a resposta, para entregar outra mensagem no meio dela sem interromper (o modelo a recebe no próximo passo)
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
   // instruções personalizadas do usuário e o formato de perguntas ao usuário: complementam o prompt de sistema
-  args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT, o.mode === 'plan' ? PLAN_TITLE : ''].filter(Boolean).join('\n\n'))
+  args.push('--append-system-prompt', [o.instructions?.trim(), QUESTION_FORMAT, planFormat(o.mode)].filter(Boolean).join('\n\n'))
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort)
   if (o.mode === 'full') args.push('--dangerously-skip-permissions')
-  else args.push('--permission-mode', o.mode === 'plan' ? 'plan' : 'acceptEdits')
+  else args.push('--permission-mode', isPlanMode(o.mode) ? 'plan' : 'acceptEdits')
   if (o.resume) args.push('--resume', o.resume)
   return args
+}
+
+/** Orientação de formato do plano para o modo: título sempre; no Plano com Checklist, a seção de checklist no fim */
+export function planFormat(mode: AgentMode): string {
+  if (mode === 'checklist') return `${PLAN_TITLE}\n${CHECKLIST_FORMAT}`
+  return mode === 'plan' ? PLAN_TITLE : ''
 }
 
 /** Todo plano começa com um título: vale para os três agentes (é o que identifica o plano no cartão e na leitura) */
@@ -650,6 +657,7 @@ export const PLAN_TITLE =
  * Modo plano no Codex: o `exec` não expõe o modo de colaboração do app, então usamos sandbox
  * somente leitura (nada muda no projeto) e a mesma orientação que o app dá ao modelo.
  */
+export const codexPlanInstructions = (mode: AgentMode) => CODEX_PLAN_INSTRUCTIONS.replace(PLAN_TITLE, planFormat(mode))
 export const CODEX_PLAN_INSTRUCTIONS = `<collaboration_mode>
 # Modo Plano
 
@@ -681,7 +689,7 @@ criar e apagar arquivos e executar a tarefa normalmente.
 `
 
 export function normalizeMode(m: unknown): AgentMode {
-  return m === 'full' || m === 'plan' ? m : 'safe'
+  return m === 'full' || m === 'plan' || m === 'checklist' ? m : 'safe'
 }
 
 export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[] }): string[] {
@@ -692,7 +700,7 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
   if (o.model) args.push('-m', o.model)
   if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
   if (o.mode === 'full') args.push('--dangerously-bypass-approvals-and-sandbox')
-  else args.push('-c', o.mode === 'plan' ? 'sandbox_mode="read-only"' : 'sandbox_mode="workspace-write"')
+  else args.push('-c', isPlanMode(o.mode) ? 'sandbox_mode="read-only"' : 'sandbox_mode="workspace-write"')
   if (o.resume) args.push(o.resume)
   args.push('-') // o pedido vai pelo stdin
   return args
@@ -707,7 +715,7 @@ export function agyArgs(o: AgentSendOptions & { resume: string | null; prompt: s
   if (o.model) args.push('--model', o.model)
   if (o.effort) args.push('--effort', o.effort === 'xhigh' || o.effort === 'ultra' ? 'max' : o.effort === 'minimal' ? 'low' : o.effort)
   if (o.mode === 'full') args.push('--dangerously-skip-permissions')
-  else args.push('--mode', o.mode === 'plan' ? 'plan' : 'accept-edits')
+  else args.push('--mode', isPlanMode(o.mode) ? 'plan' : 'accept-edits')
   if (o.resume) args.push('--conversation', o.resume)
   return args
 }
@@ -1079,18 +1087,17 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
       : ''
-  const planExit = provider === 'codex' && clean.mode !== 'plan' && !!w.info.sessionId && (w.lastMode === 'plan' || w.lastMode === undefined)
+  const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
-  const modeNote =
-    clean.mode !== 'plan'
-      ? planExit
-        ? CODEX_PLAN_EXIT
+  const modeNote = !isPlanMode(clean.mode)
+    ? planExit
+      ? CODEX_PLAN_EXIT
+      : ''
+    : provider === 'codex'
+      ? codexPlanInstructions(clean.mode)
+      : provider === 'agy'
+        ? `<plan_format>\n${planFormat(clean.mode)}\n</plan_format>\n\n`
         : ''
-      : provider === 'codex'
-        ? CODEX_PLAN_INSTRUCTIONS
-        : provider === 'agy'
-          ? `<plan_format>\n${PLAN_TITLE}\n</plan_format>\n\n`
-          : ''
   const { prompt, inlineImages } = composeMessage(provider, intro + modeNote + text, attachments)
   const args =
     provider === 'claude'

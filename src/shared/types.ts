@@ -366,7 +366,8 @@ export interface ModelInfo {
 }
 
 /** plan: só lê e propõe um plano; safe: edita arquivos e roda comandos só dentro do projeto; full: sem perguntas nem sandbox */
-export type AgentMode = 'plan' | 'safe' | 'full'
+/** `checklist`: como `plan`, mas o plano termina com um checklist que o app marca durante a implementação */
+export type AgentMode = 'plan' | 'checklist' | 'safe' | 'full'
 
 /** Pedido para abrir a janela exclusiva de um agente */
 export interface AgentChatOpen {
@@ -469,6 +470,8 @@ export interface AgentTurn {
   costUsd?: number
   /** Modo em que o pedido foi enviado (em `plan`, ao terminar o app pergunta se deseja implementar) */
   mode?: AgentMode
+  /** Implementação de um plano com checklist: os itens, marcados conforme o agente avisa que concluiu */
+  checklist?: { text: string; done: boolean }[]
 }
 
 export interface GridSize {
@@ -570,6 +573,8 @@ export interface AgentSnapshot {
   lastTool?: string
   checks?: AgentChecks
   ask?: AgentAsk
+  /** Checklist da implementação em andamento (ou da última), para o gerenciador */
+  checklist?: { text: string; done: boolean }[]
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean

@@ -54,7 +54,8 @@ modelo local pelo Ollama.
 - Janela própria para conversar com Claude Code, Codex (ChatGPT) e Antigravity, dentro da pasta do projeto.
 - Escolha de modelo e esforço por conversa.
 - Modos de permissão, incluindo o modo Plano: o agente apresenta um plano para leitura e aprovação antes de
-  executar.
+  executar. No modo Plano com Checklist, o plano termina com um checklist que aparece na janela e no gerenciador
+  e vai sendo marcado conforme o agente conclui cada item.
 - Perguntas do agente viram cartões com opções.
 - Anexos: arquivos, imagens e conteúdo colado.
 - Enviar uma mensagem com o agente trabalhando, para redirecionar no meio da tarefa.

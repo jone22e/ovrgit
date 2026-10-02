@@ -287,6 +287,14 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               <small v-if="stalled(a)" class="warn ellipsis">sem saída há {{ ago(a.lastEventAt!) }}{{ a.lastTool ? ` · último: ${a.lastTool}` : '' }}</small>
               <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
             </span>
+            <ol v-if="a.checklist?.length" class="cl" @click.stop>
+              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, next: !it.done && a.checklist.slice(0, n).every((x) => x.done) }">
+                <span class="cl-box"><Icon v-if="it.done" name="check" :size="10" /></span><span class="ellipsis">{{ it.text }}</span>
+              </li>
+            </ol>
+          </span>
+          <span v-if="a.checklist?.length" class="cl-pill" :title="`Checklist: ${a.checklist.filter((i) => i.done).length} de ${a.checklist.length} itens concluídos`">
+            <Icon name="list" :size="11" /> {{ a.checklist.filter((i) => i.done).length }}/{{ a.checklist.length }}
           </span>
           <span class="ring" :class="{ stalled: stalled(a) }" :title="elapsedTitle(a)" />
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
@@ -320,6 +328,11 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
             </div>
             <p v-if="a.summary" class="result">{{ a.summary }}</p>
+            <ol v-if="a.checklist?.length" class="cl card-cl">
+              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done, open: !it.done }">
+                <span class="cl-box"><Icon v-if="it.done" name="check" :size="10" /></span><span>{{ it.text }}</span>
+              </li>
+            </ol>
             <div v-if="chips(a).length" class="chips">
               <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
             </div>
@@ -434,6 +447,18 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .item.sel, .card.sel { box-shadow: 0 0 0 1px var(--accent); }
 .item.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mod) 35%, var(--border)); }
 .warn { color: var(--mod); }
+/* checklist do plano: itens compactos; o da vez em destaque, os abertos no concluído ficam âmbar */
+.cl { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cl li { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); min-width: 0; }
+.cl li.done { text-decoration: line-through; color: var(--faint); }
+.cl li.next { color: var(--text); font-weight: 600; }
+.cl li.open { color: var(--mod); }
+.cl-box { display: inline-grid; place-items: center; width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid var(--faint); flex: none; color: var(--bg); }
+.cl li.done .cl-box { background: var(--add); border-color: var(--add); }
+.cl li.next .cl-box { border-color: var(--hunk); }
+.cl li.open .cl-box { border-color: var(--mod); }
+.card-cl { margin: 0 0 4px 18px; }
+.cl-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); flex: none; }
 /* anel de atividade: dois quartos girando enquanto há sinal do agente; sem saída, para e fica âmbar */
 .ring {
   width: 14px; height: 14px; border-radius: 50%; flex: none; box-sizing: border-box;

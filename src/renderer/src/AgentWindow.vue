@@ -12,6 +12,7 @@ import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
 import { summaryOf } from '@shared/summary'
+import { applyMarkers, CHECKLIST_PROGRESS, isPlanMode, parseChecklist } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
@@ -117,7 +118,7 @@ const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MOD
 /** Modo em uso quando o usuário ativou o Plano (menu ou /plan): é para ele que a aprovação do plano volta */
 const modeBeforePlan = ref<AgentMode | null>(null)
 function setMode(m: AgentMode) {
-  if (m === 'plan' && mode.value !== 'plan') modeBeforePlan.value = mode.value
+  if (isPlanMode(m) && !isPlanMode(mode.value)) modeBeforePlan.value = mode.value
   mode.value = m
 }
 const onDocClick = (e: MouseEvent) => {
@@ -220,8 +221,10 @@ const clean = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error
 /** Markdown do agente → HTML seguro. */
 /** Markdown da resposta. Os blocos ```question saem do texto: viram o cartão de perguntas enquanto ele está
  * ativo; em vezes já respondidas, ficam como texto comum (pergunta em negrito e opções em lista). */
+/** Marcadores do checklist ("[ok] 3"): o cartão já mostra; na conversa só poluem */
+const MARKERS = /^[ \t]*(?:\[(?:ok|x|concluído|concluido|done|falhou|erro|failed)\]|✅|❌)[ \t]*(?:item\s*|etapa\s*|passo\s*)?#?\d{1,2}[ \t]*$\n?/gim
 function md(text: string, card: boolean) {
-  const { text: rest, questions: qs } = splitQuestions(text)
+  const { text: rest, questions: qs } = splitQuestions(text.replace(MARKERS, ''))
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
   return withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
 }
@@ -272,7 +275,7 @@ const showAsk = computed(() => askOpen.value && !!question.value)
 /** A última vez foi em modo plano e terminou bem, com texto e sem perguntas do modelo: o plano está pronto */
 const planDone = computed(() => {
   const t = turns[turns.length - 1]
-  if (!t || t.running || running.value || t.error || t.mode !== 'plan' || questions.value.length) return false
+  if (!t || t.running || running.value || t.error || !isPlanMode(t.mode) || questions.value.length) return false
   return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
 })
 const showPlanAsk = computed(() => askOpen.value && planDone.value)
@@ -299,7 +302,7 @@ async function copyPlan() {
 /** Modo recomendado para implementar o plano: sempre "Controle Total" (o plano já foi lido e aprovado) */
 const approveMode = computed<AgentMode>(() => 'full')
 /** Modos que executam: cada um vira uma opção do cartão, com o da aprovação em primeiro */
-const PLAN_STARTS = computed(() => MODES.filter((m) => m.id !== 'plan').sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
+const PLAN_STARTS = computed(() => MODES.filter((m) => !isPlanMode(m.id)).sort((a, b) => Number(b.id === approveMode.value) - Number(a.id === approveMode.value)))
 /** O cartão aberto (pergunta ou aprovação do plano), no formato do AskCard: o mesmo vai para o gerenciador de agentes */
 const askModel = computed<AgentAsk | null>(() => {
   if (showAsk.value && question.value)
@@ -327,10 +330,16 @@ const askModel = computed<AgentAsk | null>(() => {
 /** Implementa o plano: troca o modo e pede na mesma sessão (o agente lembra o plano que acabou de escrever) */
 async function startPlan(m: AgentMode) {
   planOpen.value = false
+  // Plano com Checklist: os itens do plano viram o checklist da implementação, marcado conforme o agente avisa
+  const items = turns[turns.length - 1]?.mode === 'checklist' ? parseChecklist(planText.value) : []
   mode.value = m
   askOpen.value = false
-  await dispatch({ id: crypto.randomUUID(), body: 'Implemente o plano acima.', attachments: [] })
+  const body = items.length ? `Implemente o plano acima. ${CHECKLIST_PROGRESS}` : 'Implemente o plano acima.'
+  await dispatch({ id: crypto.randomUUID(), body, attachments: [] }, undefined, items.length ? items.map((i) => ({ ...i, done: false })) : undefined)
 }
+/** Checklist em andamento (ou o último), para o cartão fixo e o gerenciador */
+const checklist = computed(() => [...turns].reverse().find((t) => t.checklist?.length)?.checklist ?? null)
+const checklistDone = computed(() => checklist.value?.filter((i) => i.done).length ?? 0)
 /** Ajuste ao plano: continua em modo plano com o que o usuário escreveu */
 async function adjustPlan(raw: string) {
   const text = raw.trim()
@@ -411,6 +420,8 @@ function apply(ev: AgentChatEvent) {
     const last = t.blocks[t.blocks.length - 1]
     if (last?.kind === 'text') last.text += ev.delta
     else if (ev.delta.trim()) t.blocks.push({ kind: 'text', text: ev.delta.replace(/^\n+/, '') })
+    // implementação de um checklist: "[ok] N" no texto marca o item
+    if (t.checklist?.length) applyMarkers(t.checklist, t.blocks.flatMap((b) => (b.kind === 'text' ? [b.text] : [])).join('\n'))
   } else if (ev.type === 'thinking') {
     t.thinking = true
     t.activity = 'thinking'
@@ -651,9 +662,9 @@ function takePayload(text = draft.value): Payload | null {
 }
 
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
-async function dispatch(p: Payload, since?: number) {
+async function dispatch(p: Payload, since?: number, checklistItems?: { text: string; done: boolean }[]) {
   if (!info.value) return
-  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value }
+  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
@@ -865,7 +876,7 @@ interface SlashCommand {
   /** Nomes pelos quais o comando é achado (sem acento) */
   keys: string[]
 }
-const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
+const SLASH_KEYS: Record<AgentMode, string[]> = { plan: ['plan', 'plano', 'planejar'], checklist: ['checklist', 'check', 'lista'], safe: ['edicoes', 'edits', 'safe'], full: ['controle', 'total', 'full', 'liberado', 'tudo'] }
 const plain = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const slashClosed = ref(false)
 const slashIndex = ref(0)
@@ -876,12 +887,12 @@ const slashItems = computed<SlashCommand[]>(() => {
   if (slashQuery.value === null || slashClosed.value) return []
   const q = plain(slashQuery.value)
   return MODES.map((m) => {
-    const off = m.id === 'plan' && mode.value === 'plan'
+    const off = isPlanMode(m.id) && mode.value === m.id
     return {
       id: m.id,
       name: SLASH_KEYS[m.id][0],
       label: m.id === 'plan' ? 'Modo Plano' : m.label,
-      hint: off ? 'Desativar o modo Plano' : mode.value === m.id ? 'Modo em uso' : m.id === 'plan' ? 'Ativar o modo Plano: só lê e propõe, nada é alterado' : m.hint,
+      hint: off ? `Desativar o modo ${m.label}` : mode.value === m.id ? 'Modo em uso' : m.id === 'plan' ? 'Ativar o modo Plano: só lê e propõe, nada é alterado' : m.hint,
       icon: m.icon,
       keys: [...SLASH_KEYS[m.id], plain(m.label)]
     }
@@ -893,7 +904,7 @@ watch(draft, () => {
 })
 function runSlash(c: SlashCommand) {
   // /plan com o Plano já ligado desliga: volta ao modo que estava antes
-  if (c.id === 'plan' && mode.value === 'plan') setMode(modeBeforePlan.value ?? 'safe')
+  if (isPlanMode(c.id) && mode.value === c.id) setMode(modeBeforePlan.value ?? 'safe')
   else setMode(c.id)
   // só o comando sai do campo: o que já estava digitado antes dele fica
   draft.value = draft.value.replace(SLASH_TAIL, '').trimEnd()
@@ -1182,6 +1193,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,
     checks: last && !last.running ? checksOf(last.blocks, paths) : undefined,
     ask,
+    checklist: checklist.value ? checklist.value.map((i) => ({ ...i })) : undefined,
     canPin: !!sessionId.value && turns.length > 0,
     pinned: pinned.value
   }
@@ -1416,6 +1428,22 @@ onUnmounted(() => offs.forEach((f) => f()))
             </button>
           </div>
         </div>
+        <!-- Plano com Checklist: os itens do plano, marcados conforme o agente avisa que concluiu -->
+        <div v-if="t.checklist?.length" class="checklist" :class="{ complete: t.checklist.every((i) => i.done) }">
+          <div class="cl-head">
+            <Icon name="list" :size="13" />
+            <strong>Checklist</strong>
+            <span class="cl-count">{{ t.checklist.filter((i) => i.done).length }} de {{ t.checklist.length }}</span>
+            <span class="cl-bar"><i :style="{ width: `${(t.checklist.filter((i) => i.done).length / t.checklist.length) * 100}%` }" /></span>
+          </div>
+          <ol>
+            <li v-for="(it, n) in t.checklist" :key="n" :class="{ done: it.done, next: !it.done && t.running && t.checklist.slice(0, n).every((x) => x.done) }">
+              <span class="cl-box"><Icon v-if="it.done" name="check" :size="11" /></span>
+              <span class="cl-text">{{ it.text }}</span>
+            </li>
+          </ol>
+          <p v-if="!t.running && !t.checklist.every((i) => i.done)" class="cl-note faint">O agente terminou sem confirmar os itens em aberto.</p>
+        </div>
         <div class="answer">
           <template v-for="(b, i) in display(t)" :key="i">
             <div v-if="b.kind === 'text'" class="md" @click="onMdClick" v-html="md(b.text, t.id === questionTurn && showAsk)" />
@@ -1624,10 +1652,10 @@ onUnmounted(() => offs.forEach((f) => f()))
   border-bottom: 1px solid var(--border); background: var(--panel); -webkit-app-region: drag;
 }
 /* modo Plano (roxo) e Controle total (dourado): manchas suaves de luz espalhadas pelo cabeçalho, nas cores dos chips */
-.bar.mode-plan { --mode-tint: var(--hunk); }
+.bar.mode-plan, .bar.mode-checklist { --mode-tint: var(--hunk); }
 /* o dourado aparece mais que o roxo: entra mais diluído */
 .bar.mode-full { --mode-tint: color-mix(in srgb, var(--mod) 43%, transparent); }
-.bar.mode-plan, .bar.mode-full {
+.bar.mode-plan, .bar.mode-checklist, .bar.mode-full {
   background:
     radial-gradient(ellipse 38% 160% at 8% 0%, color-mix(in srgb, var(--mode-tint) 28%, transparent), transparent 70%),
     radial-gradient(ellipse 30% 140% at 42% 110%, color-mix(in srgb, var(--mode-tint) 16%, transparent), transparent 70%),
@@ -1688,6 +1716,22 @@ onUnmounted(() => offs.forEach((f) => f()))
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
+/* checklist da implementação: cartão discreto na cor do plano; o item da vez fica em destaque */
+.checklist { padding: 10px 14px 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--hunk) 35%, var(--border)); background: color-mix(in srgb, var(--hunk) 6%, var(--panel)); }
+.checklist.complete { border-color: color-mix(in srgb, var(--add) 40%, var(--border)); background: color-mix(in srgb, var(--add) 6%, var(--panel)); }
+.cl-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--hunk); }
+.checklist.complete .cl-head { color: var(--add); }
+.cl-count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.cl-bar { flex: 1; height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.cl-bar i { display: block; height: 100%; background: currentColor; transition: width 0.3s; }
+.checklist ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.checklist li { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.4; color: var(--text); }
+.checklist li.done .cl-text { color: var(--muted); text-decoration: line-through; }
+.checklist li.next .cl-text { font-weight: 600; }
+.cl-box { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-top: 2px; border-radius: 5px; border: 1.5px solid var(--faint); flex: none; color: var(--bg); }
+.checklist li.done .cl-box { background: var(--add); border-color: var(--add); }
+.checklist li.next .cl-box { border-color: var(--hunk); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hunk) 25%, transparent); }
+.cl-note { margin: 8px 0 0; font-size: 12px; }
 .user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 /* hora e copiar: aparecem ao passar o mouse na mensagem */
 .user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }
@@ -1845,7 +1889,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
 .chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
 .chip.full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }
-.chip.plan { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
+.chip.plan, .chip.checklist { color: var(--hunk); border-color: color-mix(in srgb, var(--hunk) 45%, var(--border)); }
 .chip.on { background: var(--hover); }
 .chip .chev { transform: rotate(-90deg); color: var(--faint); }
 .mode-menu { position: relative; flex: none; }

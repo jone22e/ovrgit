@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isPlanMode } from '@shared/checklist'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
 import type { AgentEffort, AgentMode, CliProvider, KnownModels, ProviderStatus } from '@shared/types'
@@ -17,7 +18,7 @@ const model = ref(prefs.model[prefs.provider])
 const effort = ref<AgentEffort>(prefs.effort[prefs.provider])
 // o Plano pode ser escolhido aqui, mas não vira o padrão: o diálogo sempre abre num modo que executa
 const START_MODES = MODES
-const mode = ref<AgentMode>(prefs.mode === 'plan' ? 'safe' : prefs.mode)
+const mode = ref<AgentMode>(isPlanMode(prefs.mode) ? 'safe' : prefs.mode)
 
 const known = ref<KnownModels | null>(null)
 const detected = ref<ProviderStatus | null>(null)
@@ -62,7 +63,7 @@ async function openAgent() {
     } else if (brief.value) firstMessage = brief.value.message
     localStorage.setItem(
       AGENT_PREFS,
-      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value === 'plan' ? (prefs.mode === 'plan' ? 'safe' : prefs.mode) : mode.value } satisfies AgentPrefs)
+      JSON.stringify({ provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: isPlanMode(mode.value) ? (isPlanMode(prefs.mode) ? 'safe' : prefs.mode) : mode.value } satisfies AgentPrefs)
     )
     await api.agentOpen({
       provider: provider.value,
