@@ -50,6 +50,23 @@ async function stop(s: Service) {
     busy.value = null
   }
 }
+/** Parados (ou encerrados): os que o "Iniciar todos" sobe, um de cada vez, na ordem cadastrada */
+const stopped = computed(() => services.value.filter((s) => stateOf(s.id)?.status !== 'running'))
+const startingAll = ref(false)
+async function startAll() {
+  if (startingAll.value) return
+  startingAll.value = true
+  const failed: string[] = []
+  for (const s of [...stopped.value]) {
+    try {
+      await api.serviceStart(s.id)
+    } catch {
+      failed.push(s.name)
+    }
+  }
+  startingAll.value = false
+  if (failed.length) toast(`Não deu para iniciar: ${failed.join(', ')}`)
+}
 function manage() {
   open.value = false
   state.showServices = true
@@ -79,7 +96,12 @@ onUnmounted(() => {
     <div v-if="open" class="menu">
       <div class="head">
         <strong>Serviços</strong>
-        <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
+        <span class="head-right">
+          <button v-if="stopped.length" type="button" class="ghost start-all" :disabled="startingAll" :title="`Inicia os ${stopped.length} serviços parados`" @click="startAll">
+            <Icon name="play" :size="10" /> {{ startingAll ? 'Iniciando…' : 'Iniciar todos' }}
+          </button>
+          <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
+        </span>
       </div>
       <label v-if="services.length > 3" class="search">
         <Icon name="search" :size="13" class="faint" />
@@ -124,9 +146,13 @@ onUnmounted(() => {
   display: flex; flex-direction: column; gap: 2px; animation: drop 0.12s ease-out;
 }
 @keyframes drop { from { opacity: 0; transform: translateY(-4px); } }
-.head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 10px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .head strong { font-size: 13px; }
 .head small { font-size: 11.5px; }
+.head-right { display: inline-flex; align-items: center; gap: 10px; }
+/* discreto: texto pequeno, só ganha cor ao passar o mouse */
+.start-all { height: 20px; padding: 0 6px; gap: 4px; border-radius: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.start-all:hover:not(:disabled) { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
 .search { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; margin: 0 0 4px; border-bottom: 1px solid var(--border); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12.5px; color: var(--text); }
 .search input:focus { box-shadow: none; }
