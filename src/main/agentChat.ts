@@ -47,6 +47,10 @@ interface AgentWin {
   titleToken?: symbol
   /** Processo do conceito visual (Modo Arquiteto), separado da conversa e possivelmente de outra IA */
   designChild?: ChildProcessWithoutNullStreams | null
+  /** Segundo plano: fechar a janela só a esconde, e o agente continua (o gerenciador é quem fecha de verdade) */
+  background?: boolean
+  /** Fechamento pedido pelo gerenciador: vale mesmo com o segundo plano ligado */
+  closing?: boolean
 }
 
 const wins = new Map<string, AgentWin>()
@@ -217,10 +221,23 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   // o título é da janela: a página não pode trocar
   win.on('page-title-updated', (e) => e.preventDefault())
   // lembra onde a janela ficou, para a conversa reabrir no mesmo lugar
-  win.on('close', () => {
+  win.on('close', (e) => {
+    const w = wins.get(uid)
+    // segundo plano: o X da janela só a esconde; a conversa e o agente seguem, e o gerenciador a traz de volta
+    if (w?.background && !w.closing && !quitting) {
+      e.preventDefault()
+      hideAgentWindow(uid)
+      return
+    }
     if (win.isMinimized() || win.isFullScreen()) return
-    setHistoryBounds(wins.get(uid)?.info.sessionId ?? null, win.getBounds())
+    setHistoryBounds(w?.info.sessionId ?? null, win.getBounds())
   })
+  // visível ou oculta: o gerenciador mostra a situação da janela
+  win.on('show', () => {
+    win.webContents.setBackgroundThrottling(true)
+    broadcastSnapshots()
+  })
+  win.on('hide', () => broadcastSnapshots())
   win.on('closed', () => {
     const w = wins.get(uid)
     if (w?.child) terminate(w.child, 'codex')
@@ -402,7 +419,10 @@ export function openSessionIds(): Set<string> {
 
 /** Resumos das janelas abertas, na ordem em que foram abertas */
 export function agentSnapshots(): AgentSnapshot[] {
-  return [...wins.values()].filter((w) => w.snap && !w.win.isDestroyed()).map((w) => w.snap!)
+  // a situação da janela (oculta, segundo plano) é do processo principal: entra aqui, por cima do resumo da janela
+  return [...wins.values()]
+    .filter((w) => w.snap && !w.win.isDestroyed())
+    .map((w) => ({ ...w.snap!, hidden: !w.win.isVisible(), background: !!w.background }))
 }
 
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
@@ -477,8 +497,35 @@ export function showAgentWindow(uid: string) {
 export function closeAgentWindows(uids: string[]) {
   for (const uid of uids) {
     const w = wins.get(String(uid))
-    if (w && !w.win.isDestroyed()) w.win.close()
+    if (!w || w.win.isDestroyed()) continue
+    w.closing = true
+    w.win.close()
   }
+}
+
+/** Esconde a janela sem fechar: a conversa continua viva e o agente segue trabalhando */
+export function hideAgentWindow(uid: string) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) return
+  // janela escondida não pode ficar lenta: é ela que recebe a resposta do agente e publica o resumo
+  w.win.webContents.setBackgroundThrottling(false)
+  if (w.win.isFullScreen()) {
+    w.win.once('leave-full-screen', () => !w.win.isDestroyed() && w.win.hide())
+    w.win.setFullScreen(false)
+  } else w.win.hide()
+}
+
+/** Mostra de novo as janelas escondidas (quem as traria de volta, o gerenciador, fechou) */
+export function revealHiddenAgentWindows() {
+  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
+}
+
+/** Liga ou desliga o segundo plano da janela (fechar passa a só esconder) */
+export function setAgentBackground(uid: string, on: boolean) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) return
+  w.background = !!on
+  broadcastSnapshots()
 }
 
 /**
@@ -1765,6 +1812,10 @@ export function cancelAgent(uid: string) {
   if (w?.child) terminate(w.child, w.info.provider)
 }
 
+/** O app está encerrando: as janelas em segundo plano também fecham */
+let quitting = false
+
 export function shutdownAgents() {
+  quitting = true
   for (const w of wins.values()) if (w.child) terminate(w.child, w.info.provider)
 }

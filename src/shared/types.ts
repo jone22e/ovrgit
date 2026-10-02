@@ -603,6 +603,9 @@ export interface AgentSnapshot {
   checklist?: ChecklistItem[]
   /** O que a conversa espera do usuário quando não há cartão para responder (ex.: aprovar o conceito visual) */
   note?: string
+  /** Situação da janela, preenchida pelo processo principal: escondida, e se fechar só a esconde (segundo plano) */
+  hidden?: boolean
+  background?: boolean
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean
@@ -1075,6 +1078,10 @@ export interface OvseerApi {
   agentShow(uid: string): Promise<void>
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
+  /** Esconde a janela do agente sem fechar (a conversa e o agente continuam) */
+  agentHide(uid: string): Promise<void>
+  /** Segundo plano: fechar a janela passa a só escondê-la, e o agente continua */
+  agentBackground(uid: string, on: boolean): Promise<void>
   /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */
   agentArrange(): Promise<void>
   /** Resumo das conversas com agentes de hoje */

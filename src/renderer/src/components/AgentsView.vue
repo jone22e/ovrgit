@@ -7,6 +7,7 @@ import { api, openNewAgent, saveSettings, setPane, state, toast } from '../store
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import AskCard from './AskCard.vue'
+import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import Modal from './Modal.vue'
@@ -302,6 +303,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <small v-if="a.status === 'waiting'" class="wait">esperando há {{ ago(a.since) }}</small>
             <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click="act(a, { type: 'retry' })">Retomar</button>
             <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+            <AgentWindowMenu :a="a" />
             <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
           </div>
 
@@ -347,6 +349,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
           <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
           <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+            <AgentWindowMenu :a="a" />
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
@@ -372,6 +375,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
               </span>
               <small class="faint when">{{ ago(a.since) }}</small>
               <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+            <AgentWindowMenu :a="a" />
               <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
             </div>
             <p v-if="a.summary" class="result">{{ a.summary }}</p>
@@ -400,6 +404,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </span>
             <small class="faint when">{{ ago(a.since) }}</small>
             <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+            <AgentWindowMenu :a="a" />
             <button class="ghost icon small go-btn" title="Abrir a janela" @click.stop="show(a)"><Icon name="external" :size="13" /></button>
           </div>
         </template>
@@ -414,6 +419,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
           </span>
           <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+            <AgentWindowMenu :a="a" />
           <Icon name="external" :size="13" class="go" />
         </div>
       </section>
@@ -539,7 +545,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 .item.has-cl > .dot { margin-top: 6px; }
 .item.has-cl > .cl-pill { margin-top: -1px; }
 .item.has-cl > .ring { margin-top: 3px; }
-.item.has-cl > .when, .item.has-cl > .go, .item.has-cl > .pin, .item.has-cl > .nudge { margin-top: 2px; }
+.item.has-cl > .when, .item.has-cl > .go, .item.has-cl > .pin, .item.has-cl > .win-menu, .item.has-cl > .nudge { margin-top: 2px; }
 .card-cl { margin: 0 0 4px 18px; }
 .cl-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); flex: none; }
 /* anel de atividade: dois quartos girando enquanto há sinal do agente; sem saída, para e fica âmbar */
@@ -587,6 +593,7 @@ strong.light { font-weight: 500; }
 /* alfinete: só aparece ao passar o mouse, ou sempre quando a conversa está fixada */
 .pin { opacity: 0; color: var(--faint); flex: none; }
 .item:hover .pin, .row:hover .pin, .pin.pinned { opacity: 1; }
+.item:hover :deep(.win-btn), .row:hover :deep(.win-btn) { opacity: 1; }
 .pin.pinned { color: var(--accent); }
 .go { color: var(--faint); flex: none; }
 .item:hover .go { color: var(--text); }

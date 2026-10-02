@@ -135,6 +135,8 @@ function createWindow() {
   win.once('ready-to-show', () => win?.show())
   win.on('closed', () => {
     win = null
+    // sem a janela principal, uma janela de agente escondida não teria mais como voltar: reaparece
+    agentChat.revealHiddenAgentWindows()
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
@@ -679,6 +681,8 @@ function registerIpc() {
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('agent:close', (_e, uids: string[]) => agentChat.closeAgentWindows(Array.isArray(uids) ? uids.map(String) : []))
+  ipcMain.handle('agent:hide', (_e, uid: string) => agentChat.hideAgentWindow(String(uid)))
+  ipcMain.handle('agent:background', (_e, uid: string, on: boolean) => agentChat.setAgentBackground(String(uid), !!on))
   ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
   ipcMain.handle('agent:daySummary', () => agentHistory.daySummary(agentChat.openSessionIds()))
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
