@@ -220,7 +220,7 @@ function tick() {
 
 // ---------- o que o mascote come ----------
 
-/** Abre um agente como o último usado, com os arquivos e o texto que o mascote recebeu */
+/** Começa um agente como o último usado, escondido, com os arquivos e o texto que o mascote recebeu */
 async function feed(o: { files?: string[]; text?: string }) {
   const base = agentBase()
   const cwd = [getSettings().lastProject, base?.cwd].find((p) => p && existsSync(p))
@@ -236,7 +236,9 @@ async function feed(o: { files?: string[]; text?: string }) {
     mode: 'full',
     cwd,
     firstMessage: o.text?.trim() || undefined,
-    firstFiles: o.files?.filter((p) => existsSync(p))
+    firstFiles: o.files?.filter((p) => existsSync(p)),
+    // a conversa começa sem janela na tela: o mascote e o gerenciador acompanham, e mostram quando pedido
+    hidden: true
   }
   if (!chat.firstMessage && !chat.firstFiles?.length) return
   await openAgentWindow(chat)

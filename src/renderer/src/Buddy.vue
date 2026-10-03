@@ -10,7 +10,8 @@ import type { AgentSnapshot, UsageInfo } from '@shared/types'
  * A janelinha se abre como uma "ilha" abaixo do recorte: ao passar o mouse, ao clicar (aí com o foco, para o
  * ⌘V chegar) ou quando algo é arrastado por cima. Aberta, mostra o painel dos agentes (quantos em cada
  * situação e as conversas mais urgentes) e a dica do que ele come: arquivos arrastados e o que for colado
- * viram um agente novo, depois de ele engolir. Tudo é proporcional ao raio do corpo, então as caras e as
+ * viram um agente novo, depois de ele engolir; a conversa começa escondida (sem janela na tela) e aparece
+ * aqui na lista, de onde um clique mostra a janela. Tudo é proporcional ao raio do corpo, então as caras e as
  * animações são as mesmas fechada e aberta.
  *
  * Leveza: a janela é transparente e cada repintura custa; por isso nada anima o tempo todo (só o piscar, de vez
@@ -520,7 +521,7 @@ onUnmounted(() => {
     <div v-if="expanded" class="panel" :class="{ empty: !snaps.length }" :style="{ left: `${geo.CX + geo.R + 18}px`, top: `${BAR + 10}px`, bottom: '10px' }">
       <div v-if="!snaps.length" class="none">
         <strong>Nenhum agente aberto</strong>
-        <small class="hint" :class="{ on: over }">{{ over ? 'Solte aqui' : 'Solte um arquivo aqui, ou cole com ⌘V, para abrir um' }}</small>
+        <small class="hint" :class="{ on: over }">{{ over ? 'Solte aqui' : 'Solte um arquivo aqui, ou cole com ⌘V, para começar um' }}</small>
         <!-- sem agente, o espaço mostra o uso das assinaturas -->
         <template v-if="usageDetail.length">
           <span class="rule" />

@@ -212,7 +212,10 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
       nodeIntegration: false
     }
   })
-  win.once('ready-to-show', () => win.show())
+  // conversa escondida (ex.: começada pelo mascote): a janela existe e trabalha, mas não aparece; sem a
+  // desaceleração que o sistema aplica a janelas invisíveis, porque é ela que fala com o agente
+  if (opts.hidden) win.webContents.setBackgroundThrottling(false)
+  win.once('ready-to-show', () => !opts.hidden && win.show())
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
@@ -252,7 +255,8 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     // cópias de imagens coladas/arrastadas desta conversa
     rmSync(blobDir(uid), { recursive: true, force: true })
   })
-  wins.set(uid, { info, win, child: null, turnDone: true, exited: null })
+  // escondida já nasce em segundo plano: fechar pelo X, depois de mostrada, só a esconde de novo
+  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden })
   lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   const load = () =>
     process.env.ELECTRON_RENDERER_URL

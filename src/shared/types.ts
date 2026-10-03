@@ -396,6 +396,8 @@ export interface AgentChatOpen {
   firstMessage?: string
   /** Arquivos que vão junto com a primeira tarefa (caminhos; os temporários ganham uma cópia da conversa) */
   firstFiles?: string[]
+  /** Começa escondida: a conversa roda sem janela na tela, em segundo plano (o gerenciador e o mascote a mostram quando pedido) */
+  hidden?: boolean
   /** Continuar uma conversa já existente (id da sessão do CLI) */
   resumeId?: string
 }

@@ -352,7 +352,7 @@ async function save() {
               <label class="switch-row">
                 <div>
                   <strong>Mascote no topo da tela</strong>
-                  <p>Um personagem ao lado do recorte da câmera, num pedaço preto que se emenda a ele, que acompanha o cursor e mostra como os agentes estão. Passe o mouse para ver os agentes; arraste um arquivo nele, ou clique nele e cole (⌘V), e ele engole e abre um agente com aquilo. Clique duplo abre o Ovseer.</p>
+                  <p>Um personagem ao lado do recorte da câmera, num pedaço preto que se emenda a ele, que acompanha o cursor e mostra como os agentes estão. Passe o mouse para ver os agentes; arraste um arquivo nele, ou clique nele e cole (⌘V), e ele engole e começa um agente com aquilo, sem abrir a janela (acompanhe pela ilha ou pelo gerenciador). Clique duplo abre o Ovseer.</p>
                 </div>
                 <input type="checkbox" class="switch" :checked="!!state.settings?.buddy" @change="toggleBuddy(($event.target as HTMLInputElement).checked)" />
               </label>
