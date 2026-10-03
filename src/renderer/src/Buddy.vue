@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { AgentSnapshot } from '@shared/types'
+import type { AgentSnapshot, UsageInfo } from '@shared/types'
 
 /**
  * O mascote: uma bolinha com dois olhos que seguem o cursor, no topo da tela ao lado do recorte da câmera,
@@ -138,13 +138,44 @@ function openAgent(uid: string) {
   api.buddyExpand(false)
 }
 
+// ---------- uso das assinaturas: à esquerda do recorte, com a barra fechada (e na ilha, por assinatura) ----------
+// O mesmo dado do chip do cabeçalho (média semanal das assinaturas com dado), lido do cache do app a cada
+// 5 minutos e quando a ilha abre; nada de consulta por conta própria.
+const usage = ref<UsageInfo | null>(null)
+let usageTimer: ReturnType<typeof setInterval> | null = null
+async function loadUsage() {
+  try {
+    usage.value = await api.usage()
+  } catch {
+    /* sem dado: não mostra */
+  }
+}
+const usageRows = computed(() => {
+  const u = usage.value
+  if (!u) return []
+  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const).filter((r) => r[2]?.week).map((r) => ({ id: r[0], name: r[1], pct: Math.round(r[2]!.week!.pct) }))
+})
+const weekAvg = computed(() => (usageRows.value.length ? usageRows.value.reduce((s, r) => s + r.pct, 0) / usageRows.value.length : null))
+const usageTone = computed(() => (weekAvg.value === null ? '' : weekAvg.value >= 90 ? 'hot' : weekAvg.value >= 70 ? 'warm' : ''))
+/** Comprimento do anel (2πr, r = 6.5) */
+const RING = 2 * Math.PI * 6.5
+/** Onde o anel e o número ficam: à esquerda do recorte, encostados nele, só com a barra fechada */
+const usagePos = computed(() => {
+  const g = geo.value
+  const right = g.W / 2 - NOTCH / 2 - 8
+  return { ring: right - 30, text: right - 20, y: g.H / 2 }
+})
+
 // ---------- abrir e fechar a ilha ----------
 /**
  * Passar o mouse abre a ilha (como no NotchNook), sem tomar o foco; sair fecha. Um clique prende a ilha aberta
  * e dá o foco (para o ⌘V); aí só Esc, outro clique ou perder o foco fecham.
  */
 const pinned = ref(false)
-watch(expanded, (on) => !on && (pinned.value = false))
+watch(expanded, (on) => {
+  if (on) loadUsage()
+  else pinned.value = false
+})
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 function onEnter() {
   if (expanded.value) return
@@ -323,6 +354,8 @@ onMounted(() => {
   offs.push(api.onBuddyCursor((p) => (cursor.value = p)))
   offs.push(api.onAgentSnapshots(onSnaps))
   api.agentSnapshots().then(onSnaps).catch(() => undefined)
+  loadUsage()
+  usageTimer = setInterval(loadUsage, 5 * 60_000)
   scheduleBlink()
   window.addEventListener('keydown', onKey)
   window.addEventListener('mouseup', onUp)
@@ -333,6 +366,7 @@ onUnmounted(() => {
   if (blinkTimer) clearTimeout(blinkTimer)
   if (happyTimer) clearTimeout(happyTimer)
   if (phaseTimer) clearInterval(phaseTimer)
+  if (usageTimer) clearInterval(usageTimer)
   if (overTimer) clearTimeout(overTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
   if (hoverTimer) clearTimeout(hoverTimer)
@@ -369,6 +403,12 @@ onUnmounted(() => {
       </defs>
       <!-- o pedaço preto que se emenda ao recorte da câmera, com os cantos de baixo arredondados -->
       <path class="plate" :d="`M0 0 H${geo.W} V${geo.H - geo.CORNER} Q${geo.W} ${geo.H} ${geo.W - geo.CORNER} ${geo.H} H${geo.CORNER} Q0 ${geo.H} 0 ${geo.H - geo.CORNER} Z`" />
+      <!-- uso das assinaturas (média semanal), à esquerda do recorte, com a barra fechada -->
+      <g v-if="!expanded && weekAvg !== null" class="usage" :class="usageTone">
+        <circle class="ring-bg" :cx="usagePos.ring" :cy="usagePos.y" r="6.5" />
+        <circle class="ring-fill" :cx="usagePos.ring" :cy="usagePos.y" r="6.5" :stroke-dasharray="`${(Math.max(0, Math.min(100, weekAvg)) / 100) * RING} ${RING}`" :style="{ transformOrigin: `${usagePos.ring}px ${usagePos.y}px` }" />
+        <text class="pct" :x="usagePos.text" :y="usagePos.y + 4" text-anchor="start">{{ Math.round(weekAvg) }}%</text>
+      </g>
       <!-- corpo: inclina e se desloca um pouco na direção do cursor -->
       <g class="body" :style="{ transform: `translate(${look.dx}px, ${look.dy - (over && phase % 2 ? 5 * geo.K : 0)}px) rotate(${look.tilt}deg)`, transformOrigin: `${geo.CX}px ${geo.CY}px` }">
         <circle :cx="geo.CX" :cy="geo.CY" :r="geo.R" fill="url(#skin)" />
@@ -441,9 +481,11 @@ onUnmounted(() => {
           <span class="s">{{ a.status === 'waiting' && a.ask ? 'esperando resposta' : a.status === 'live' && a.activity ? a.activity : STATUS_LABEL[a.status] }}</span>
           <span class="w">{{ ago(a.since) }}</span>
         </button>
-        <small v-if="snaps.length > urgent.length" class="more">+{{ snaps.length - urgent.length }} no Ovseer</small>
       </template>
-      <small class="foot" :class="{ on: over }">{{ over ? 'Solte aqui' : 'Solte um arquivo, ou cole com ⌘V, para abrir um agente' }}</small>
+      <div class="foot">
+        <small class="hint" :class="{ on: over }">{{ over ? 'Solte aqui' : `${snaps.length > urgent.length ? `+${snaps.length - urgent.length} no Ovseer · ` : ''}Solte um arquivo, ou cole com ⌘V` }}</small>
+        <small v-if="usageRows.length" class="use" title="Uso semanal das assinaturas">{{ usageRows.map((r) => `${r.name} ${r.pct}%`).join(' · ') }}</small>
+      </div>
     </div>
   </div>
 </template>
@@ -457,8 +499,8 @@ svg { display: block; overflow: visible; }
 .panel { position: absolute; right: 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; font: 12px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.9); }
 .panel .none { display: flex; flex-direction: column; gap: 4px; margin: auto 0; }
 .panel .none strong { font-size: 13px; }
-.panel .none small, .panel .foot, .panel .more { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
-.counts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 3px; font-size: 11.5px; color: rgba(255, 255, 255, 0.75); }
+.panel .none small, .panel .foot { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
+.counts { display: flex; gap: 10px; margin-bottom: 3px; font-size: 11.5px; color: rgba(255, 255, 255, 0.75); overflow: hidden; }
 .c { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .c i, .row i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); flex: none; }
 .c.live i, .row i.live { background: #2f7cf6; }
@@ -470,8 +512,17 @@ svg { display: block; overflow: visible; }
 .row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12px; }
 .row .s { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, 0.55); font-size: 11px; }
 .row .w { flex: none; color: rgba(255, 255, 255, 0.4); font-size: 11px; font-variant-numeric: tabular-nums; }
-.panel .foot { margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.panel .foot.on { color: #fff; }
+.panel .foot { display: flex; align-items: baseline; gap: 10px; margin-top: auto; }
+.panel .foot .hint { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel .foot .hint.on { color: #fff; }
+.panel .foot .use { flex: none; color: rgba(255, 255, 255, 0.45); white-space: nowrap; }
+
+/* uso das assinaturas: anel e número, como o chip do cabeçalho */
+.usage .ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.18); stroke-width: 2.5; }
+.usage .ring-fill { fill: none; stroke: #dfe3ea; stroke-width: 2.5; stroke-linecap: round; transform: rotate(-90deg); }
+.usage.warm .ring-fill { stroke: #f08a2d; }
+.usage.hot .ring-fill { stroke: #e0443e; }
+.usage .pct { font: 600 11px system-ui, -apple-system, sans-serif; fill: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums; }
 
 /* o mascote */
 .body { transition: transform 0.12s ease-out; }

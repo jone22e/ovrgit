@@ -22,7 +22,7 @@ import { getSettings, saveSettings } from './settings'
 const NOTCH_RATIO = 5.8
 const NOTCH_SLACK = 12
 /** A ilha aberta (abaixo do recorte): o mascote grande à esquerda e o painel dos agentes à direita */
-const OPEN = { width: 540, height: 184 }
+const OPEN = { width: 540, height: 196 }
 /**
  * Consulta do cursor: 20 vezes por segundo enquanto ele se move (o suficiente para o olhar parecer contínuo) e
  * 5 por segundo quando está parado. A página só recebe quando o olhar mudaria de fato: perto, a cada pixel;
