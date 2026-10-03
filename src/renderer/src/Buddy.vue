@@ -42,12 +42,13 @@ const geo = computed(() => {
     R = Math.min(36, (H - BAR - 36) / 2)
     BR = Math.round(R * 0.4)
     CX = 16 + 8 + R
-    CY = BAR + (H - BAR) / 2 - 4
+    CY = BAR + (H - BAR) / 2
   } else {
-    // fechada: logo à direita do recorte (o balão fica do lado de fora, onde o recorte não o corta)
+    // fechada: na extensão à direita do recorte, a bolinha na ponta e o balão entre ela e o recorte, com a
+    // mesma folga que o uso tem na extensão à esquerda
     R = Number(params.get('r')) || 13
     BR = Number(params.get('br')) || 7
-    CX = W / 2 + NOTCH / 2 + 6 + R
+    CX = W / 2 + NOTCH / 2 + 12 + 2 * BR + 2 + R
     CY = H / 2
   }
   return {
@@ -62,8 +63,8 @@ const geo = computed(() => {
     EYE_W: R * 0.28,
     EYE_H: R * 0.56,
     STROKE: Math.max(1.2, R * 0.09),
-    /** Balão: fechada, à direita do corpo, longe do recorte; aberta, no alto à esquerda do corpo */
-    BX: expanded.value ? CX - R + 6 : CX + R + BR + 2,
+    /** Balão: fechada, à esquerda do corpo (entre ele e o recorte); aberta, no alto à esquerda do corpo */
+    BX: expanded.value ? CX - R + 6 : CX - R - 2 - BR,
     BY: expanded.value ? CY - R + 6 : CY - R * 0.3,
     /** Proporção para as animações que andam em px (pulinho) */
     K: R / 54,
@@ -156,14 +157,42 @@ const usageRows = computed(() => {
   return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const).filter((r) => r[2]?.week).map((r) => ({ id: r[0], name: r[1], pct: Math.round(r[2]!.week!.pct) }))
 })
 const weekAvg = computed(() => (usageRows.value.length ? usageRows.value.reduce((s, r) => s + r.pct, 0) / usageRows.value.length : null))
+/** Quando a janela de uso zera, como no chip do cabeçalho */
+function resets(w: { resetsAt: number | null } | null): string {
+  if (!w?.resetsAt) return ''
+  const ms = w.resetsAt - Date.now()
+  if (ms <= 0) return 'zera em instantes'
+  const h = Math.floor(ms / 3600_000)
+  const m = Math.round((ms % 3600_000) / 60_000)
+  if (h >= 24) return `zera em ${Math.floor(h / 24)} d ${h % 24} h`
+  return h ? `zera em ${h} h ${m} min` : `zera em ${m} min`
+}
+/** Sem agente aberto, a ilha mostra o uso por assinatura e por janela (semana e 5 horas) */
+const usageDetail = computed(() => {
+  const u = usage.value
+  if (!u) return []
+  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const)
+    .filter((r) => r[2] && (r[2].week || r[2].fiveHour))
+    .map((r) => ({
+      id: r[0],
+      name: r[1],
+      windows: ([['Semana', r[2]!.week], ['5 horas', r[2]!.fiveHour]] as const)
+        .filter((w) => w[1])
+        .map((w) => ({ label: w[0], pct: Math.round(w[1]!.pct), resets: resets(w[1]) }))
+    }))
+})
+const tone = (pct: number) => (pct >= 90 ? 'hot' : pct >= 70 ? 'warm' : '')
 const usageTone = computed(() => (weekAvg.value === null ? '' : weekAvg.value >= 90 ? 'hot' : weekAvg.value >= 70 ? 'warm' : ''))
-/** Comprimento do anel (2πr, r = 6.5) */
-const RING = 2 * Math.PI * 6.5
-/** Onde o anel e o número ficam: à esquerda do recorte, encostados nele, só com a barra fechada */
+/** Comprimento do anel (2πr, r = 7) */
+const RING = 2 * Math.PI * 7
+/**
+ * Onde o anel e o número ficam, com a barra fechada: na extensão à esquerda do recorte, com a mesma folga que
+ * o mascote tem do outro lado (anel de raio 7 e o número logo depois, na altura do meio da barra)
+ */
 const usagePos = computed(() => {
   const g = geo.value
-  const right = g.W / 2 - NOTCH / 2 - 8
-  return { ring: right - 30, text: right - 20, y: g.H / 2 }
+  const left = g.W / 2 - NOTCH / 2 - (g.W - NOTCH) / 2 + 12
+  return { ring: left + 7, text: left + 20, y: g.H / 2 }
 })
 
 // ---------- abrir e fechar a ilha ----------
@@ -431,9 +460,9 @@ onUnmounted(() => {
       <path class="plate" :d="`M0 0 H${geo.W} V${geo.H - geo.CORNER} Q${geo.W} ${geo.H} ${geo.W - geo.CORNER} ${geo.H} H${geo.CORNER} Q0 ${geo.H} 0 ${geo.H - geo.CORNER} Z`" />
       <!-- uso das assinaturas (média semanal), à esquerda do recorte, com a barra fechada -->
       <g v-if="!expanded && weekAvg !== null" class="usage" :class="usageTone">
-        <circle class="ring-bg" :cx="usagePos.ring" :cy="usagePos.y" r="6.5" />
-        <circle class="ring-fill" :cx="usagePos.ring" :cy="usagePos.y" r="6.5" :stroke-dasharray="`${(Math.max(0, Math.min(100, weekAvg)) / 100) * RING} ${RING}`" :style="{ transformOrigin: `${usagePos.ring}px ${usagePos.y}px` }" />
-        <text class="pct" :x="usagePos.text" :y="usagePos.y + 4" text-anchor="start">{{ Math.round(weekAvg) }}%</text>
+        <circle class="ring-bg" :cx="usagePos.ring" :cy="usagePos.y" r="7" />
+        <circle class="ring-fill" :cx="usagePos.ring" :cy="usagePos.y" r="7" :stroke-dasharray="`${(Math.max(0, Math.min(100, weekAvg)) / 100) * RING} ${RING}`" :style="{ transformOrigin: `${usagePos.ring}px ${usagePos.y}px` }" />
+        <text class="pct" :x="usagePos.text" :y="usagePos.y" dominant-baseline="central" text-anchor="start">{{ Math.round(weekAvg) }}%</text>
       </g>
       <!-- corpo: inclina e se desloca um pouco na direção do cursor -->
       <g class="body" :style="{ transform: `translate(${look.dx}px, ${look.dy - (over && phase % 2 ? 5 * geo.K : 0)}px) rotate(${look.tilt}deg)`, transformOrigin: `${geo.CX}px ${geo.CY}px` }">
@@ -488,10 +517,25 @@ onUnmounted(() => {
       </g>
     </svg>
     <!-- ilha aberta: o painel dos agentes, à direita do mascote -->
-    <div v-if="expanded" class="panel" :style="{ left: `${geo.CX + geo.R + 18}px`, top: `${BAR + 8}px`, bottom: '8px' }">
+    <div v-if="expanded" class="panel" :class="{ empty: !snaps.length }" :style="{ left: `${geo.CX + geo.R + 18}px`, top: `${BAR + 10}px`, bottom: '10px' }">
       <div v-if="!snaps.length" class="none">
         <strong>Nenhum agente aberto</strong>
-        <small>Solte um arquivo aqui, ou cole com ⌘V, para abrir um.</small>
+        <small class="hint" :class="{ on: over }">{{ over ? 'Solte aqui' : 'Solte um arquivo aqui, ou cole com ⌘V, para abrir um' }}</small>
+        <!-- sem agente, o espaço mostra o uso das assinaturas -->
+        <template v-if="usageDetail.length">
+          <span class="rule" />
+          <div class="ugrid">
+            <template v-for="r in usageDetail" :key="r.id">
+              <template v-for="(w, i) in r.windows" :key="w.label">
+                <span class="uname">{{ i === 0 ? r.name : '' }}</span>
+                <span class="ulbl">{{ w.label }}</span>
+                <span class="track" :class="tone(w.pct)"><span class="fill" :class="r.id" :style="{ width: `${Math.max(2, w.pct)}%` }" /></span>
+                <span class="unum">{{ w.pct }}%</span>
+                <span class="ureset">{{ w.resets }}</span>
+              </template>
+            </template>
+          </div>
+        </template>
       </div>
       <template v-else>
         <div class="counts">
@@ -508,7 +552,7 @@ onUnmounted(() => {
           <span class="w">{{ ago(a.since) }}</span>
         </button>
       </template>
-      <div class="foot">
+      <div v-if="snaps.length" class="foot">
         <small class="hint" :class="{ on: over }">{{ over ? 'Solte aqui' : `${snaps.length > urgent.length ? `+${snaps.length - urgent.length} no Ovseer · ` : ''}Solte um arquivo, ou cole com ⌘V` }}</small>
         <small v-if="usageRows.length" class="use" title="Uso semanal das assinaturas">{{ usageRows.map((r) => `${r.name} ${r.pct}%`).join(' · ') }}</small>
       </div>
@@ -522,33 +566,47 @@ svg { display: block; overflow: visible; }
 .plate { fill: #000; }
 
 /* painel da ilha */
-.panel { position: absolute; right: 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; font: 12px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.9); }
-.panel .none { display: flex; flex-direction: column; gap: 4px; margin: auto 0; }
-.panel .none strong { font-size: 13px; }
-.panel .none small, .panel .foot { font-size: 11px; color: rgba(255, 255, 255, 0.5); }
-.counts { display: flex; gap: 10px; margin-bottom: 3px; font-size: 11.5px; color: rgba(255, 255, 255, 0.75); overflow: hidden; }
+.panel { position: absolute; right: 16px; display: flex; flex-direction: column; gap: 2px; min-width: 0; font: 12px system-ui, -apple-system, sans-serif; color: rgba(255, 255, 255, 0.9); }
+.panel .none { display: flex; flex-direction: column; gap: 3px; }
+.panel .none strong { font-size: 13px; line-height: 16px; }
+.panel .none .hint { font-size: 11px; line-height: 14px; color: rgba(255, 255, 255, 0.5); }
+.panel .none .hint.on { color: #fff; }
+.panel .rule { height: 1px; margin: 5px 0 6px; background: rgba(255, 255, 255, 0.12); }
+/* uso por assinatura e janela: colunas fixas, a barra elástica, o percentual alinhado à direita e o "zera em" inteiro */
+.ugrid { display: grid; grid-template-columns: 58px 52px minmax(56px, 1fr) 36px auto; align-items: center; column-gap: 10px; row-gap: 8px; font-size: 11.5px; line-height: 14px; color: rgba(255, 255, 255, 0.72); }
+.ugrid .uname { font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+.ugrid .unum { font-variant-numeric: tabular-nums; text-align: right; color: rgba(255, 255, 255, 0.92); }
+.ugrid .ureset { font-size: 11px; color: rgba(255, 255, 255, 0.45); white-space: nowrap; }
+.track { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.track .fill { display: block; height: 100%; border-radius: 3px; background: #dfe3ea; }
+.track .fill.claude { background: #d9a66b; }
+.track .fill.codex { background: #6fcf97; }
+.track.warm .fill { background: #f08a2d; }
+.track.hot .fill { background: #e0443e; }
+/* com agentes: os totais, as três conversas mais urgentes e a linha de baixo */
+.counts { display: flex; gap: 12px; height: 18px; align-items: center; margin-bottom: 2px; font-size: 11.5px; color: rgba(255, 255, 255, 0.75); overflow: hidden; }
 .c { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .c i, .row i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); flex: none; }
 .c.live i, .row i.live { background: #2f7cf6; }
 .c.waiting i, .row i.waiting { background: #f08a2d; }
 .c.error i, .row i.error { background: #e0443e; }
 .c.done i, .row i.done { background: #3ac36b; }
-.row { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.row { display: flex; align-items: center; gap: 8px; height: 23px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 7px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; }
 .row:hover { background: rgba(255, 255, 255, 0.1); }
 .row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12px; }
-.row .s { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, 0.55); font-size: 11px; }
-.row .w { flex: none; color: rgba(255, 255, 255, 0.4); font-size: 11px; font-variant-numeric: tabular-nums; }
-.panel .foot { display: flex; align-items: baseline; gap: 10px; margin-top: auto; }
+.row .s { flex: none; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: rgba(255, 255, 255, 0.55); font-size: 11px; }
+.row .w { flex: none; width: 42px; text-align: right; color: rgba(255, 255, 255, 0.4); font-size: 11px; font-variant-numeric: tabular-nums; }
+.panel .foot { display: flex; align-items: baseline; gap: 10px; margin-top: auto; font-size: 11px; color: rgba(255, 255, 255, 0.5); }
 .panel .foot .hint { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel .foot .hint.on { color: #fff; }
 .panel .foot .use { flex: none; color: rgba(255, 255, 255, 0.45); white-space: nowrap; }
 
 /* uso das assinaturas: anel e número, como o chip do cabeçalho */
-.usage .ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.18); stroke-width: 2.5; }
-.usage .ring-fill { fill: none; stroke: #dfe3ea; stroke-width: 2.5; stroke-linecap: round; transform: rotate(-90deg); }
+.usage .ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.16); stroke-width: 2; }
+.usage .ring-fill { fill: none; stroke: #dfe3ea; stroke-width: 2; stroke-linecap: round; transform: rotate(-90deg); }
 .usage.warm .ring-fill { stroke: #f08a2d; }
 .usage.hot .ring-fill { stroke: #e0443e; }
-.usage .pct { font: 600 11px system-ui, -apple-system, sans-serif; fill: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums; }
+.usage .pct { font: 600 11.5px system-ui, -apple-system, sans-serif; fill: rgba(255, 255, 255, 0.88); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 
 /* o mascote */
 .body { transition: transform 0.12s ease-out; }

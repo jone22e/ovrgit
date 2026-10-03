@@ -74,8 +74,10 @@ function layout(): { x: number; y: number; width: number; height: number; notch:
   const notch = hasNotch ? Math.round(bar * NOTCH_RATIO) + NOTCH_SLACK : 0
   const r = hasNotch ? 13 : 9
   const br = hasNotch ? 7 : 5
-  // de cada lado do recorte: folga, o corpo, o balão (do lado de fora, longe do recorte) e a margem do preto
-  const width = notch + 2 * (6 + 2 * r + 2 + 2 * br + 8)
+  // o preto se estende igual dos dois lados do recorte: à esquerda o uso das assinaturas (anel e número), à
+  // direita o mascote e o balão, cada grupo centralizado na sua extensão com a mesma folga em volta
+  const ext = 12 + 2 * r + 2 + 2 * br + 12
+  const width = notch + 2 * ext
   return { x: Math.round(d.bounds.x + d.bounds.width / 2 - width / 2), y: d.bounds.y, width, height: bar, notch, r, br }
 }
 
