@@ -170,26 +170,51 @@ const usagePos = computed(() => {
 /**
  * Passar o mouse abre a ilha (como no NotchNook), sem tomar o foco; sair fecha. Um clique prende a ilha aberta
  * e dá o foco (para o ⌘V); aí só Esc, outro clique ou perder o foco fecham.
+ *
+ * Abrir a ilha redimensiona a janela debaixo do mouse, e nisso o sistema costuma mandar um "saiu" seguido de um
+ * "entrou" (às vezes só o "saiu"). Por isso o fechar não confia só no `mouseleave`: ele espera um instante e
+ * confere, pela posição do cursor que o processo principal manda, se o mouse está mesmo fora da janela. E, se
+ * o cursor sair sem nenhum `mouseleave`, a própria posição fecha a ilha.
  */
 const pinned = ref(false)
 watch(expanded, (on) => {
   if (on) loadUsage()
   else pinned.value = false
 })
+/** O cursor está dentro da janela (pela posição que chega do processo principal) */
+const insideWindow = computed(() => {
+  const c = cursor.value
+  const g = geo.value
+  return c.x >= -2 && c.x <= g.W + 2 && c.y >= -2 && c.y <= g.H + 2
+})
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let awayTimer: ReturnType<typeof setTimeout> | null = null
+function closeIfAway() {
+  if (awayTimer) clearTimeout(awayTimer)
+  awayTimer = setTimeout(() => {
+    awayTimer = null
+    if (expanded.value && !over.value && !anim.value && !pinned.value && !insideWindow.value) api.buddyExpand(false)
+  }, 300)
+}
 function onEnter() {
-  if (expanded.value) return
   if (hoverTimer) clearTimeout(hoverTimer)
-  hoverTimer = setTimeout(() => api.buddyExpand(true), 350)
+  hoverTimer = null
+  if (awayTimer) clearTimeout(awayTimer)
+  awayTimer = null
+  if (expanded.value) return
+  hoverTimer = setTimeout(() => {
+    hoverTimer = null
+    if (!expanded.value) api.buddyExpand(true)
+  }, 350)
 }
 function onLeave() {
   if (hoverTimer) clearTimeout(hoverTimer)
   hoverTimer = null
-  if (!expanded.value || over.value || pinned.value) return
-  hoverTimer = setTimeout(() => {
-    if (expanded.value && !over.value && !anim.value && !pinned.value) api.buddyExpand(false)
-  }, 300)
+  if (expanded.value && !over.value && !pinned.value) closeIfAway()
 }
+watch(insideWindow, (inside) => {
+  if (!inside && expanded.value && !over.value && !pinned.value) closeIfAway()
+})
 
 // ---------- movimentos contínuos, em poucos quadros por segundo ----------
 // Uma animação CSS infinita em SVG repinta a janela transparente a cada quadro (60 por segundo, mesmo com
@@ -370,6 +395,7 @@ onUnmounted(() => {
   if (overTimer) clearTimeout(overTimer)
   if (leaveTimer) clearTimeout(leaveTimer)
   if (hoverTimer) clearTimeout(hoverTimer)
+  if (awayTimer) clearTimeout(awayTimer)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('mouseup', onUp)
   window.removeEventListener('resize', onResize)
