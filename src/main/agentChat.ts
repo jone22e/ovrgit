@@ -577,16 +577,16 @@ export function arrangeAgentWindows() {
 }
 
 /**
- * Organiza as janelas de agente nas células escolhidas no grid do gerenciador, uma janela por célula, na tela da
- * janela principal. Janelas e células seguem a ordem de leitura (de cima para baixo, da esquerda para a direita),
+ * Organiza as janelas de agente nas áreas escolhidas no grid do gerenciador, uma janela por área, na tela da
+ * janela principal. Janelas e áreas seguem a ordem de leitura (de cima para baixo, da esquerda para a direita),
  * para cada janela andar o mínimo; as de outra tela vêm para esta. Sobrando janela, as últimas ficam onde estão.
  */
-export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; row: number }[], fallback?: BrowserWindow | null) {
+export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[], fallback?: BrowserWindow | null) {
   const display = displayFor('', fallback)
   if (!display) return
   const { cols, rows } = fitGrid(grid, display.workArea)
   const slots = cells
-    .map((c) => ({ col: Math.floor(c.col), row: Math.floor(c.row) }))
+    .map((c) => ({ col: Math.floor(c.col), row: Math.floor(c.row), colSpan: Math.max(1, Math.floor(c.colSpan ?? 1)), rowSpan: Math.max(1, Math.floor(c.rowSpan ?? 1)) }))
     .filter((c, i, all) => c.col >= 0 && c.col < cols && c.row >= 0 && c.row < rows && all.findIndex((x) => x.col === c.col && x.row === c.row) === i)
     .sort((a, b) => a.row - b.row || a.col - b.col)
   const list = [...wins.values()]
@@ -595,7 +595,7 @@ export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; ro
   list.slice(0, slots.length).forEach((w, i) => {
     if (w.win.isFullScreen()) w.win.setFullScreen(false)
     if (w.win.isMaximized()) w.win.unmaximize()
-    w.win.setBounds(gridBounds(display.workArea, { cols, rows, col: slots[i].col, colSpan: 1, row: slots[i].row, rowSpan: 1 }), true)
+    w.win.setBounds(gridBounds(display.workArea, { cols, rows, ...slots[i] }), true)
   })
 }
 

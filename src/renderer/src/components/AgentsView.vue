@@ -215,8 +215,8 @@ async function arrange() {
   if (gridOpen.value) gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
 }
 
-/** As janelas vão para as células escolhidas no grid, uma por célula */
-async function arrangeInto(cells: { col: number; row: number }[]) {
+/** As janelas vão para as áreas escolhidas no grid, uma por área */
+async function arrangeInto(cells: { col: number; row: number; colSpan: number; rowSpan: number }[]) {
   await api.agentArrangeInto({ ...shownGrid.value }, cells).catch(() => undefined)
   gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
 }

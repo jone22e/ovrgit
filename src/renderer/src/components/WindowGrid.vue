@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { GRID_LIMITS, normalizeGrid } from '@shared/grid'
+import { GRID_LIMITS, normalizeGrid, tileArea, type GridArea } from '@shared/grid'
 import type { GridCell, GridPlacement, GridSize } from '@shared/types'
 import Icon from './Icon.vue'
 
@@ -11,16 +11,16 @@ import Icon from './Icon.vue'
  */
 /** Tamanho do grid (colunas × linhas): quem abre o menu carrega e guarda; aqui só exibe e altera */
 const size = defineModel<GridSize>({ required: true })
-const emit = defineEmits<{ place: [p: GridPlacement]; arrange: [cells: { col: number; row: number }[]] }>()
+const emit = defineEmits<{ place: [p: GridPlacement]; arrange: [areas: GridArea[]] }>()
 /** Células já cobertas por janelas de agente: as de outro agente ficam trancadas, as desta janela só marcadas */
 /** `limits`: o maior grid que cabe na tela onde a janela está (células menores que a janela mínima não entram) */
 /** `manage`: pelo gerenciador de agentes, colunas × linhas, as células ocupadas e a escolha das posições das janelas */
-/** `pick`: quantas janelas há para posicionar (no gerenciador): clicando nessa quantidade de células, elas vão para lá */
+/** `pick`: quantas janelas há para posicionar (no gerenciador): arrastando por uma área, ou clicando nessa quantidade de células, elas vão para lá */
 const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean; pick?: number }>(), { cells: () => [], limits: () => GRID_LIMITS, pick: 0 })
 const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
 const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
 /** A área em escolha passa por cima de uma célula de outro agente */
-const blocked = computed(() => Array.from({ length: size.value.cols * size.value.rows }, (_, i) => i).some((i) => selected(i) && locked(i)))
+const blocked = computed(() => !props.manage && Array.from({ length: size.value.cols * size.value.rows }, (_, i) => i).some((i) => selected(i) && locked(i)))
 
 type Size = GridSize
 function set(k: keyof Size, v: number) {
@@ -32,8 +32,9 @@ function set(k: keyof Size, v: number) {
 const picked = ref<number[]>([])
 /** Quantas células faltam escolher: uma por janela, até onde o grid tem células */
 const pickGoal = computed(() => Math.min(props.pick, size.value.cols * size.value.rows))
-// grid de outro tamanho: os índices não valem mais
-watch(() => [size.value.cols, size.value.rows], () => (picked.value = []))
+// grid de outro tamanho: os índices não valem mais (a chave é texto: uma lista nova a cada leitura pareceria
+// sempre "mudou" e apagaria a escolha a cada atualização das configurações)
+watch(() => `${size.value.cols}x${size.value.rows}`, () => (picked.value = []))
 function togglePick(i: number) {
   if (!props.manage || !pickGoal.value) return
   const at = picked.value.indexOf(i)
@@ -41,7 +42,7 @@ function togglePick(i: number) {
   picked.value.push(i)
   if (picked.value.length < pickGoal.value) return
   // escolheu a última: as janelas vão para as células
-  emit('arrange', picked.value.map((n) => ({ col: n % size.value.cols, row: Math.floor(n / size.value.cols) })))
+  emit('arrange', picked.value.map((n) => ({ col: n % size.value.cols, colSpan: 1, row: Math.floor(n / size.value.cols), rowSpan: 1 })))
   picked.value = []
 }
 const canDec = (k: keyof Size) => size.value[k] > 1
@@ -68,7 +69,7 @@ function cellAt(e: PointerEvent): Cell {
   }
 }
 function down(e: PointerEvent) {
-  if (e.button !== 0 || props.manage) return
+  if (e.button !== 0 || (props.manage && !pickGoal.value)) return
   grid.value?.setPointerCapture(e.pointerId)
   anchor.value = cursor.value = cellAt(e)
 }
@@ -82,6 +83,13 @@ function up(e: PointerEvent) {
   const taken = blocked.value
   anchor.value = cursor.value = null
   if (taken) return
+  if (props.manage) {
+    // um clique marca (ou desmarca) a célula; um arraste reparte a área entre as janelas na hora
+    if (a.col === b.col && a.row === b.row) return togglePick(a.row * size.value.cols + a.col)
+    picked.value = []
+    const area = { col: Math.min(a.col, b.col), colSpan: Math.abs(a.col - b.col) + 1, row: Math.min(a.row, b.row), rowSpan: Math.abs(a.row - b.row) + 1 }
+    return emit('arrange', tileArea(area, props.pick))
+  }
   emit('place', {
     cols: size.value.cols,
     rows: size.value.rows,
@@ -106,7 +114,11 @@ const hint = computed(() => {
   const a = anchor.value
   const b = cursor.value
   if (props.manage && picked.value.length) return `${picked.value.length} de ${pickGoal.value} posições escolhidas: ao marcar a última, as janelas vão para elas.`
-  if (props.manage && pickGoal.value) return `Clique em ${pickGoal.value} ${pickGoal.value === 1 ? 'célula para escolher onde fica a janela' : `células para escolher onde ficam as ${props.pick} janelas`}. Janelas novas abrem na próxima área livre.`
+  if (props.manage && a && b && (a.col !== b.col || a.row !== b.row)) {
+    const cells = (Math.abs(a.col - b.col) + 1) * (Math.abs(a.row - b.row) + 1)
+    return cells < props.pick ? `${cells} células para ${props.pick} janelas: as ${cells} primeiras vão para lá.` : `Solte para repartir essa área entre ${props.pick === 1 ? 'a janela' : `as ${props.pick} janelas`}.`
+  }
+  if (props.manage && pickGoal.value) return `Arraste pelas células para escolher a área ${props.pick === 1 ? 'da janela' : `das ${props.pick} janelas`}, ou clique em ${pickGoal.value === 1 ? 'uma célula' : `${pickGoal.value} células, uma por janela`}.`
   if (props.manage) return 'Janelas novas abrem na próxima área livre; Organizar encaixa as abertas, uma por área.'
   if (!a || !b) return 'Arraste pelas células para escolher a área. Solte para aplicar.'
   const w = Math.abs(a.col - b.col) + 1
@@ -149,7 +161,6 @@ const hint = computed(() => {
         class="cell"
         :class="{ sel: selected(i - 1) || picked.includes(i - 1), locked: locked(i - 1), own: cellAtIndex(i - 1)?.own, bad: blocked && selected(i - 1) }"
         :title="manage ? cellAtIndex(i - 1)?.title : undefined"
-        @click="togglePick(i - 1)"
       >
         <b v-if="picked.includes(i - 1)" class="pick-n mono">{{ picked.indexOf(i - 1) + 1 }}</b>
         <Icon v-else-if="locked(i - 1)" name="lock" :size="11" />

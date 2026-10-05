@@ -693,7 +693,7 @@ function registerIpc() {
   })
   ipcMain.handle('agent:background', (_e, uid: string, on: boolean) => agentChat.setAgentBackground(String(uid), !!on))
   ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
-  ipcMain.handle('agent:arrangeInto', (e, grid: GridSize, cells: { col: number; row: number }[]) =>
+  ipcMain.handle('agent:arrangeInto', (e, grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[]) =>
     agentChat.arrangeAgentWindowsInto(grid, Array.isArray(cells) ? cells.slice(0, 72) : [], BrowserWindow.fromWebContents(e.sender))
   )
   ipcMain.handle('agent:daySummary', () => agentHistory.daySummary(agentChat.openSessionIds()))
