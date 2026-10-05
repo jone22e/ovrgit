@@ -343,6 +343,7 @@ const api: OvseerApi = {
   agentAll: (action) => ipcRenderer.invoke('agent:all', action),
   agentBackground: (uid, on) => ipcRenderer.invoke('agent:background', uid, on),
   agentArrange: () => ipcRenderer.invoke('agent:arrange'),
+  agentArrangeInto: (grid, cells) => ipcRenderer.invoke('agent:arrangeInto', grid, cells),
   agentDaySummary: () => ipcRenderer.invoke('agent:daySummary'),
   agentStatuses: () => ipcRenderer.invoke('agent:statuses'),
   onAgentStatuses: (cb) => {

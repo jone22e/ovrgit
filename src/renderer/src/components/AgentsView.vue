@@ -215,6 +215,12 @@ async function arrange() {
   if (gridOpen.value) gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
 }
 
+/** As janelas vão para as células escolhidas no grid, uma por célula */
+async function arrangeInto(cells: { col: number; row: number }[]) {
+  await api.agentArrangeInto({ ...shownGrid.value }, cells).catch(() => undefined)
+  gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
+}
+
 // ---------- todas as janelas de uma vez (no dropdown do Organizar) ----------
 const hiddenCount = computed(() => snaps.value.filter((a) => a.hidden).length)
 const allBackground = computed(() => snaps.value.length > 0 && snaps.value.every((a) => a.background))
@@ -288,7 +294,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           </button>
           <button class="arrange-more" title="Colunas × linhas do grid" @click="gridOpen = !gridOpen"><Icon name="chevron" :size="11" class="chev" /></button>
           <div v-if="gridOpen" class="pop">
-            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" manage @update:model-value="setGridSize" />
+            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" manage :pick="snaps.length" @update:model-value="setGridSize" @arrange="arrangeInto" />
             <!-- todas as janelas de uma vez -->
             <div class="all">
               <h6>Todas as janelas</h6>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { GRID_LIMITS, normalizeGrid } from '@shared/grid'
 import type { GridCell, GridPlacement, GridSize } from '@shared/types'
 import Icon from './Icon.vue'
@@ -11,11 +11,12 @@ import Icon from './Icon.vue'
  */
 /** Tamanho do grid (colunas × linhas): quem abre o menu carrega e guarda; aqui só exibe e altera */
 const size = defineModel<GridSize>({ required: true })
-const emit = defineEmits<{ place: [p: GridPlacement] }>()
+const emit = defineEmits<{ place: [p: GridPlacement]; arrange: [cells: { col: number; row: number }[]] }>()
 /** Células já cobertas por janelas de agente: as de outro agente ficam trancadas, as desta janela só marcadas */
 /** `limits`: o maior grid que cabe na tela onde a janela está (células menores que a janela mínima não entram) */
-/** `manage`: pelo gerenciador de agentes, só colunas × linhas e as células ocupadas (sem arrastar para posicionar) */
-const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean }>(), { cells: () => [], limits: () => GRID_LIMITS })
+/** `manage`: pelo gerenciador de agentes, colunas × linhas, as células ocupadas e a escolha das posições das janelas */
+/** `pick`: quantas janelas há para posicionar (no gerenciador): clicando nessa quantidade de células, elas vão para lá */
+const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean; pick?: number }>(), { cells: () => [], limits: () => GRID_LIMITS, pick: 0 })
 const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
 const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
 /** A área em escolha passa por cima de uma célula de outro agente */
@@ -24,6 +25,24 @@ const blocked = computed(() => Array.from({ length: size.value.cols * size.value
 type Size = GridSize
 function set(k: keyof Size, v: number) {
   size.value = normalizeGrid({ ...size.value, [k]: Math.min(v, props.limits[k]) })
+}
+
+// ---------- gerenciador: escolher as células onde as janelas ficam ----------
+/** Células escolhidas (índices), na ordem dos cliques */
+const picked = ref<number[]>([])
+/** Quantas células faltam escolher: uma por janela, até onde o grid tem células */
+const pickGoal = computed(() => Math.min(props.pick, size.value.cols * size.value.rows))
+// grid de outro tamanho: os índices não valem mais
+watch(() => [size.value.cols, size.value.rows], () => (picked.value = []))
+function togglePick(i: number) {
+  if (!props.manage || !pickGoal.value) return
+  const at = picked.value.indexOf(i)
+  if (at >= 0) return void picked.value.splice(at, 1)
+  picked.value.push(i)
+  if (picked.value.length < pickGoal.value) return
+  // escolheu a última: as janelas vão para as células
+  emit('arrange', picked.value.map((n) => ({ col: n % size.value.cols, row: Math.floor(n / size.value.cols) })))
+  picked.value = []
 }
 const canDec = (k: keyof Size) => size.value[k] > 1
 const canInc = (k: keyof Size) => size.value[k] < props.limits[k]
@@ -86,6 +105,8 @@ function selected(i: number): boolean {
 const hint = computed(() => {
   const a = anchor.value
   const b = cursor.value
+  if (props.manage && picked.value.length) return `${picked.value.length} de ${pickGoal.value} posições escolhidas: ao marcar a última, as janelas vão para elas.`
+  if (props.manage && pickGoal.value) return `Clique em ${pickGoal.value} ${pickGoal.value === 1 ? 'célula para escolher onde fica a janela' : `células para escolher onde ficam as ${props.pick} janelas`}. Janelas novas abrem na próxima área livre.`
   if (props.manage) return 'Janelas novas abrem na próxima área livre; Organizar encaixa as abertas, uma por área.'
   if (!a || !b) return 'Arraste pelas células para escolher a área. Solte para aplicar.'
   const w = Math.abs(a.col - b.col) + 1
@@ -111,11 +132,11 @@ const hint = computed(() => {
         </span>
       </span>
     </div>
-    <p class="wgrid-hint" :class="{ live: anchor, bad: blocked }">{{ hint }}</p>
+    <p class="wgrid-hint" :class="{ live: anchor || picked.length, bad: blocked }">{{ hint }}</p>
     <div
       ref="grid"
       class="cells"
-      :class="{ manage }"
+      :class="{ manage, pick: manage && pickGoal > 0 }"
       :style="{ aspectRatio: aspect, gridTemplateColumns: `repeat(${size.cols}, 1fr)`, gridTemplateRows: `repeat(${size.rows}, 1fr)` }"
       @pointerdown="down"
       @pointermove="move"
@@ -126,10 +147,12 @@ const hint = computed(() => {
         v-for="i in size.cols * size.rows"
         :key="i"
         class="cell"
-        :class="{ sel: selected(i - 1), locked: locked(i - 1), own: cellAtIndex(i - 1)?.own, bad: blocked && selected(i - 1) }"
+        :class="{ sel: selected(i - 1) || picked.includes(i - 1), locked: locked(i - 1), own: cellAtIndex(i - 1)?.own, bad: blocked && selected(i - 1) }"
         :title="manage ? cellAtIndex(i - 1)?.title : undefined"
+        @click="togglePick(i - 1)"
       >
-        <Icon v-if="locked(i - 1)" name="lock" :size="11" />
+        <b v-if="picked.includes(i - 1)" class="pick-n mono">{{ picked.indexOf(i - 1) + 1 }}</b>
+        <Icon v-else-if="locked(i - 1)" name="lock" :size="11" />
       </span>
     </div>
   </div>
@@ -155,6 +178,9 @@ const hint = computed(() => {
 .cells { display: grid; gap: 4px; width: 100%; cursor: crosshair; touch-action: none; }
 .cells.manage { cursor: default; }
 .cells.manage .cell { pointer-events: auto; }
+.cells.pick .cell { cursor: pointer; }
+.cells.pick .cell:hover:not(.sel) { border-color: var(--accent); }
+.pick-n { font-size: 11px; }
 .cell { border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border); pointer-events: none; transition: background 0.06s; }
 .cell { display: grid; place-items: center; color: var(--faint); }
 /* esta janela: contorno; outro agente: cadeado */

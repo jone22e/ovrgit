@@ -1107,6 +1107,8 @@ export interface OvseerApi {
   agentBackground(uid: string, on: boolean): Promise<void>
   /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */
   agentArrange(): Promise<void>
+  /** Coloca as janelas de agente nas células escolhidas do grid, uma por célula, na tela da janela principal */
+  agentArrangeInto(grid: GridSize, cells: { col: number; row: number }[]): Promise<void>
   /** Resumo das conversas com agentes de hoje */
   agentDaySummary(): Promise<DaySummary>
   /** Situação das conversas com janela aberta, por id de sessão */
