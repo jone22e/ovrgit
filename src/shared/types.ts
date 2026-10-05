@@ -930,7 +930,8 @@ export interface OvseerApi {
   /** Serviços em segundo plano */
   servicesStates(): Promise<ServiceState[]>
   /** Exporta os serviços para um arquivo, sem caminhos deste computador (null: cancelado) */
-  servicesExport(): Promise<{ path: string; count: number } | null>
+  /** Exporta os serviços para um arquivo (todos, ou só os de `ids`); null se o usuário cancelar */
+  servicesExport(ids?: string[]): Promise<{ path: string; count: number } | null>
   /** Abre um arquivo de serviços exportado; `root` é a pasta raiz sugerida para os repositórios */
   servicesImportPick(): Promise<{ file: import('./servicesShare').ServicesFile; root: string } | null>
   /** Pasta de cada serviço do arquivo neste computador, para a pasta raiz dada (`picked`: repositórios apontados pela IA) */

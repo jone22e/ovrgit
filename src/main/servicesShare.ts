@@ -22,9 +22,9 @@ async function repoRef(dir: string): Promise<RepoRef | null> {
   }
 }
 
-/** Grava os serviços num arquivo escolhido pelo usuário, sem caminhos deste computador */
-export async function exportToFile(win: BrowserWindow): Promise<{ path: string; count: number } | null> {
-  const services = getSettings().services
+/** Grava os serviços (todos, ou só os de `ids`) num arquivo escolhido pelo usuário, sem caminhos deste computador */
+export async function exportToFile(win: BrowserWindow, ids?: string[]): Promise<{ path: string; count: number } | null> {
+  const services = getSettings().services.filter((s) => !ids || ids.includes(s.id))
   if (!services.length) throw new Error('Não há serviços para exportar.')
   const refs = new Map<string, RepoRef | null>()
   for (const s of services) if (s.cwd && !refs.has(s.cwd)) refs.set(s.cwd, await repoRef(s.cwd))

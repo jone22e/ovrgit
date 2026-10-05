@@ -723,7 +723,7 @@ function registerIpc() {
   })
   // serviços em segundo plano (menu do usuário → Serviços)
   ipcMain.handle('services:states', () => services.serviceStates())
-  ipcMain.handle('services:export', () => servicesShare.exportToFile(win!))
+  ipcMain.handle('services:export', (_e, ids?: string[]) => servicesShare.exportToFile(win!, Array.isArray(ids) ? ids.map(String) : undefined))
   ipcMain.handle('services:importPick', () => servicesShare.pickImport(win!))
   ipcMain.handle('services:importResolve', (_e, file: ServicesFile, root: string, picked?: Record<string, string>) =>
     servicesShare.resolveImport(file, String(root ?? ''), picked)

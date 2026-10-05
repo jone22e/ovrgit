@@ -62,10 +62,27 @@ async function remove(s: Service) {
 
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** Exporta todos os serviços para um arquivo sem caminhos deste computador (pasta = repositório + caminho dentro dele) */
-async function exportAll() {
+// exportação: o usuário marca quais serviços vão para o arquivo (todos marcados de início)
+const exporting = ref<Set<string> | null>(null)
+const exportCount = computed(() => services.value.filter((s) => exporting.value?.has(s.id)).length)
+function startExport() {
+  editing.value = null
+  importing.value = null
+  exporting.value = new Set(services.value.map((s) => s.id))
+}
+function toggleExport(id: string) {
+  const set = exporting.value
+  if (set && !set.delete(id)) set.add(id)
+}
+function toggleExportAll() {
+  exporting.value = new Set(exportCount.value === services.value.length ? [] : services.value.map((s) => s.id))
+}
+/** Exporta os serviços marcados para um arquivo sem caminhos deste computador (pasta = repositório + caminho dentro dele) */
+async function confirmExport() {
+  if (!exporting.value || !exportCount.value) return
   try {
-    const r = await api.servicesExport()
+    const r = await api.servicesExport(services.value.filter((s) => exporting.value!.has(s.id)).map((s) => s.id))
+    if (r) exporting.value = null
     if (r) toast(`${r.count} ${r.count === 1 ? 'serviço exportado' : 'serviços exportados'}. Antes de compartilhar, confira se os comandos não têm senhas.`)
   } catch (e) {
     toast(errText(e))
@@ -246,7 +263,26 @@ onUnmounted(() => offs.forEach((f) => f()))
       </div>
     </div>
 
-    <div v-if="services.length" class="list">
+    <div v-if="exporting" class="form">
+      <h6>Exportar serviços</h6>
+      <div class="imp-list">
+        <label v-for="s in services" :key="s.id" class="imp-item">
+          <input type="checkbox" :checked="exporting.has(s.id)" @change="toggleExport(s.id)" />
+          <span class="text">
+            <span class="line"><strong class="ellipsis">{{ s.name }}</strong></span>
+            <small class="mono faint ellipsis" :title="s.command">{{ firstLine(s.command) }}</small>
+          </span>
+        </label>
+      </div>
+      <p class="faint hint">O arquivo leva o nome, o comando e a pasta (relativa ao repositório) de cada serviço marcado. Confira se os comandos não têm senhas.</p>
+      <div class="form-acts">
+        <button type="button" class="ghost exp-all" @click="toggleExportAll">{{ exportCount === services.length ? 'Desmarcar todos' : 'Marcar todos' }}</button>
+        <button type="button" class="ghost" @click="exporting = null">Cancelar</button>
+        <button type="button" class="primary" :disabled="!exportCount" @click="confirmExport">Exportar {{ exportCount || '' }}</button>
+      </div>
+    </div>
+
+    <div v-if="services.length && !exporting" class="list">
       <div v-for="s in services" :key="s.id" class="item" :class="stateOf(s.id)?.status">
         <span class="dot" :class="stateOf(s.id)?.status" />
         <div class="text">
@@ -278,10 +314,10 @@ onUnmounted(() => offs.forEach((f) => f()))
     <p v-else-if="!editing && !importing" class="faint none">Nenhum serviço ainda.</p>
 
     <template #footer>
-      <button v-if="!editing && !importing" type="button" @click="openNew"><Icon name="plus" :size="13" /> Adicionar serviço</button>
+      <button v-if="!editing && !importing && !exporting" type="button" @click="openNew"><Icon name="plus" :size="13" /> Adicionar serviço</button>
       <!-- importar aparece também no formulário de "novo serviço" (é o que abre para quem ainda não tem nenhum) -->
-      <button v-if="!importing && !editing?.id" type="button" class="ghost" title="Importar serviços de um arquivo exportado; as pastas são trocadas pelas deste computador" @click="startImport">Importar…</button>
-      <button v-if="!editing && !importing && services.length" type="button" class="ghost" title="Exportar os serviços para um arquivo, com as pastas relativas aos repositórios" @click="exportAll">Exportar…</button>
+      <button v-if="!importing && !exporting && !editing?.id" type="button" class="ghost" title="Importar serviços de um arquivo exportado; as pastas são trocadas pelas deste computador" @click="startImport">Importar…</button>
+      <button v-if="!editing && !importing && !exporting && services.length" type="button" class="ghost" title="Escolher quais serviços exportar para um arquivo, com as pastas relativas aos repositórios" @click="startExport">Exportar…</button>
       <span class="spacer" />
       <button type="button" class="ghost" @click="emit('close')">Fechar</button>
     </template>
@@ -304,6 +340,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .imp-item.off { cursor: default; }
 .imp-item.off strong { color: var(--muted); }
 .imp-warn { color: var(--mod); }
+.exp-all { margin-right: auto; }
 .imp-status { display: flex; align-items: center; gap: 8px; }
 .imp-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: imp-turn 0.8s linear infinite; flex: none; }
 @keyframes imp-turn { to { transform: rotate(360deg); } }
