@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { nextTick, onMounted, ref } from 'vue'
 import type { SavedChanges } from '@shared/types'
 import { api, dropSaved, editLastMessage, loadHistory, restoreSaved, state, undoLastCommit } from '../store'
@@ -84,7 +85,7 @@ async function saveEdit() {
             <Icon :name="s.kind === 'trash' ? 'trash' : 'archive'" :size="15" class="s-ic" />
             <div class="s-text">
               <strong class="ellipsis">{{ s.label }}</strong>
-              <small class="faint">{{ relative(s.date) }} · {{ s.files.length }} arquivo(s)</small>
+              <small class="faint">{{ relative(s.date) }} · {{ count(s.files.length, 'arquivo', 'arquivos') }}</small>
             </div>
             <button class="small" :disabled="!!state.busy" title="Traz as alterações de volta para a lista" @click.stop="restoreSaved(s)">
               <Icon name="undo" :size="13" /> Recuperar

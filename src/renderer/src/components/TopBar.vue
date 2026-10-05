@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import logo from '../assets/logo.png'
 import { api, myDoingCount, openNewAgent, refreshOvseer, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
@@ -48,7 +49,7 @@ defineEmits<{ settings: [] }>()
         @click="setShowTasks(!state.showTasks)"
       >
         <Icon name="panelLeft" />
-        <span v-if="myDoingCount" class="badge-dot" :title="`${myDoingCount} tarefa(s) em execução`" />
+        <span v-if="myDoingCount" class="badge-dot" :title="count(myDoingCount, 'tarefa em execução', 'tarefas em execução')" />
       </button>
       <button class="ghost icon" title="Novo agente de IA (Claude ou ChatGPT) neste projeto" @click="openNewAgent()">
         <Icon name="squarePen" />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, onMounted, ref } from 'vue'
 import type { SshImportCandidate } from '@shared/types'
 import { api, saveSettings, state, toast } from '../store'
@@ -59,7 +60,7 @@ async function importSelected() {
     group: group.value.trim() || c.group || null
   }))
   await saveSettings({ sshConnections: [...now.map((c) => ({ ...c })), ...added] })
-  toast(`${added.length} conexão(ões) importada(s).`)
+  toast(`${count(added.length, 'conexão importada', 'conexões importadas')}.`)
   emit('close')
 }
 

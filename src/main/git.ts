@@ -5,6 +5,7 @@ import type {
   CommitInfo, CreatedCommit, FeaturePreview, FileChange, OperationResult, RepoOperation, RepoStatus, StepResult
 } from '../shared/types'
 import { commitWebUrl, LOG_FORMAT, parseLog, parseNumstat, parseStatus, pullRequestUrl, repoWebUrl, slugify } from '../shared/parse'
+import { count } from '../shared/plural'
 import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 export class GitError extends Error {
@@ -246,7 +247,7 @@ export async function continueOperation(root: string): Promise<OperationResult> 
   const op = await currentOperation(root)
   if (!op) return fail(steps, new Error('Nenhuma operação em andamento.'))
   const st = await status(root)
-  if (st.conflicts) return fail(steps, new Error(`Ainda há ${st.conflicts} arquivo(s) em conflito.`))
+  if (st.conflicts) return fail(steps, new Error(`Ainda há ${count(st.conflicts, 'arquivo', 'arquivos')} em conflito.`))
   try {
     if (op === 'merge') {
       // leva as edições feitas para resolver os conflitos (arquivos rastreados; nada de arquivos soltos)
@@ -341,7 +342,7 @@ export async function commit(root: string, files: string[], message: string): Pr
       nulList(paths.commit)
     )
     const sha = (await git(root, ['rev-parse', 'HEAD'])).trim()
-    steps.push({ label: `Versão salva: ${message.split("\n")[0]}`, ok: true, detail: `${files.length} arquivo(s) · ${sha.slice(0, 7)}` })
+    steps.push({ label: `Versão salva: ${message.split("\n")[0]}`, ok: true, detail: `${count(files.length, 'arquivo', 'arquivos')} · ${sha.slice(0, 7)}` })
     return { ok: true, steps, commits: [{ sha, message: message.trim() }] }
   } catch (e) {
     return fail(steps, e)
@@ -400,7 +401,7 @@ export async function pull(root: string, allowStash: boolean): Promise<Operation
     if (op) {
       const conflicted = (await git(root, ['diff', '--name-only', '--diff-filter=U'])).trim().split('\n').filter(Boolean)
       steps.push({
-        label: `Conflito no merge: ${conflicted.length} arquivo(s)`,
+        label: `Conflito no merge: ${count(conflicted.length, 'arquivo', 'arquivos')}`,
         ok: false,
         detail: `${conflicted.slice(0, 15).join('\n')}${conflicted.length > 15 ? `\n… e mais ${conflicted.length - 15}` : ''}`
       })
@@ -413,7 +414,7 @@ export async function pull(root: string, allowStash: boolean): Promise<Operation
       return {
         ok: false,
         steps,
-        error: `Baixar parou por conflito em ${conflicted.length} arquivo(s). Resolva os conflitos ou aborte o merge.`
+        error: `Baixar parou por conflito em ${count(conflicted.length, 'arquivo', 'arquivos')}. Resolva os conflitos ou aborte o merge.`
       }
     }
     fail(steps, e, 'Baixar')
@@ -625,8 +626,8 @@ export async function createFeature(root: string, rawName: string, rawPrefix = '
       const remoteNew = Number((await git(root, ['rev-list', '--count', `${backup}..${base}`])).trim()) || 0
       await git(root, ['branch', '-f', baseBranch, base])
       const parts = [
-        remoteNew ? `${remoteNew} commit(s) novo(s) do remoto` : '',
-        localOnly ? `${localOnly} commit(s) local(is) movido(s) para a feature` : ''
+        remoteNew ? `${count(remoteNew, 'commit novo', 'commits novos')} do remoto` : '',
+        localOnly ? `${count(localOnly, 'commit local movido', 'commits locais movidos')} para a feature` : ''
       ].filter(Boolean)
       steps.push({
         label: `${baseBranch} atualizada = ${base}${parts.length ? ` (${parts.join(', ')})` : ''}`,
@@ -648,7 +649,7 @@ export async function createFeature(root: string, rawName: string, rawPrefix = '
           await git(root, ['config', '--local', PENDING_PUSH_KEY, `${feature} ${baseBranch}`])
           const conflicted = (await git(root, ['diff', '--name-only', '--diff-filter=U'])).trim().split('\n').filter(Boolean)
           steps.push({
-            label: `Conflito ao atualizar a feature com ${base}: ${conflicted.length} arquivo(s)`,
+            label: `Conflito ao atualizar a feature com ${base}: ${count(conflicted.length, 'arquivo', 'arquivos')}`,
             ok: false,
             detail: `${conflicted.join('\n')}\n\nResolva os conflitos e clique em "Concluir rebase": a feature será enviada automaticamente.`
           })

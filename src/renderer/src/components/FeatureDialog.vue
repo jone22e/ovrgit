@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { slugify } from '@shared/parse'
 import type { FeaturePreview } from '@shared/types'
@@ -76,11 +77,11 @@ async function submit() {
     <p v-if="error" class="warn">{{ error }}</p>
     <p v-else-if="!preview" class="faint loading"><span class="spinner" /> Buscando a versão atual do remoto…</p>
     <p v-else class="muted summary">
-      {{ preview.localCommits }} versão(ões) salva(s)<template v-if="preview.changedFiles">
-        e {{ preview.changedFiles }} arquivo(s)</template> vão para a nova branch<template
+      {{ count(preview.localCommits, 'versão salva', 'versões salvas') }}<template v-if="preview.changedFiles">
+        e {{ count(preview.changedFiles, 'arquivo', 'arquivos') }}</template> {{ preview.localCommits === 1 && !preview.changedFiles ? 'vai' : 'vão' }} para a nova branch<template
         v-if="preview.baseRef"
       >, sobre a versão atual de <span class="mono">{{ preview.baseRef }}</span><template v-if="preview.remoteNew">
-          ({{ preview.remoteNew }} novo(s))</template></template>. Um backup é criado antes.
+          ({{ count(preview.remoteNew, 'nova', 'novas') }})</template></template>. Um backup é criado antes.
     </p>
 
     <template #footer>

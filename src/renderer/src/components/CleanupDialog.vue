@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, onMounted, ref } from 'vue'
 import type { CleanupCandidate } from '@shared/types'
 import { api, state, toast } from '../store'
@@ -34,7 +35,7 @@ async function remove() {
   try {
     const r = await api.deleteBranches([...picked.value])
     const n = r.steps.filter((s) => s.ok).length
-    toast(`${n} linha(s) removida(s).`)
+    toast(`${count(n, 'linha removida', 'linhas removidas')}.`)
     if (!r.ok) error.value = r.steps.filter((s) => !s.ok).map((s) => s.label).join(' · ')
     else emit('close')
   } finally {

@@ -197,7 +197,7 @@ describe('git — merge com conflito', () => {
     let st = await g.status(repo)
     expect(st).toMatchObject({ operation: 'merge', conflicts: 1 })
     expect((await g.commit(repo, ['README.md'], 'x')).error).toMatch(/merge em andamento/)
-    expect((await g.continueOperation(repo)).error).toMatch(/1 arquivo\(s\) em conflito/)
+    expect((await g.continueOperation(repo)).error).toMatch(/1 arquivo em conflito/)
 
     expect((await g.resolveConflict(repo, 'README.md', 'theirs')).ok).toBe(true)
     st = await g.status(repo)

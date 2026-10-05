@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { AwsStatus, Service, ServiceState } from '@shared/types'
 import { api, openTerminalTab, state, toast } from '../store'
@@ -168,7 +169,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="root" class="services nodrag">
-    <button class="ghost icon" :class="{ on: open, live: running.length }" :title="running.length ? `${running.length} serviço(s) rodando` : 'Serviços'" @click="toggle">
+    <button class="ghost icon" :class="{ on: open, live: running.length }" :title="running.length ? count(running.length, 'serviço rodando', 'serviços rodando') : 'Serviços'" @click="toggle">
       <Icon name="server" />
       <span v-if="running.length" class="count">{{ running.length }}</span>
     </button>

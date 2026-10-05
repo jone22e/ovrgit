@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, ref } from 'vue'
 import {
   canJoinByTask, commitPlan, joinByTask, outsidePlan, ovseerReady, planGroups, state, togglePlanGroup, updateGroupCommit, useSingleCommit
@@ -81,7 +82,7 @@ function fit(el: HTMLTextAreaElement) {
     </ol>
 
     <p v-if="outsidePlan.length" class="faint note">
-      {{ outsidePlan.length }} arquivo(s) alterado(s) depois da análise não estão aqui e ficam para depois.
+      {{ count(outsidePlan.length, 'arquivo alterado depois da análise não está aqui e fica', 'arquivos alterados depois da análise não estão aqui e ficam') }} para depois.
     </p>
 
     <template #footer>

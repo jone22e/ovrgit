@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES } from '@shared/models'
 import { THEMES } from '@shared/themes'
@@ -333,7 +334,7 @@ async function save() {
                 <p v-if="ollamaError" class="bad">
                   Não foi possível conectar ({{ ollamaError }}). Instale em ollama.com e rode <span class="mono">ollama serve</span>.
                 </p>
-                <p v-else-if="models.length" class="ok">Conectado: {{ models.length }} modelo(s).</p>
+                <p v-else-if="models.length" class="ok">Conectado: {{ count(models.length, 'modelo', 'modelos') }}.</p>
               </div>
               <div class="field">
                 <label for="model">Modelo</label>

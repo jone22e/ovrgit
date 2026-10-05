@@ -1,3 +1,4 @@
+import { count } from '@shared/plural'
 import { computed, reactive } from 'vue'
 import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
@@ -1294,7 +1295,7 @@ export async function restoreSaved(item: SavedChanges) {
 export async function dropSaved(item: SavedChanges) {
   const ok = await ask({
     title: 'Apagar de vez?',
-    message: `"${item.label}" (${item.files.length} arquivo(s)) será apagado definitivamente. Isso não pode ser desfeito.`,
+    message: `"${item.label}" (${count(item.files.length, 'arquivo', 'arquivos')}) será apagado definitivamente. Isso não pode ser desfeito.`,
     confirmLabel: 'Apagar de vez',
     danger: true
   })

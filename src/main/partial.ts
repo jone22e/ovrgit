@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { count } from '../shared/plural'
 import type { CreatedCommit, OperationResult, StepResult } from '../shared/types'
 import { currentOperation, git, refExists, status } from './git'
 
@@ -96,7 +97,7 @@ export async function commitWithHunks(
     steps.push({
       label: `Versão salva: ${message.trim().split('\n')[0]}`,
       ok: true,
-      detail: `${touched.length} arquivo(s)${partialCount ? `, ${partialCount} só com parte das mudanças` : ''} · ${sha.slice(0, 7)}`
+      detail: `${count(touched.length, 'arquivo', 'arquivos')}${partialCount ? `, ${partialCount} só com parte das mudanças` : ''} · ${sha.slice(0, 7)}`
     })
     const commits: CreatedCommit[] = [{ sha, message: message.trim() }]
     return { ok: true, steps, commits }

@@ -1,5 +1,6 @@
 import type { OperationResult, SavedChanges, StepResult } from '../shared/types'
 import { currentOperation, git, localCommits, refExists, run, status } from './git'
+import { count } from '../shared/plural'
 import { firstLine, friendlyGitError } from '../shared/gitErrors'
 
 /**
@@ -44,11 +45,11 @@ export async function discard(root: string, files: string[]): Promise<OperationR
     } else {
       await git(
         root,
-        ['stash', 'push', '--include-untracked', '-m', `${TRASH_PREFIX} ${files.length} arquivo(s) em ${stamp()}`, '--pathspec-from-file=-', '--pathspec-file-nul'],
+        ['stash', 'push', '--include-untracked', '-m', `${TRASH_PREFIX} ${count(files.length, 'arquivo', 'arquivos')} em ${stamp()}`, '--pathspec-from-file=-', '--pathspec-file-nul'],
         nul(paths)
       )
     }
-    steps.push({ label: `${files.length} arquivo(s) descartado(s)`, ok: true, detail: st.hasCommits ? 'Uma cópia ficou na Lixeira (Histórico → Guardadas).' : undefined })
+    steps.push({ label: count(files.length, 'arquivo descartado', 'arquivos descartados'), ok: true, detail: st.hasCommits ? 'Uma cópia ficou na Lixeira (Histórico → Guardadas).' : undefined })
     return { ok: true, steps }
   } catch (e) {
     return fail(steps, e, 'Descartar')

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { analyze, cancelAnalysis, commit, generateMessage, hasPlan, ovseerReady, push, reviewWithAi, setMessage, state } from '../store'
 import PrStatus from './PrStatus.vue'
@@ -153,7 +154,7 @@ function onKey(e: KeyboardEvent) {
         <button
           class="ghost icon ai-msg"
           :disabled="(!!state.busy && state.busy !== 'message') || !nSelected"
-          :title="state.busy === 'message' ? 'Escrevendo… clique para cancelar' : `Análise rápida: a IA escreve a descrição para os ${nSelected} arquivo(s) marcados`"
+          :title="state.busy === 'message' ? 'Escrevendo… clique para cancelar' : `Análise rápida: a IA escreve a descrição para ${nSelected === 1 ? 'o' : 'os'} ${count(nSelected, 'arquivo marcado', 'arquivos marcados')}`"
           @click="generateMessage"
         >
           <span v-if="state.busy === 'message'" class="spinner" />
@@ -203,7 +204,7 @@ function onKey(e: KeyboardEvent) {
           :class="sendClass"
           :style="sendStyle"
           :disabled="!canCommit"
-          :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados e já manda para o servidor (commit + push)`"
+          :title="`Salva uma versão com ${nSelected === 1 ? 'o' : 'os'} ${count(nSelected, 'arquivo marcado', 'arquivos marcados')} e já manda para o servidor (commit + push)`"
           @click="commit(true)"
         >
           <span v-if="sendPhase !== 'idle'" class="fill" />
@@ -231,7 +232,7 @@ function onKey(e: KeyboardEvent) {
         v-else-if="nSelected && sendMode === 'publishRepo'"
         class="primary"
         :disabled="!canCommit"
-        :title="`Salva uma versão com os ${nSelected} arquivo(s) marcados, no seu computador (commit · ${mod}+Enter)`"
+        :title="`Salva uma versão com ${nSelected === 1 ? 'o' : 'os'} ${count(nSelected, 'arquivo marcado', 'arquivos marcados')}, no seu computador (commit · ${mod}+Enter)`"
         @click="commit()"
       >
         <span v-if="state.busy === 'commit'" class="spinner" />

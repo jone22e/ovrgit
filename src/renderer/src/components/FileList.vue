@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, ref } from 'vue'
 import type { FileChange } from '@shared/types'
 import {
@@ -167,7 +168,7 @@ function split(path: string) {
       <button
         v-if="state.selected.size && !state.repo?.operation"
         class="ghost icon small discard-sel"
-        :title="`Descartar as alterações dos ${state.selected.size} arquivo(s) marcados. Dá para recuperar depois.`"
+        :title="`Descartar as alterações ${state.selected.size === 1 ? 'do' : 'dos'} ${count(state.selected.size, 'arquivo marcado', 'arquivos marcados')}. Dá para recuperar depois.`"
         @click="discardFiles([...state.selected])"
       >
         <Icon name="trash" :size="14" />
@@ -214,7 +215,7 @@ function split(path: string) {
     <div v-if="!total" class="empty">
       <Icon name="check" :size="28" />
       <p>Nenhuma alteração pendente.</p>
-      <p v-if="state.repo?.ahead" class="faint">{{ state.repo.ahead }} versão(ões) salva(s) esperando você Enviar.</p>
+      <p v-if="state.repo?.ahead" class="faint">{{ count(state.repo.ahead, 'versão salva', 'versões salvas') }} esperando você Enviar.</p>
     </div>
 
     <div class="scroll">
@@ -238,7 +239,7 @@ function split(path: string) {
           <button
             v-if="!state.repo?.operation"
             class="ghost row-act"
-            :title="`Descartar as alterações desta pasta (${r.files.length} arquivo(s)). Dá para recuperar depois.`"
+            :title="`Descartar as alterações desta pasta (${count(r.files.length, 'arquivo', 'arquivos')}). Dá para recuperar depois.`"
             @click.stop="discardFiles(r.files)"
           >
             <Icon name="trash" :size="13" />
@@ -271,7 +272,7 @@ function split(path: string) {
             <template v-if="state.viewMode === 'list'"><span class="faint">{{ split(r.file.path).dir }}</span></template>{{ split(r.file.path).name }}
           </span>
           <span v-if="isTestFile(r.file.path)" class="tbadge" title="Arquivo de teste">T</span>
-          <span v-if="r.file.stats && r.file.kind !== 'conflict'" class="stats" :title="`${r.file.stats.add} linha(s) adicionada(s), ${r.file.stats.del} removida(s)`">
+          <span v-if="r.file.stats && r.file.kind !== 'conflict'" class="stats" :title="`${count(r.file.stats.add, 'linha adicionada', 'linhas adicionadas')}, ${count(r.file.stats.del, 'removida', 'removidas')}`">
             <b class="add">+{{ r.file.stats.add }}</b><b class="del">−{{ r.file.stats.del }}</b>
             <span class="bar"><i v-for="(b, i) in blocks(r.file)" :key="i" :class="b" /></span>
           </span>

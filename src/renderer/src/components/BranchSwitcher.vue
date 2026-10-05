@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { count } from '@shared/plural'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { BranchInfo } from '@shared/types'
 import { api, createBranchNamed, state, switchTo } from '../store'
@@ -105,7 +106,7 @@ watch(() => state.repo?.root, () => (open.value = false))
     <div v-if="open" class="pop" @keydown.esc="open = false">
       <!-- escolha quando há alterações não salvas -->
       <div v-if="pending" class="ask">
-        <strong>Você tem {{ dirty }} alteração(ões) não salva(s)</strong>
+        <strong>Você tem {{ count(dirty, 'alteração não salva', 'alterações não salvas') }}</strong>
         <p class="muted">O que fazer com elas ao ir para <span class="mono">{{ pending.name }}</span>?</p>
         <button class="choice" @click="go(pending, 'carry')">
           <Icon name="branch" :size="15" />
@@ -133,7 +134,7 @@ watch(() => state.repo?.root, () => (open.value = false))
               <small class="faint ellipsis">{{ relative(b.date) }} · {{ b.subject }}</small>
             </span>
             <span v-if="!b.published" class="tag" title="Ainda não foi enviada ao servidor">só aqui</span>
-            <span v-else-if="b.behind" class="tag" :title="`${b.behind} versão(ões) nova(s) no servidor`">↓{{ b.behind }}</span>
+            <span v-else-if="b.behind" class="tag" :title="count(b.behind, 'versão nova no servidor', 'versões novas no servidor')">↓{{ b.behind }}</span>
           </button>
           <h6 v-if="remotes.length">Só no servidor</h6>
           <button v-for="b in remotes" :key="b.name" class="item" @click="pick(b)">
