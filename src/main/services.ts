@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { IPty } from '@lydell/node-pty'
+import { trackPty } from './ptyRegistry'
 import { BrowserWindow, type WebContents } from 'electron'
 import type { Service, ServiceState } from '../shared/types'
 import { getSettings } from './settings'
@@ -89,6 +90,7 @@ export async function startService(id: string): Promise<void> {
     cwd,
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer', FORCE_COLOR: '1' } as Record<string, string>
   })
+  trackPty(pty)
   const r: Running = { pty, startedAt: Date.now(), buffer: '', viewers: new Set(), ports: [] }
   running.set(id, r)
   pollPorts(id, r)

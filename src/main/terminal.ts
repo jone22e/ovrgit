@@ -2,6 +2,7 @@ import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from
 import os from 'node:os'
 import path from 'node:path'
 import type { IPty } from '@lydell/node-pty'
+import { trackPty } from './ptyRegistry'
 import type { WebContents } from 'electron'
 import type { SshConnection } from '../shared/types'
 
@@ -84,6 +85,7 @@ export async function createTerminal(
     cwd: existsSync(cwd) ? cwd : os.homedir(),
     env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer' } as Record<string, string>
   })
+  trackPty(pty)
   const id = nextId++
   const s: Session = { pty, owner, buffer: '', meta: { title: '', spec: ssh ? { kind: 'ssh', connectionId: ssh.id } : { kind: 'local' }, cwd } }
   sessions.set(id, s)

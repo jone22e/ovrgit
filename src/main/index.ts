@@ -26,6 +26,7 @@ import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
+import { livePtys, shutdownPtys } from './ptyRegistry'
 import { transcribeAudio } from './transcribe'
 import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
@@ -846,16 +847,30 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  cancelLogin()
-  ovseer.cancelLogin()
-  ovseer.stopStream()
-  agentWatch.stopAgentWatch()
-  updater.stopUpdater()
-  aws.stopAws()
-  agentChat.shutdownAgents()
-  killAllTerminals()
-  services.stopAllServices()
+/** Encerramento: 'no' rodando; 'waiting' esperando os terminais e serviços saírem; 'ready' pode sair de vez */
+let quitState: 'no' | 'waiting' | 'ready' = 'no'
+app.on('before-quit', (e) => {
+  if (quitState === 'no') {
+    cancelLogin()
+    ovseer.cancelLogin()
+    ovseer.stopStream()
+    agentWatch.stopAgentWatch()
+    updater.stopUpdater()
+    aws.stopAws()
+    agentChat.shutdownAgents()
+    killAllTerminals()
+    services.stopAllServices()
+  }
+  if (quitState === 'ready' || !livePtys()) return
+  // um terminal ou serviço que avisa a saída com o app já desmontando derruba o processo ("encerrou
+  // inesperadamente"): segura a saída até todos avisarem (no máximo alguns segundos) e só então sai
+  e.preventDefault()
+  if (quitState === 'waiting') return
+  quitState = 'waiting'
+  shutdownPtys().then(() => {
+    quitState = 'ready'
+    app.quit()
+  })
 })
 
 app.on('window-all-closed', () => {
