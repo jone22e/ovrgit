@@ -336,7 +336,10 @@ const showPlanAsk = computed(() => askOpen.value && planDone.value && !(turns[tu
 const planText = computed(() => {
   if (!planDone.value) return ''
   const texts = turns[turns.length - 1].blocks.flatMap((b) => (b.kind === 'text' ? [splitQuestions(b.text).text.trim()] : []))
-  const plan = texts.reduce((a, b) => (b.length > a.length ? b : a), '')
+  // o plano que o agente gravou em arquivo (o mais recente da conversa) vale mais que o texto da última resposta,
+  // que pode ser só um comentário sobre ele
+  const filed = [...turns].reverse().flatMap((t) => t.blocks).find((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text' && !!b.plan)
+  const plan = filed?.text.trim() || texts.reduce((a, b) => (b.length > a.length ? b : a), '')
   // o agente é orientado a abrir o plano com um título; se não abriu, vale o título da conversa
   return /^#{1,2} \S/.test(plan) || !info.value?.title ? plan : `# ${info.value.title}\n\n${plan}`
 })
@@ -544,12 +547,18 @@ function apply(ev: AgentChatEvent) {
     t.thinking = false
     t.activity = 'writing'
     const last = t.blocks[t.blocks.length - 1]
-    if (last?.kind === 'text') last.text += ev.delta
+    if (last?.kind === 'text' && !last.plan) last.text += ev.delta
     else if (ev.delta.trim()) t.blocks.push({ kind: 'text', text: ev.delta.replace(/^\n+/, '') })
     // "[ok] N", "[pulado] N", "[falhou] N" no texto marcam o item: na resposta que implementa o plano e também nas
     // seguintes, enquanto o checklist da conversa tiver etapas em aberto
     const list = t.checklist?.length ? t.checklist : checklist.value
     if (list?.length) applyMarkers(list, t.blocks.flatMap((b) => (b.kind === 'text' ? [b.text] : [])).join('\n'))
+  } else if (ev.type === 'plan') {
+    // o agente gravou o plano num arquivo dele: entra na conversa, e cada ajuste atualiza o mesmo bloco
+    if (!ev.text) return
+    const b = t.blocks.find((x): x is Extract<Block, { kind: 'text' }> => x.kind === 'text' && !!x.plan)
+    if (b) b.text = ev.text
+    else t.blocks.push({ kind: 'text', text: ev.text, plan: true })
   } else if (ev.type === 'thinking') {
     t.thinking = true
     t.activity = 'thinking'

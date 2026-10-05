@@ -880,6 +880,8 @@ const safeModel = (m: string) => (/^[\w.:/-]+$/.test(m) ? m : '')
 
 export interface ClaudeParseState {
   cwd: string
+  /** Chamadas de ferramenta que escrevem no arquivo de plano do Claude Code (id → caminho) */
+  planTools?: Map<string, string>
   /** Texto já recebido em pedaços desde a última mensagem completa (evita duplicar) */
   streamed: number
   done: boolean
@@ -898,9 +900,28 @@ interface ClaudeBlock {
 
 const rel = (cwd: string, p: unknown) => (typeof p === 'string' ? path.relative(cwd, p) || p : '')
 
+/**
+ * Arquivo de plano do Claude Code: no modo plano ele grava o plano em ~/.claude/plans/<nome>.md, em vez de
+ * escrevê-lo na resposta. O app lê esse arquivo e mostra o plano na conversa.
+ */
+export const isClaudePlanFile = (p: unknown): p is string => typeof p === 'string' && /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/.test(p)
+
+/** Conteúdo do arquivo de plano, só se ele estiver mesmo na pasta de planos do Claude deste usuário */
+export function readClaudePlan(file: string, home = os.homedir()): string | null {
+  const dir = path.join(home, '.claude', 'plans')
+  if (!isClaudePlanFile(file) || path.dirname(path.resolve(file)) !== dir) return null
+  try {
+    if (statSync(file).size > 400_000) return null
+    return readFileSync(file, 'utf8').trim() || null
+  } catch {
+    return null
+  }
+}
+
 /** Título curto de uma ferramenta do Claude Code, em português. */
 export function describeClaudeTool(name: string, input: Record<string, unknown>, cwd: string): { title: string; detail?: string } {
   const file = rel(cwd, input.file_path ?? input.notebook_path ?? input.path)
+  if (isClaudePlanFile(input.file_path) && /^(Write|Edit|MultiEdit)$/.test(name)) return { title: name === 'Write' ? 'Escreveu o plano' : 'Ajustou o plano' }
   switch (name) {
     case 'Bash':
       return { title: 'Rodou comando', detail: String(input.command ?? '') }
@@ -978,6 +999,7 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
         if (b.name === 'ExitPlanMode' && typeof b.input?.plan === 'string' && b.input.plan.trim()) {
           out.push({ type: 'text', delta: `\n\n${b.input.plan.trim()}\n\n` })
         }
+        if (/^(Write|Edit|MultiEdit)$/.test(b.name) && isClaudePlanFile(b.input?.file_path)) (st.planTools ??= new Map()).set(b.id, b.input.file_path)
         out.push({ type: 'tool', id: b.id, name: b.name, ...describeClaudeTool(b.name, b.input ?? {}, st.cwd) })
       }
     }
@@ -986,6 +1008,9 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     for (const b of msg.content ?? []) {
       if (b.type === 'tool_result' && b.tool_use_id) {
         out.push({ type: 'toolResult', id: b.tool_use_id, ok: !b.is_error, output: textOf(b.content).slice(-4000) })
+        // o plano foi gravado (ou ajustado) no arquivo do Claude: quem repassa os eventos lê o arquivo e mostra na conversa
+        const planFile = st.planTools?.get(b.tool_use_id)
+        if (planFile && !b.is_error) out.push({ type: 'plan', path: planFile })
       }
     }
   } else if (o.type === 'result') {
@@ -1361,6 +1386,11 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
           applyTitle(shortTitle(text))
           withAnswer()
         }
+      }
+      if (ev.type === 'plan') {
+        const plan = readClaudePlan(ev.path)
+        if (plan) emit(w, { ...ev, text: plan })
+        continue
       }
       emit(w, ev)
     }

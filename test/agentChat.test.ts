@@ -29,6 +29,19 @@ describe('argumentos dos CLIs', () => {
     expect(r.slice(-2)).toEqual(['thread-1', '-'])
   })
 
+  it('claude: o plano gravado em ~/.claude/plans vira um evento para a conversa', () => {
+    const st: ClaudeParseState = { cwd: '/proj', streamed: 0, done: false }
+    const file = '/Users/x/.claude/plans/meu-plano.md'
+    const use = parseClaudeLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Write', input: { file_path: file, content: '# Plano' } }] } }), st)
+    expect(use).toEqual([{ type: 'tool', id: 't1', name: 'Write', title: 'Escreveu o plano' }])
+    const res = parseClaudeLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } }), st)
+    expect(res).toContainEqual({ type: 'plan', path: file })
+    // arquivo comum do projeto não é plano
+    parseClaudeLine(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't2', name: 'Write', input: { file_path: '/proj/docs/plans/a.md', content: 'x' } }] } }), st)
+    const other = parseClaudeLine(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] } }), st)
+    expect(other.some((e) => e.type === 'plan')).toBe(false)
+  })
+
   it('codex: o modo rápido só entra quando ligado', () => {
     expect(codexArgs({ model: '', effort: 'high', mode: 'full', resume: null }).join(' ')).not.toContain('service_tier')
     expect(codexArgs({ model: '', effort: 'high', mode: 'full', fast: true, resume: null })).toContain('service_tier="fast"')

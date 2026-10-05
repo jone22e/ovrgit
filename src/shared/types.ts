@@ -449,6 +449,8 @@ export type AgentChatEvent =
   | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
+  /** O agente gravou o plano num arquivo dele (Claude Code, em ~/.claude/plans): `text` é o conteúdo, para aparecer na conversa */
+  | { type: 'plan'; path: string; text?: string }
 
 /** Linhas acrescentadas e removidas num arquivo alterado pelo agente (null: binário ou fora do git) */
 export interface FileStat {
@@ -466,7 +468,8 @@ export interface FileRepo {
 
 /** Bloco de uma resposta do agente, como fica na janela e na transcrição guardada */
 export type AgentBlock =
-  | { kind: 'text'; text: string }
+  /** `plan`: o plano que o agente gravou num arquivo dele, trazido para a conversa (atualizado no lugar a cada edição) */
+  | { kind: 'text'; text: string; plan?: boolean }
   | { kind: 'tool'; id: string; name: string; title: string; detail?: string; ok: boolean | null; output?: string; open: boolean }
   | { kind: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
 
