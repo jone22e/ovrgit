@@ -2008,7 +2008,8 @@ onUnmounted(() => offs.forEach((f) => f()))
               <button v-if="t.user.trim()" type="button" class="small" @click="resend(t)">Reenviar mensagem</button>
             </div>
           </div>
-          <p v-if="!t.running && !t.superseded && t.durationMs" class="meta faint">
+          <!-- na última vez concluída a duração vai no selo "Concluído", logo abaixo -->
+          <p v-if="!t.running && !t.superseded && t.durationMs && !(statusKind === 'done' && t === turns[turns.length - 1])" class="meta faint">
             <template v-if="t.durationMs">{{ took(t.durationMs) }}</template>
           </p>
           <AskCard
@@ -2027,7 +2028,7 @@ onUnmounted(() => offs.forEach((f) => f()))
       </article>
       <!-- conversa concluída: uma linha verde fecha a conversa; some quando o agente volta a trabalhar -->
       <div v-if="statusKind === 'done'" class="done-mark" role="status">
-        <span class="dm-line" /><span class="dm-label"><Icon name="check" :size="12" /> Concluído</span><span class="dm-line" />
+        <span class="dm-line" /><span class="dm-label"><span class="dm-check"><Icon name="check" :size="9" /></span> Concluído<small v-if="statusTook" class="mono">{{ statusTook }}</small></span><span class="dm-line" />
       </div>
     </main>
 
@@ -2346,9 +2347,13 @@ onUnmounted(() => offs.forEach((f) => f()))
 
 /* só rola na vertical: textos longos quebram e código/tabelas rolam por dentro do próprio bloco */
 /* marca de conversa concluída, no fim da conversa */
-.done-mark { flex: none; display: flex; align-items: center; gap: 10px; margin: -8px 0 2px; color: var(--add); font-size: 11.5px; font-weight: 600; animation: dm-in 0.25s ease-out; }
-.dm-line { flex: 1; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--add) 60%, transparent); }
-.dm-label { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.done-mark { flex: none; display: flex; align-items: center; gap: 12px; margin: -4px 0 2px; animation: dm-in 0.25s ease-out; }
+/* fios discretos que somem nas pontas; a cor fica só no selo */
+.dm-line { flex: 1; height: 1px; background: linear-gradient(to right, transparent, var(--border)); }
+.dm-line:last-child { background: linear-gradient(to left, transparent, var(--border)); }
+.dm-label { display: inline-flex; align-items: center; gap: 7px; flex: none; height: 24px; padding: 0 11px 0 5px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--add) 22%, var(--border)); background: color-mix(in srgb, var(--add) 7%, var(--panel)); color: var(--text); font-size: 11.5px; font-weight: 600; }
+.dm-check { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--add); color: var(--bg); }
+.dm-label small { font-size: 11px; font-weight: 400; color: var(--faint); padding-left: 7px; border-left: 1px solid var(--border); }
 @keyframes dm-in { from { opacity: 0; } }
 .thread { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
 .fatal { color: var(--del); }
