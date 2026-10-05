@@ -121,14 +121,10 @@ function repoPaths(a: AgentSnapshot): string[] {
 }
 /** Concluídos cujas alterações ainda estão na lista do projeto aberto */
 const withChanges = computed(() => done.value.filter((a) => repoPaths(a).length))
-/** Vai para Alterações com os arquivos destes agentes marcados (e o diff do primeiro aberto) */
-function goToChanges(list: AgentSnapshot[]) {
-  const paths = [...new Set(list.flatMap(repoPaths))]
-  if (!paths.length) return toast('As alterações desses agentes não estão mais na lista.')
-  list.forEach(markSeen)
+/** Vai para a aba Alterações */
+function goToChanges() {
   state.tab = 'changes'
   setPane('changes')
-  state.selected = new Set(paths)
 }
 /** Fecha as janelas dos concluídos já vistos (a conversa continua em Conversas) */
 const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
@@ -388,9 +384,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
         <h3 class="sec done">
           Concluídos
           <span class="sec-actions">
-            <button v-if="withChanges.length" class="ghost link accent" title="Abre Alterações com os arquivos desses agentes marcados" @click="goToChanges(withChanges)">
-              Enviar alterações de {{ withChanges.length }} {{ withChanges.length === 1 ? 'agente' : 'agentes' }} →
-            </button>
+            <button v-if="withChanges.length" class="ghost link accent" title="Abre a aba Alterações" @click="goToChanges">Enviar alterações →</button>
             <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
           </span>
         </h3>
