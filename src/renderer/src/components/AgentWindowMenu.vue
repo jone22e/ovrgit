@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import type { AgentSnapshot } from '@shared/types'
 import { api } from '../store'
 import Icon from './Icon.vue'
 
 /**
  * Controle discreto da janela do agente, ao lado do alfinete: mostrar ou esconder a janela, deixá-la em segundo
- * plano (fechar só esconde; o agente continua) e fechar de verdade.
+ * plano (fechar só esconde; o agente continua) e fechar de verdade. O botão direito na linha da tarefa abre o mesmo
+ * menu, na posição do ponteiro.
  */
 const props = defineProps<{ a: AgentSnapshot }>()
 const open = ref(false)
@@ -26,6 +27,24 @@ function toggle() {
   open.value = !open.value
   if (open.value) place()
 }
+/** Linha (ou cartão) da tarefa onde o botão está: o botão direito nela abre o menu */
+let row: HTMLElement | null = null
+async function onContext(e: MouseEvent) {
+  // em campo de texto (a resposta rápida do cartão) fica o menu do sistema
+  if ((e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return
+  e.preventDefault()
+  const width = 268
+  const at = (h: number) => ({
+    top: `${Math.max(8, Math.min(e.clientY, window.innerHeight - h - 8))}px`,
+    left: `${Math.max(8, Math.min(e.clientX, window.innerWidth - width - 8))}px`,
+    width: `${width}px`
+  })
+  popStyle.value = at(0)
+  open.value = true
+  // já com a altura real, para não passar da borda de baixo da janela
+  await nextTick()
+  if (popEl.value) popStyle.value = at(popEl.value.offsetHeight)
+}
 const run = (p: Promise<unknown>) => {
   open.value = false
   p.catch(() => undefined)
@@ -38,13 +57,16 @@ const onDoc = (e: MouseEvent) => {
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape' && open.value) open.value = false
 }
-const onResize = () => open.value && place()
+const onResize = () => (open.value = false)
 onMounted(() => {
+  row = root.value?.closest<HTMLElement>('[data-uid]') ?? null
+  row?.addEventListener('contextmenu', onContext)
   document.addEventListener('mousedown', onDoc)
   window.addEventListener('keydown', onKey)
   window.addEventListener('resize', onResize)
 })
 onUnmounted(() => {
+  row?.removeEventListener('contextmenu', onContext)
   document.removeEventListener('mousedown', onDoc)
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('resize', onResize)
