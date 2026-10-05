@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, Notification, screen, shell } from 'electron'
-import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds, DisplayInfo } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -361,15 +361,30 @@ export function regridBounds(area: WindowBounds, from: GridSize, to: GridSize, w
 }
 
 /** O grid mudou de tamanho: as janelas de agente da tela onde a janela `uid` está vão para o lugar delas no novo. */
-/** Tela de referência: a da janela do agente `uid`, ou a da janela `fallback` (a principal, no gerenciador) */
-function displayFor(uid: string, fallback?: BrowserWindow | null): Electron.Display | null {
+/** Tela de referência: a escolhida (`displayId`), a da janela do agente `uid`, ou a da janela `fallback` (a principal, no gerenciador) */
+function displayFor(uid: string, fallback?: BrowserWindow | null, displayId?: number): Electron.Display | null {
+  const chosen = typeof displayId === 'number' ? screen.getAllDisplays().find((d) => d.id === displayId) : undefined
+  if (chosen) return chosen
   const me = wins.get(uid)
   const win = me && !me.win.isDestroyed() ? me.win : fallback && !fallback.isDestroyed() ? fallback : null
   return win ? screen.getDisplayMatching(win.getBounds()) : null
 }
 
-export function regridAgentWindows(uid: string, from: GridSize, to: GridSize, fallback?: BrowserWindow | null) {
-  const display = displayFor(uid, fallback)
+/** Monitores ligados, da esquerda para a direita, com a área útil de cada um; `current` é o da janela `fallback` */
+export function agentDisplays(fallback?: BrowserWindow | null): DisplayInfo[] {
+  const here = displayFor('', fallback)
+  const all = screen.getAllDisplays().sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y)
+  const name = (d: Electron.Display, i: number) => d.label?.trim() || `Tela ${i + 1}`
+  return all.map((d, i) => {
+    // dois monitores do mesmo modelo têm o mesmo nome: ganham um número, da esquerda para a direita
+    const same = all.filter((x, j) => name(x, j) === name(d, i))
+    const label = same.length > 1 ? `${name(d, i)} ${same.indexOf(d) + 1}` : name(d, i)
+    return { id: d.id, label, width: d.workArea.width, height: d.workArea.height, current: d.id === here?.id }
+  })
+}
+
+export function regridAgentWindows(uid: string, from: GridSize, to: GridSize, fallback?: BrowserWindow | null, displayId?: number) {
+  const display = displayFor(uid, fallback, displayId)
   if (!display) return
   const open = [...wins.values()].filter(
     (w) => !w.win.isDestroyed() && !w.win.isMinimized() && !w.win.isFullScreen() && screen.getDisplayMatching(w.win.getBounds()).id === display.id
@@ -382,8 +397,8 @@ export function regridAgentWindows(uid: string, from: GridSize, to: GridSize, fa
 }
 
 /** Células do grid cobertas por janelas de agente, na tela onde a janela `uid` está (ou a `fallback`). */
-export function agentGridCells(uid: string, grid: GridSize, fallback?: BrowserWindow | null): GridCell[] {
-  const display = displayFor(uid, fallback)
+export function agentGridCells(uid: string, grid: GridSize, fallback?: BrowserWindow | null, displayId?: number): GridCell[] {
+  const display = displayFor(uid, fallback, displayId)
   if (!display) return []
   const me = wins.get(uid)
   const open = [...wins.values()]
@@ -577,12 +592,12 @@ export function arrangeAgentWindows() {
 }
 
 /**
- * Organiza as janelas de agente nas áreas escolhidas no grid do gerenciador, uma janela por área, na tela da
- * janela principal. Janelas e áreas seguem a ordem de leitura (de cima para baixo, da esquerda para a direita),
+ * Organiza as janelas de agente nas áreas escolhidas no grid do gerenciador, uma janela por área, na tela
+ * escolhida (ou na da janela principal). Janelas e áreas seguem a ordem de leitura (de cima para baixo, da esquerda para a direita),
  * para cada janela andar o mínimo; as de outra tela vêm para esta. Sobrando janela, as últimas ficam onde estão.
  */
-export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[], fallback?: BrowserWindow | null) {
-  const display = displayFor('', fallback)
+export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[], fallback?: BrowserWindow | null, displayId?: number) {
+  const display = displayFor('', fallback, displayId)
   if (!display) return
   const { cols, rows } = fitGrid(grid, display.workArea)
   const slots = cells

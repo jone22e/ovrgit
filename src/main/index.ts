@@ -693,16 +693,19 @@ function registerIpc() {
   })
   ipcMain.handle('agent:background', (_e, uid: string, on: boolean) => agentChat.setAgentBackground(String(uid), !!on))
   ipcMain.handle('agent:arrange', () => agentChat.arrangeAgentWindows())
-  ipcMain.handle('agent:arrangeInto', (e, grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[]) =>
-    agentChat.arrangeAgentWindowsInto(grid, Array.isArray(cells) ? cells.slice(0, 72) : [], BrowserWindow.fromWebContents(e.sender))
+  ipcMain.handle('agent:arrangeInto', (e, grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[], displayId?: number) =>
+    agentChat.arrangeAgentWindowsInto(grid, Array.isArray(cells) ? cells.slice(0, 72) : [], BrowserWindow.fromWebContents(e.sender), displayId)
   )
   ipcMain.handle('agent:daySummary', () => agentHistory.daySummary(agentChat.openSessionIds()))
   ipcMain.handle('agent:place', (_e, uid: string, p: GridPlacement) => agentChat.placeAgentWindow(String(uid), p))
   // uid vazio: pelo gerenciador, na tela da janela principal
-  ipcMain.handle('agent:regrid', (e, uid: string, from: GridSize, to: GridSize) =>
-    agentChat.regridAgentWindows(String(uid ?? ''), from, to, BrowserWindow.fromWebContents(e.sender))
+  ipcMain.handle('agent:regrid', (e, uid: string, from: GridSize, to: GridSize, displayId?: number) =>
+    agentChat.regridAgentWindows(String(uid ?? ''), from, to, BrowserWindow.fromWebContents(e.sender), displayId)
   )
-  ipcMain.handle('agent:gridCells', (e, uid: string, grid: GridSize) => agentChat.agentGridCells(String(uid ?? ''), grid, BrowserWindow.fromWebContents(e.sender)))
+  ipcMain.handle('agent:gridCells', (e, uid: string, grid: GridSize, displayId?: number) =>
+    agentChat.agentGridCells(String(uid ?? ''), grid, BrowserWindow.fromWebContents(e.sender), displayId)
+  )
+  ipcMain.handle('agent:displays', (e) => agentChat.agentDisplays(BrowserWindow.fromWebContents(e.sender)))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)
     return agentWatch.knownModels()

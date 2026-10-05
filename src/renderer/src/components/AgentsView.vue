@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels } from '@shared/types'
+import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels, DisplayInfo } from '@shared/types'
 import { api, ask, openNewAgent, saveSettings, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
@@ -212,13 +212,13 @@ async function arrange() {
   arranging.value = true
   await api.agentArrange().catch(() => undefined)
   arranging.value = false
-  if (gridOpen.value) gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
+  if (gridOpen.value) await refreshCells()
 }
 
 /** As janelas vão para as áreas escolhidas no grid, uma por área */
 async function arrangeInto(cells: { col: number; row: number; colSpan: number; rowSpan: number }[]) {
-  await api.agentArrangeInto({ ...shownGrid.value }, cells).catch(() => undefined)
-  gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
+  await api.agentArrangeInto({ ...shownGrid.value }, cells, display.value?.id).catch(() => undefined)
+  await refreshCells()
 }
 
 // ---------- todas as janelas de uma vez (no dropdown do Organizar) ----------
@@ -243,14 +243,25 @@ async function allWindows(action: 'show' | 'hide' | 'background' | 'foreground' 
 const gridOpen = ref(false)
 const gridRoot = ref<HTMLElement>()
 const gridSize = computed(() => normalizeGrid(state.settings?.agentGrid))
-const screenArea = () => ({ width: window.screen.availWidth, height: window.screen.availHeight })
+/** Monitores ligados e o escolhido para o grid (de início, o da janela principal) */
+const displays = ref<DisplayInfo[]>([])
+const displayId = ref<number | null>(null)
+const display = computed(() => displays.value.find((d) => d.id === displayId.value) ?? displays.value.find((d) => d.current))
+const screenArea = () => (display.value ? { width: display.value.width, height: display.value.height } : { width: window.screen.availWidth, height: window.screen.availHeight })
+const refreshCells = async (grid: GridSize = shownGrid.value) => (gridCells.value = await api.agentGridCells('', { ...grid }, display.value?.id).catch(() => []))
+async function pickDisplay(id: number) {
+  displayId.value = id
+  gridLimits.value = gridLimitsFor(screenArea())
+  await refreshCells()
+}
 const gridLimits = ref<GridSize>(gridLimitsFor(screenArea()))
 const shownGrid = computed(() => clampGrid(gridSize.value, gridLimits.value))
 const gridCells = ref<GridCell[]>([])
 watch(gridOpen, async (open) => {
   if (!open) return
+  displays.value = await api.agentDisplays().catch(() => [])
   gridLimits.value = gridLimitsFor(screenArea())
-  gridCells.value = await api.agentGridCells('', { ...shownGrid.value }).catch(() => [])
+  await refreshCells()
 })
 async function setGridSize(s: GridSize) {
   const from = shownGrid.value
@@ -258,8 +269,8 @@ async function setGridSize(s: GridSize) {
   if (to.cols === from.cols && to.rows === from.rows) return
   await saveSettings({ agentGrid: to })
   // as janelas desta tela acompanham o grid novo
-  await api.agentRegrid('', { ...from }, { ...to }).catch(() => undefined)
-  gridCells.value = await api.agentGridCells('', { ...to }).catch(() => [])
+  await api.agentRegrid('', { ...from }, { ...to }, display.value?.id).catch(() => undefined)
+  await refreshCells(to)
 }
 const onDocGrid = (e: MouseEvent) => {
   if (gridOpen.value && gridRoot.value && !gridRoot.value.contains(e.target as Node)) gridOpen.value = false
@@ -294,7 +305,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           </button>
           <button class="arrange-more" title="Colunas × linhas do grid" @click="gridOpen = !gridOpen"><Icon name="chevron" :size="11" class="chev" /></button>
           <div v-if="gridOpen" class="pop">
-            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" manage :pick="snaps.length" @update:model-value="setGridSize" @arrange="arrangeInto" />
+            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" :area="screenArea()" manage :pick="snaps.length" @update:model-value="setGridSize" @arrange="arrangeInto">
+              <template v-if="displays.length > 1" #where>
+                <select class="where" :value="display?.id" title="Monitor onde as janelas são organizadas" @change="pickDisplay(Number(($event.target as HTMLSelectElement).value))">
+                  <option v-for="d in displays" :key="d.id" :value="d.id">{{ d.label }}{{ d.current ? ' (esta)' : '' }}</option>
+                </select>
+              </template>
+            </WindowGrid>
             <!-- todas as janelas de uma vez -->
             <div class="all">
               <h6>Todas as janelas</h6>
@@ -506,6 +523,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
 }
+.where { height: 22px; max-width: 150px; padding: 0 4px; font-size: 11px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.where:hover, .where:focus { border-color: var(--border); color: var(--text); }
 .all { margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
 .all h6 { margin: 0 0 4px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 .all-row { display: flex; gap: 4px; }

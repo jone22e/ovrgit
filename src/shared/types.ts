@@ -514,6 +514,18 @@ export interface GridPlacement extends GridSize {
   rowSpan: number
 }
 
+/** Um monitor, para o gerenciador de agentes escolher em qual deles organizar as janelas */
+export interface DisplayInfo {
+  id: number
+  /** Nome do monitor (o do sistema, ou "Tela N") */
+  label: string
+  /** Área útil, sem a barra de menus e o Dock */
+  width: number
+  height: number
+  /** É onde a janela principal do app está */
+  current: boolean
+}
+
 /** Célula do grid coberta por uma janela de agente: a desta janela (`own`) ou a de outro agente (com o título dele) */
 export interface GridCell {
   col: number
@@ -1046,9 +1058,11 @@ export interface OvseerApi {
   agentPlace(uid: string, p: GridPlacement): Promise<WindowBounds>
   /** O grid mudou de tamanho: reencaixa no novo as janelas de agente da tela onde esta janela está */
   /** uid vazio: a tela da janela que chama (gerenciador) */
-  agentRegrid(uid: string, from: GridSize, to: GridSize): Promise<void>
+  agentRegrid(uid: string, from: GridSize, to: GridSize, displayId?: number): Promise<void>
   /** Células do grid já cobertas por janelas de agente, na tela onde esta janela está */
-  agentGridCells(uid: string, grid: GridSize): Promise<GridCell[]>
+  agentGridCells(uid: string, grid: GridSize, displayId?: number): Promise<GridCell[]>
+  /** Monitores ligados, para o gerenciador escolher onde organizar as janelas */
+  agentDisplays(): Promise<DisplayInfo[]>
   knownModels(): Promise<KnownModels>
   /** Consumo das assinaturas (Claude pelo endpoint da conta; Codex pelos registros locais). `force` ignora o cache. */
   usage(force?: boolean): Promise<UsageInfo>
@@ -1111,7 +1125,7 @@ export interface OvseerApi {
   /** Reorganiza as janelas de agente no grid de cada tela, em ordem de leitura */
   agentArrange(): Promise<void>
   /** Coloca as janelas de agente nas áreas escolhidas do grid, uma por área, na tela da janela principal */
-  agentArrangeInto(grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[]): Promise<void>
+  agentArrangeInto(grid: GridSize, cells: { col: number; row: number; colSpan?: number; rowSpan?: number }[], displayId?: number): Promise<void>
   /** Resumo das conversas com agentes de hoje */
   agentDaySummary(): Promise<DaySummary>
   /** Situação das conversas com janela aberta, por id de sessão */

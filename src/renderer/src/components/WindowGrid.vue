@@ -16,7 +16,8 @@ const emit = defineEmits<{ place: [p: GridPlacement]; arrange: [areas: GridArea[
 /** `limits`: o maior grid que cabe na tela onde a janela está (células menores que a janela mínima não entram) */
 /** `manage`: pelo gerenciador de agentes, colunas × linhas, as células ocupadas e a escolha das posições das janelas */
 /** `pick`: quantas janelas há para posicionar (no gerenciador): arrastando por uma área, ou clicando nessa quantidade de células, elas vão para lá */
-const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean; pick?: number }>(), { cells: () => [], limits: () => GRID_LIMITS, pick: 0 })
+/** `area`: tamanho da área útil da tela do grid (no gerenciador, a do monitor escolhido); sem ela, a tela desta janela */
+const props = withDefaults(defineProps<{ cells?: GridCell[]; limits?: GridSize; manage?: boolean; pick?: number; area?: { width: number; height: number } }>(), { cells: () => [], limits: () => GRID_LIMITS, pick: 0 })
 const cellAtIndex = (i: number) => props.cells.find((c) => c.col === i % size.value.cols && c.row === Math.floor(i / size.value.cols))
 const locked = (i: number) => !!cellAtIndex(i) && !cellAtIndex(i)!.own
 /** A área em escolha passa por cima de uma célula de outro agente */
@@ -49,7 +50,7 @@ const canDec = (k: keyof Size) => size.value[k] > 1
 const canInc = (k: keyof Size) => size.value[k] < props.limits[k]
 
 /** O desenho segue a proporção da tela onde a janela está, para a área escolhida bater com o que se vê */
-const aspect = computed(() => `${Math.max(1, window.screen.availWidth)} / ${Math.max(1, window.screen.availHeight)}`)
+const aspect = computed(() => `${Math.max(1, props.area?.width ?? window.screen.availWidth)} / ${Math.max(1, props.area?.height ?? window.screen.availHeight)}`)
 
 // ---------- seleção por arraste ----------
 interface Cell {
@@ -132,7 +133,8 @@ const hint = computed(() => {
   <div class="wgrid">
     <div class="wgrid-head">
       <strong>{{ manage ? 'Grid das janelas' : 'Posição da janela' }}</strong>
-      <span class="faint">{{ manage ? 'nesta tela' : 'na tela onde ela está' }}</span>
+      <!-- o gerenciador põe aqui o seletor de monitor, quando há mais de um -->
+      <slot name="where"><span class="faint">{{ manage ? 'nesta tela' : 'na tela onde ela está' }}</span></slot>
     </div>
     <div class="wgrid-size">
       <span v-for="k in (['cols', 'rows'] as const)" :key="k" class="stepper">
