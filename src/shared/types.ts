@@ -979,6 +979,8 @@ export interface OvseerApi {
   ovseerUpload(taskId: string, file: { name: string; type: string; data: ArrayBuffer }, purpose?: 'plan_audio'): Promise<void>
   /** Pede acesso ao microfone ao sistema (macOS); true se liberado */
   requestMicrophone(): Promise<boolean>
+  /** Transcreve um áudio WAV em texto, neste computador (só no macOS 26 ou mais novo) */
+  transcribeAudio(wav: Uint8Array): Promise<string>
   onOvseerChange(cb: () => void): () => void
   onOvseerLive(cb: (live: boolean) => void): () => void
   onMenu(cb: (action: string) => void): () => void

@@ -26,6 +26,7 @@ import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
+import { transcribeAudio } from './transcribe'
 import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
 import { adoptTerminal, createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, setTerminalMeta, terminalMeta, writeTerminal } from './terminal'
@@ -502,6 +503,7 @@ function registerIpc() {
     if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true
     return systemPreferences.askForMediaAccess('microphone')
   })
+  ipcMain.handle('media:transcribe', (_e, wav: Uint8Array) => transcribeAudio(new Uint8Array(wav)))
   ipcMain.handle('ovseer:delivery', async (_e, taskId: string) => {
     const [d, pr] = await Promise.all([
       ovseer.delivery(String(taskId)),

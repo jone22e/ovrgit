@@ -12,6 +12,7 @@ import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
 import { readCodexFast } from './agentPrefs'
+import { useDictation } from './dictation'
 import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, canAutoRetry } from '@shared/autoRetry'
 import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
@@ -1079,6 +1080,17 @@ function workStart(t: Turn) {
   return t.workSince ?? t.startedAt
 }
 
+// ---------- ditado: o microfone grava e o texto transcrito entra no campo, para conferir antes de enviar ----------
+/** O transcritor é o reconhecimento de fala do macOS: nos outros sistemas o botão não aparece */
+const canDictate = window.ovseer.platform === 'darwin'
+const dictation = useDictation((text) => {
+  draft.value = draft.value.trim() ? `${draft.value.replace(/\s+$/, '')} ${text}` : text
+  nextTick(() => {
+    autosize()
+    box.value?.focus()
+  })
+})
+
 /** Agente livre: envia; ocupado: entra na fila (sai sozinha quando a resposta atual terminar). */
 async function send(text = draft.value) {
   const p = takePayload(text)
@@ -2143,6 +2155,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <p v-if="attachError" class="att-err">{{ attachError }}</p>
+      <p v-if="dictation.error.value" class="att-err">{{ dictation.error.value }}</p>
       <textarea
         ref="box"
         v-model="draft"
@@ -2172,6 +2185,24 @@ onUnmounted(() => offs.forEach((f) => f()))
           </div>
         </div>
         <span class="spacer" />
+        <!-- ditado: um clique grava, outro transcreve para o campo -->
+        <div v-if="canDictate" class="dictate" :class="dictation.phase.value">
+          <template v-if="dictation.phase.value === 'recording'">
+            <button type="button" class="ghost icon dict-x" title="Descartar a gravação" @click="dictation.cancel"><Icon name="x" :size="13" /></button>
+            <span class="dict-time mono">{{ dictation.time.value }}</span>
+          </template>
+          <span v-if="dictation.phase.value === 'transcribing'" class="dict-time">Transcrevendo…</span>
+          <button
+            type="button"
+            class="icon mic"
+            :disabled="dictation.phase.value === 'transcribing'"
+            :title="dictation.phase.value === 'recording' ? 'Terminar e transcrever' : dictation.phase.value === 'transcribing' ? 'Transcrevendo o áudio…' : 'Ditar: grava o microfone e escreve o texto no campo'"
+            @click="dictation.toggle"
+          >
+            <span v-if="dictation.phase.value === 'transcribing'" class="spinner" />
+            <Icon v-else :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="15" />
+          </button>
+        </div>
         <template v-if="running">
           <button v-if="!canCompose" type="button" class="icon send stop" title="Interromper" @click="stop"><Icon name="stop" :size="16" /></button>
           <div v-else ref="sendRoot" class="send-split" :class="[`as-${effectiveSend}`, { on: sendOpen }]">
@@ -2566,6 +2597,13 @@ onUnmounted(() => offs.forEach((f) => f()))
 .opt kbd { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 6px; }
 .sep { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
 .send { width: 34px; height: 34px; border-radius: 50%; flex: none; }
+.dictate { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.mic { width: 34px; height: 34px; border-radius: 50%; flex: none; color: var(--muted); }
+.dictate.recording .mic { background: var(--del); border-color: var(--del); color: #fff; animation: mic-pulse 1.4s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--del) 25%, transparent); } }
+.dict-time { font-size: 12px; color: var(--muted); }
+.dictate.recording .dict-time { color: var(--del); }
+.dict-x { width: 24px; height: 24px; border-radius: 50%; color: var(--faint); }
 /* botão de envio dividido: a ação escolhida à esquerda, a seta abre o menu para trocar */
 .send-split { position: relative; display: inline-flex; height: 34px; flex: none; border-radius: 999px; background: var(--text); color: var(--bg); }
 .send-split.as-now { background: var(--accent); color: var(--on-accent); }

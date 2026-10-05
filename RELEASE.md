@@ -66,6 +66,13 @@ Faça o commit e o push do que vai entrar na versão. O comando se recusa a roda
    gh auth login
    ```
 
+4. **Swift.** O app leva um ajudante nativo (`ovseer-transcribe`, o ditado por voz dos agentes), compilado na
+   hora de publicar. Basta ter as ferramentas de linha de comando do Xcode:
+
+   ```bash
+   xcode-select --install
+   ```
+
 ## Conferir se a atualização chegou
 
 Abra o app instalado em uma versão anterior. Em cerca de 10 segundos aparece a barra "Ovseer X está pronto para
