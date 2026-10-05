@@ -1853,7 +1853,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon name="pencil" :size="11" class="pen" />
         </span>
         <span class="sub ellipsis">
-          {{ providerName }} · {{ modelLabel(provider, model, catalogOf(known, provider)) }} ·
+          {{ modelLabel(provider, model, catalogOf(known, provider)) }} ·
           <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" :extra="info.extraDirs" extensible @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
           <template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
         </span>
