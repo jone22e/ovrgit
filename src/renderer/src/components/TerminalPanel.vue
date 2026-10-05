@@ -324,6 +324,12 @@ function toggleLog(tab: Tab) {
   if (tab.log) nextTick(() => logView.value?.reset(termText(tab)))
   else focusActive()
 }
+/** Limpa a tela da aba: o terminal e, no modo interativo, as linhas lidas (o processo segue rodando) */
+function clearTab(tab: Tab) {
+  sessions.get(tab.uid)?.term.clear()
+  if (tab.log) logView.value?.reset('')
+  else focusActive()
+}
 /** Saída nova da aba ativa em modo interativo também vai para a leitura */
 function feedLog(uid: string, data: string) {
   const tab = tabs.find((t) => t.uid === uid)
@@ -743,6 +749,7 @@ onUnmounted(() => {
       >
         <Icon name="pin" :size="13" />
       </button>
+      <button v-if="activeTab" class="ghost icon small" :title="`Limpar a tela${isMac ? ' (⌘K no terminal)' : ''}`" @click="clearTab(activeTab)"><Icon name="trash" :size="13" /></button>
       <button v-if="activeTab" class="ghost icon small" :class="{ on: activeTab.log }" :title="activeTab.log ? 'Voltar ao terminal' : 'Modo interativo: a saída lida linha a linha (nível, hora, campos), com filtro e busca'" @click="toggleLog(activeTab)"><Icon name="listChecks" :size="13" /></button>
       <template v-if="activeTab && isService(activeTab)">
         <button v-if="!activeTab.exited" class="ghost icon small stop" title="Parar o serviço" @click="api.serviceStop(serviceIdOf(activeTab)!)"><Icon name="stop" :size="13" /></button>

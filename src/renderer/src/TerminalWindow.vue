@@ -62,6 +62,11 @@ async function reattach() {
   if (!ok) window.close()
 }
 
+function clearScreen() {
+  term?.clear()
+  term?.focus()
+}
+
 onMounted(async () => {
   settings = await api.getSettings().catch(() => null)
   applyTheme(settings?.theme)
@@ -123,6 +128,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <span class="sub ellipsis">{{ exited ? 'encerrado' : spec?.kind === 'ssh' ? 'SSH' : 'terminal' }}<template v-if="cwd"> · {{ cwd.replace(/^\/Users\/[^/]+/, '~') }}</template></span>
       </div>
       <span class="spacer" />
+      <button type="button" class="ghost icon small" title="Limpar a tela" @click="clearScreen"><Icon name="trash" :size="13" /></button>
       <button v-if="!exited" type="button" class="small" title="Voltar com esta aba para o painel do Ovseer" @click="reattach"><Icon name="panelBottom" :size="12" /> Acoplar ao painel</button>
     </header>
     <div ref="host" class="term" />
