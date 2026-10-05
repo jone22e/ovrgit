@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, effortsFor, modelLabel } from '@shared/models'
 import type { AgentEffort, CliProvider, KnownModels, ModelInfo } from '@shared/types'
+import { readCodexFast, writeCodexFast } from '../agentPrefs'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
@@ -18,6 +19,8 @@ const props = defineProps<{
   disabled?: boolean
   /** Só o modelo (sem o controle de esforço) */
   noEffort?: boolean
+  /** Sem a chave do modo rápido do Codex (onde ele não se aplica, como no desenho do conceito) */
+  noFast?: boolean
   known?: KnownModels | null
   /** Último modelo/esforço usado em cada IA (quem chama guarda entre sessões) */
   defaults?: Partial<Record<CliProvider, { model: string; effort: AgentEffort }>>
@@ -28,6 +31,14 @@ const effort = defineModel<AgentEffort>('effort', { required: true })
 
 const open = ref(false)
 const root = ref<HTMLElement>()
+/** Modo rápido do Codex: uma preferência só, de todas as conversas (outra janela pode ter mudado: relê ao abrir) */
+const fast = ref(readCodexFast())
+const showFast = computed(() => provider.value === 'codex' && !props.noEffort && !props.noFast)
+function toggleFast() {
+  fast.value = !fast.value
+  writeCodexFast(fast.value)
+}
+watch(open, (o) => o && (fast.value = readCodexFast()))
 const CUSTOM = '__custom__'
 
 /** Catálogo do provedor atual: o do Codex vem do próprio CLI; o do Claude é a lista fixa do app. */
@@ -220,6 +231,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       <AgentLogo :source="provider" :size="12" />
       <span class="chip-model ellipsis">{{ label }}</span>
       <span class="chip-effort">{{ effortLabel }}</span>
+      <Icon v-if="showFast && fast" name="zap" :size="11" class="chip-fast" />
       <Icon name="chevron" :size="12" class="chev" />
     </button>
 
@@ -319,6 +331,11 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
           />
         </div>
       </div>
+      <button v-if="showFast" type="button" class="ghost fast" :class="{ on: fast }" role="switch" :aria-checked="fast" title="O mesmo do botão 1.5x do app do Codex. Vale para todas as conversas com o ChatGPT, a partir da próxima mensagem." @click="toggleFast">
+        <Icon name="zap" :size="14" />
+        <span class="fast-text"><strong>Modo rápido · 1,5x</strong><small>Respostas mais rápidas, gastando mais do limite</small></span>
+        <span class="switch" />
+      </button>
     </div>
   </div>
 </template>
@@ -385,6 +402,16 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
 .dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; background: var(--faint); pointer-events: auto; opacity: 0.8; }
 .dot.on { background: var(--on-accent); opacity: 0.7; }
 .dot.cur { opacity: 0; }
+.chip-fast { color: var(--accent); flex: none; }
+.fast { justify-content: flex-start; gap: 10px; height: auto; width: 100%; margin-top: 2px; padding: 8px 10px; text-align: left; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; }
+.fast.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
+.fast-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.fast-text strong { font-size: 12.5px; color: var(--text); }
+.fast-text small { font-size: 11px; color: var(--muted); white-space: normal; }
+.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); transition: background 0.12s; }
+.switch::after { content: ''; position: absolute; top: 1px; left: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--faint); transition: transform 0.12s, background 0.12s; }
+.fast.on .switch { background: var(--accent); border-color: var(--accent); }
+.fast.on .switch::after { transform: translateX(12px); background: #fff; }
 .hint { margin: 2px 0 0; font-size: 11px; line-height: 1.4; }
 .hint.lock { margin: -4px 0 2px; }
 .hint.desc { margin: -2px 0 0 2px; }

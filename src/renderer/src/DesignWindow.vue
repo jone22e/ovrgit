@@ -355,7 +355,7 @@ onUnmounted(() => {
           />
           <div class="row">
             <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole aqui)" :disabled="!canRevise" @click="pickFiles"><Icon name="paperclip" :size="14" /></button>
-            <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :disabled="running" :known="known" />
+            <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers no-fast :disabled="running" :known="known" />
             <span class="spacer" />
             <button v-if="running" type="button" class="icon send stop" title="Interromper" @click="act({ type: 'cancel' })"><Icon name="stop" :size="14" /></button>
             <button v-else type="button" class="icon send primary" title="Enviar (Enter)" :disabled="(!note.trim() && !pending.length) || !versions.length" @click="send()"><Icon name="up" :size="15" /></button>

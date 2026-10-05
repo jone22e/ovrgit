@@ -827,6 +827,8 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
   for (const img of o.images ?? []) args.push('-i', img)
   if (o.model) args.push('-m', o.model)
   if (o.effort) args.push('-c', `model_reasoning_effort="${o.effort}"`)
+  // modo rápido: o mesmo do botão "1.5x speed" do app do Codex (modelo que não o oferece ignora, com um aviso)
+  if (o.fast) args.push('-c', 'service_tier="fast"')
   // sempre sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs), e nos modos Plano o que impede
   // alterações é a instrução de só planejar
   args.push('--dangerously-bypass-approvals-and-sandbox')
@@ -1201,6 +1203,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     model: safeModel(opts.model ?? ''),
     effort: opts.effort,
     mode: normalizeMode(opts.mode),
+    fast: provider === 'codex' && opts.fast === true,
     resume: w.info.sessionId
   }
   w.info.model = clean.model

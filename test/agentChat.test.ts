@@ -28,6 +28,11 @@ describe('argumentos dos CLIs', () => {
     expect(r).toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(r.slice(-2)).toEqual(['thread-1', '-'])
   })
+
+  it('codex: o modo rápido só entra quando ligado', () => {
+    expect(codexArgs({ model: '', effort: 'high', mode: 'full', resume: null }).join(' ')).not.toContain('service_tier')
+    expect(codexArgs({ model: '', effort: 'high', mode: 'full', fast: true, resume: null })).toContain('service_tier="fast"')
+  })
 })
 
 describe('saída do Claude Code (stream-json)', () => {

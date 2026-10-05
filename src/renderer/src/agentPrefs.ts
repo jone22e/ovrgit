@@ -10,6 +10,18 @@ export interface AgentPrefs {
   effort: Record<CliProvider, AgentEffort>
   mode: AgentMode
 }
+/** Modo rápido do Codex (cerca de 1,5x mais rápido, gastando mais do limite): vale para todas as conversas; começa desligado */
+const CODEX_FAST = 'ovseer.agent.codexFast'
+export function readCodexFast(): boolean {
+  try {
+    return localStorage.getItem(CODEX_FAST) === '1'
+  } catch {
+    return false
+  }
+}
+export function writeCodexFast(on: boolean) {
+  localStorage.setItem(CODEX_FAST, on ? '1' : '0')
+}
 export function readAgentPrefs(): AgentPrefs {
   const base: AgentPrefs = { provider: 'codex', model: { ...DEFAULT_MODEL }, effort: { ...DEFAULT_EFFORT }, mode: 'full' }
   try {

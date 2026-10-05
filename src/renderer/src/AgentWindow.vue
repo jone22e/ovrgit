@@ -11,6 +11,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelL
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
+import { readCodexFast } from './agentPrefs'
 import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, canAutoRetry } from '@shared/autoRetry'
 import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
@@ -843,7 +844,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
       uid,
       [p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
       // (na descoberta o processo principal troca para um modelo rápido e esforço baixo só nessa chamada)
-      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value },
+      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast: provider.value === 'codex' && readCodexFast() },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
   } catch (e) {

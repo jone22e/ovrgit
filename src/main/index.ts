@@ -603,6 +603,7 @@ function registerIpc() {
         model: String(opts?.model ?? ''),
         effort: opts?.effort,
         mode: agentChat.normalizeMode(opts?.mode),
+        fast: opts?.fast === true,
         provider: opts?.provider === 'claude' || opts?.provider === 'codex' || opts?.provider === 'agy' ? opts.provider : undefined
       },
       (Array.isArray(attachments) ? attachments : []).slice(0, 20).map((a) => agentChat.describeFile(String(a?.path ?? '')))

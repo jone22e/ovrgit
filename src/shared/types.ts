@@ -433,6 +433,8 @@ export interface AgentSendOptions {
   model: string
   effort: AgentEffort
   mode: AgentMode
+  /** Modo rápido do Codex (respostas cerca de 1,5x mais rápidas, gastando mais do limite da assinatura) */
+  fast?: boolean
   /** Troca de provedor: só vale antes da primeira mensagem (a sessão de um CLI não é legível pelo outro) */
   provider?: CliProvider
 }
