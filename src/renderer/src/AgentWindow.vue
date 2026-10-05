@@ -11,6 +11,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelL
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
+import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, canAutoRetry } from '@shared/autoRetry'
 import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
@@ -112,11 +113,19 @@ const fatal = ref<string | null>(null)
 const offs: (() => void)[] = []
 
 const providerName = computed(() => PROVIDER_LABEL[provider.value])
+/** Retomada automática depois de uma falha: segundos até a próxima tentativa (null: nenhuma marcada) */
+const retryIn = ref<number | null>(null)
+/** Tentativas seguidas já feitas; zera quando uma resposta termina bem ou o usuário manda uma mensagem */
+const autoRetries = ref(0)
+/** As tentativas acabaram sem sucesso: o cartão da falha avisa e espera o usuário decidir */
+const retryGaveUp = ref(false)
 /** Situação do agente no cabeçalho: cinza sem conversa, pulsando trabalhando, check verde ao terminar, × vermelho se falhou,
  *  âmbar enquanto um cartão (perguntas do agente ou aprovação do plano) espera a resposta do usuário. */
 const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() => {
   if (running.value || designRunning.value) return 'live'
   if (!turns.length) return 'idle'
+  // entre uma tentativa e outra da retomada automática o agente segue "trabalhando"
+  if (retryIn.value !== null) return 'live'
   if (turns[turns.length - 1].error) return 'error'
   // o conceito visual esperando aprovação também é "precisa de você"
   const conceptWaiting = arch.value?.phase === 'concept' && arch.value.design?.approved === undefined
@@ -577,7 +586,9 @@ function apply(ev: AgentChatEvent) {
     running.value = false
     // texto vazio no fim: tira o bloco; o CLI repete o erro como texto: fica só a caixa de erro
     t.blocks = t.blocks.filter((b) => b.kind !== 'text' || (b.text.trim() && !(ev.error && /^API Error/i.test(b.text.trim()))))
-    notifyDone(t)
+    if (!t.error) resetRetry()
+    // falha passageira e nada na fila: a retomada sai sozinha, sem notificar (só avisa se as tentativas acabarem)
+    if (sendAfterStop || queue.length || !scheduleRetry(t)) notifyDone(t)
     nextTick(() => box.value?.focus())
     // interrompida para dar lugar a outra mensagem: não é erro
     if (sendAfterStop) {
@@ -778,6 +789,8 @@ interface Payload {
   silent?: boolean
   /** Instruções do app que acompanham a mensagem: vão para o agente, não aparecem na conversa */
   hidden?: string
+  /** Tentativa da retomada automática (não zera a contagem de tentativas) */
+  auto?: boolean
   attachments: Shown[]
 }
 const canCompose = computed(() => !!(draft.value.trim() || pastes.length || pending.length))
@@ -813,6 +826,8 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistItem[]) {
   if (!info.value) return
+  if (p.auto) clearRetryTimer()
+  else resetRetry()
   const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
@@ -1600,6 +1615,50 @@ watch(
   },
   { deep: true, immediate: true }
 )
+// ---------- retomada automática: a resposta caiu por um erro passageiro ----------
+const CONTINUE = 'Continue a tarefa de onde parou, sem refazer o que já foi feito.'
+let retryTimer: ReturnType<typeof setInterval> | undefined
+/** O que a retomada manda: "continue" se o agente chegou a trabalhar; senão, o pedido que falhou, de novo */
+let retryBase: { body: string; attachments: Shown[] } | null = null
+function clearRetryTimer() {
+  clearInterval(retryTimer)
+  retryIn.value = null
+}
+function resetRetry() {
+  clearRetryTimer()
+  autoRetries.value = 0
+  retryGaveUp.value = false
+  retryBase = null
+}
+/** Marca a próxima tentativa; false se a falha não é do tipo que se resolve sozinha ou se as tentativas acabaram */
+function scheduleRetry(t: Turn): boolean {
+  // no Modo Arquiteto cada mensagem mexe na etapa da conversa: ali a retomada fica com o usuário
+  if (!canAutoRetry(t.error) || mode.value === 'architect') return false
+  if (autoRetries.value >= AUTO_RETRY_MAX) {
+    retryGaveUp.value = true
+    return false
+  }
+  if (t.blocks.length && sessionId.value) retryBase = { body: CONTINUE, attachments: [] }
+  else if (!t.silent && t.user.trim()) retryBase = { body: t.user, attachments: t.attachments }
+  else if (!retryBase && sessionId.value) retryBase = { body: CONTINUE, attachments: [] }
+  if (!retryBase) return false
+  clearInterval(retryTimer)
+  retryIn.value = AUTO_RETRY_DELAYS[Math.min(autoRetries.value, AUTO_RETRY_DELAYS.length - 1)]
+  autoRetries.value++
+  retryTimer = setInterval(() => {
+    if (retryIn.value !== null && --retryIn.value <= 0) retryNow()
+  }, 1000)
+  return true
+}
+/** Faz já a tentativa marcada; a mensagem vai sem aparecer na conversa e o contador de tempo segue do trabalho que caiu */
+function retryNow() {
+  const last = turns[turns.length - 1]
+  if (retryIn.value === null || !retryBase || !last || running.value) return clearRetryTimer()
+  clearRetryTimer()
+  dispatch({ id: crypto.randomUUID(), ...retryBase, silent: true, auto: true }, workStart(last))
+}
+onUnmounted(() => clearInterval(retryTimer))
+
 /** Falhou: se o agente chegou a trabalhar, pede para continuar de onde parou; senão, manda o pedido de novo */
 async function retryLast() {
   const last = turns[turns.length - 1]
@@ -1610,7 +1669,7 @@ async function retryLast() {
 /** Pede ao agente para continuar a tarefa interrompida (a sessão lembra o que já foi feito) */
 async function continueAfter() {
   if (running.value) return
-  await dispatch({ id: crypto.randomUUID(), body: 'Continue a tarefa de onde parou, sem refazer o que já foi feito.', attachments: [] })
+  await dispatch({ id: crypto.randomUUID(), body: CONTINUE, attachments: [] })
 }
 /** Manda de novo o pedido da vez que falhou, com os mesmos anexos */
 async function resend(t: Turn) {
@@ -1923,7 +1982,15 @@ onUnmounted(() => offs.forEach((f) => f()))
             <strong>{{ stopInfo(t).title }}</strong>
             <p>{{ stopInfo(t).text }}</p>
             <small v-if="stopInfo(t).detail" class="stop-detail">{{ stopInfo(t).detail }}</small>
-            <div v-if="t === turns[turns.length - 1] && !running" class="stop-actions">
+            <template v-if="t === turns[turns.length - 1] && !running && retryIn !== null">
+              <p class="stop-retry">Retomando sozinho em {{ retryIn }} s · tentativa {{ autoRetries }} de {{ AUTO_RETRY_MAX }}</p>
+              <div class="stop-actions">
+                <button type="button" class="small primary" @click="retryNow">Retomar agora</button>
+                <button type="button" class="small" @click="clearRetryTimer">Cancelar</button>
+              </div>
+            </template>
+            <p v-else-if="t === turns[turns.length - 1] && !running && retryGaveUp" class="stop-retry">Tentei retomar {{ AUTO_RETRY_MAX }} vezes e falhou de novo. O que deseja fazer?</p>
+            <div v-if="t === turns[turns.length - 1] && !running && retryIn === null" class="stop-actions">
               <button v-if="stopInfo(t).worked && sessionId" type="button" class="small primary" @click="continueAfter">Continuar de onde parou</button>
               <button v-if="t.user.trim()" type="button" class="small" @click="resend(t)">Reenviar mensagem</button>
             </div>
@@ -2448,6 +2515,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .stopped strong { font-size: 13.5px; color: var(--del); }
 .stopped p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; user-select: text; }
 .stop-detail { font-family: var(--mono); font-size: 11.5px; color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.stopped p.stop-retry { color: var(--text); }
 .stop-actions { display: flex; gap: 8px; margin-top: 4px; }
 .stop-actions button { height: 28px; }
 .meta { margin: 0; font-size: 11px; }
