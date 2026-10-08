@@ -61,6 +61,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 }
 
 export function rememberProject(root: string): Settings {
-  const recent = [root, ...getSettings().recentProjects.filter((p) => p !== root)].slice(0, 10)
+  // os mais antigos saem da lista quando passa de 30 (a visão geral do seletor lê até esse tanto)
+  const recent = [root, ...getSettings().recentProjects.filter((p) => p !== root)].slice(0, 30)
   return saveSettings({ recentProjects: recent, lastProject: root })
 }
