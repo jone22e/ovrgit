@@ -1817,18 +1817,22 @@ onMounted(async () => {
   scrollToEnd(true)
   known.value = await api.knownModels().catch(() => null)
   box.value?.focus()
-  // a primeira tarefa (e os arquivos que vieram com ela, ex.: pelo mascote) só é enviada uma vez (não numa recarga)
+  // a primeira tarefa (e os arquivos que vieram com ela, ex.: pelo mascote) só é enviada uma vez (não numa recarga).
+  // Conta só o que veio de fora: um arquivo colado ou arrastado pelo usuário enquanto a janela carregava fica no
+  // campo, esperando ele enviar
+  let firstFiles = 0
   if (!turns.length && i.firstFiles?.length) {
     for (const p of i.firstFiles) {
       try {
         const kept = await api.agentKeepFile(uid, p)
         pushPending({ ...kept, preview: isImage(kept.mime, kept.name) ? ((await api.agentImage(kept.path).catch(() => null)) ?? undefined) : undefined })
+        firstFiles++
       } catch (e) {
         attachError.value = clean(e)
       }
     }
   }
-  if ((i.firstMessage || pending.length) && !turns.length) send(i.firstMessage ?? '')
+  if ((i.firstMessage || firstFiles) && !turns.length) send(i.firstMessage ?? '')
 })
 onUnmounted(() => offs.forEach((f) => f()))
 </script>
