@@ -1790,6 +1790,8 @@ onMounted(async () => {
     api.onSettingsChanged((s) => {
       applyTheme(s.theme)
       applyFont(s)
+      // o grid mudou noutra janela (ou na principal): este menu passa a mostrar as mesmas colunas × linhas
+      gridSize.value = normalizeGrid(s.agentGrid)
     })
   )
 
