@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import type { QueueTask } from '@shared/types'
-import { api, saveSettings, state, toast } from '../store'
+import { api, state, toast } from '../store'
 import { ago } from '../ago'
 import Icon from './Icon.vue'
 import RepoSelect from './RepoSelect.vue'
@@ -46,14 +46,7 @@ async function openTask(t: QueueTask) {
   await api.agentOpen({ provider: h.provider, model: h.model, effort: h.effort, mode: h.mode, cwd: h.cwd, resumeId: h.sessionId }).catch(() => undefined)
 }
 const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
-const reuse = computed({
-  get: () => state.settings?.queueReuse !== false,
-  set: (v: boolean) => void saveSettings({ queueReuse: v })
-})
-const smart = computed({
-  get: () => state.settings?.queueSmart !== false,
-  set: (v: boolean) => void saveSettings({ queueSmart: v })
-})
+
 </script>
 
 <template>
@@ -62,10 +55,6 @@ const smart = computed({
       <strong><Icon name="listTodo" :size="14" /> Fila de tarefas</strong>
       <span class="gap" />
     </header>
-    <div class="opts">
-      <label class="reuse" title="Um agente que terminou uma tarefa continua disponível: continua a conversa quando a tarefa nova é do mesmo assunto; senão, começa uma nova"><input v-model="reuse" type="checkbox" class="switch" /><span>Reaproveitar pelo contexto</span></label>
-      <label class="reuse" :class="{ off: !reuse }" title="Quando a relação entre a tarefa e as conversas não é óbvia, uma IA rápida (Haiku ou o modelo mini) decide qual continuar"><input v-model="smart" type="checkbox" class="switch" :disabled="!reuse" /><span>IA decide na dúvida</span></label>
-    </div>
 
     <!-- os números da fila -->
     <div class="stats">
@@ -149,14 +138,7 @@ const smart = computed({
 .q-head { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
 .q-head strong { display: inline-flex; align-items: center; gap: 7px; }
 .gap { flex: 1; }
-.opts { display: flex; flex-direction: column; gap: 6px; margin-top: -4px; }
-.reuse { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
-.reuse.off { opacity: 0.5; }
 .via { font-size: 11px; color: var(--hunk); }
-.switch { appearance: none; width: 28px; height: 16px; margin: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); position: relative; cursor: pointer; flex: none; }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform 0.12s, background 0.12s; }
-.switch:checked { background: var(--accent); border-color: var(--accent); }
-.switch:checked::after { transform: translateX(12px); background: var(--on-accent); }
 /* os três números */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 /* os três iguais, mesmo sendo o terceiro um botão (zera o estilo padrão de botão) */
