@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceRadial, forceSimulation, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force'
+import type { ForceGraph3DInstance } from '3d-force-graph'
 import { featureGraph, type FeatureEdge, type FeatureNode, type MapArea, type ProjectMap } from '@shared/codeGraph'
 import { PROVIDER_LABEL } from '@shared/models'
 import type { MapEvent } from '@shared/types'
@@ -34,6 +35,48 @@ interface GLink extends SimulationLinkDatum<GNode> {
 
 const root = computed(() => state.repo?.root ?? null)
 const map = shallowRef<ProjectMap | null>(null)
+
+// ---------- painel de ajustes (como o do Obsidian): exibição e forças, guardados para todos os projetos ----------
+interface GraphPrefs {
+  /** multiplicadores (1 = padrão) */
+  nodeSize: number
+  linkWidth: number
+  labels: number
+  center: number
+  repel: number
+  linkForce: number
+  linkDistance: number
+  /** setas nas ligações apontadas pela IA (de quem usa para quem é usado) */
+  arrows: boolean
+  /** funcionalidades sem nenhuma ligação (fora a da área) */
+  orphans: boolean
+}
+const PREFS_DEFAULT: GraphPrefs = { nodeSize: 1, linkWidth: 1, labels: 1, center: 1, repel: 1, linkForce: 1, linkDistance: 1, arrows: false, orphans: true }
+const tune = ref<GraphPrefs>(readPrefs())
+function readPrefs(): GraphPrefs {
+  try {
+    return { ...PREFS_DEFAULT, ...(JSON.parse(localStorage.getItem('ovseer.map.prefs') ?? '{}') as Partial<GraphPrefs>) }
+  } catch {
+    return { ...PREFS_DEFAULT }
+  }
+}
+const panelOpen = ref(localStorage.getItem('ovseer.map.panel') !== '0')
+function togglePanel() {
+  panelOpen.value = !panelOpen.value
+  localStorage.setItem('ovseer.map.panel', panelOpen.value ? '1' : '0')
+}
+const resetPrefs = () => (tune.value = { ...PREFS_DEFAULT })
+/** Seções do painel abertas */
+const secOpen = ref<Record<string, boolean>>({ areas: true, display: true, forces: false })
+const SLIDERS: { key: keyof GraphPrefs; label: string; min: number; max: number; step: number; sec: 'display' | 'forces' }[] = [
+  { key: 'nodeSize', label: 'Tamanho dos nós', min: 0.4, max: 2.5, step: 0.05, sec: 'display' },
+  { key: 'linkWidth', label: 'Espessura das ligações', min: 0.3, max: 4, step: 0.1, sec: 'display' },
+  { key: 'labels', label: 'Quantidade de rótulos', min: 0, max: 3, step: 0.1, sec: 'display' },
+  { key: 'center', label: 'Força central', min: 0, max: 3, step: 0.1, sec: 'forces' },
+  { key: 'repel', label: 'Repulsão', min: 0.2, max: 3, step: 0.1, sec: 'forces' },
+  { key: 'linkForce', label: 'Força das ligações', min: 0.1, max: 3, step: 0.1, sec: 'forces' },
+  { key: 'linkDistance', label: 'Distância das ligações', min: 0.3, max: 3, step: 0.1, sec: 'forces' }
+]
 const loading = ref(false)
 const mapping = ref(false)
 const status = ref('')
@@ -81,6 +124,8 @@ const areas = computed<(MapArea & { count: number; color: string })[]>(() => {
 const areaIndex = computed(() => new Map(areas.value.map((a, i) => [a.id, i])))
 const featureCount = computed(() => graph.value?.nodes.filter((n) => n.kind === 'feature').length ?? 0)
 const linkCount = computed(() => graph.value?.edges.filter((e) => e.kind !== 'area').length ?? 0)
+/** O nó entra no gráfico: área não escondida e, se os órfãos estão ocultos, com alguma ligação */
+const isShown = (n: FeatureNode) => !hidden.value.has(n.area) && (tune.value.orphans || n.kind === 'area' || n.degree > 0)
 /** Arquivos alterados no projeto aberto: as funcionalidades que os têm ganham um anel */
 const changed = computed(() => new Set((state.repo?.files ?? []).map((f) => f.path)))
 const touched = (n: FeatureNode) => n.files.some((p) => changed.value.has(p))
@@ -100,7 +145,17 @@ function isDark(color: string): boolean {
   const n = parseInt(m[1], 16)
   return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 140
 }
-const colorOf = (i: number) => `hsl(${(i * 137.508 + 20) % 360} ${theme.value.dark ? 62 : 55}% ${theme.value.dark ? 64 : 42}%)`
+const hueOf = (i: number) => (i * 137.508 + 20) % 360
+const colorOf = (i: number) => `hsl(${hueOf(i)}, ${theme.value.dark ? 62 : 55}%, ${theme.value.dark ? 64 : 42}%)`
+/** A mesma cor com transparência (o 3D esmaece por aqui) */
+const colorOfA = (i: number, a: number) => `hsla(${hueOf(i)}, ${theme.value.dark ? 62 : 55}%, ${theme.value.dark ? 64 : 42}%, ${a})`
+/** Cor do tema ("#rrggbb") com transparência */
+function hexA(hex: string, a: number): string {
+  const m = hex.match(/^#([0-9a-f]{6})$/i)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+}
 
 // ---------- carregar e mapear ----------
 async function load() {
@@ -229,7 +284,7 @@ function rebuild() {
   const saved = savedPositions()
   const hadSaved = Object.keys(saved).length > 0
   const ai = areaIndex.value
-  const visible = g.nodes.filter((n) => !hidden.value.has(n.area))
+  const visible = g.nodes.filter((n) => isShown(n))
   const spread = Math.sqrt(visible.length) * 30 + 80
   const next = new Map<string, GNode>()
   for (const n of visible) {
@@ -253,16 +308,7 @@ function rebuild() {
     const b = next.get(e.to)
     return a && b ? [{ source: a, target: b, kind: e.kind, why: e.why, weight: e.weight }] : []
   })
-  const ring = Math.sqrt(nodes.length) * 34 + 160
   sim = forceSimulation<GNode, GLink>(nodes)
-    // funcionalidades em volta da sua área (mola curta e forte); ligações entre funcionalidades puxam de leve;
-    // repulsão forte para os rótulos não se amontoarem
-    .force('link', forceLink<GNode, GLink>(links).distance((l) => (l.kind === 'area' ? 70 + l.source.r : 160)).strength((l) => (l.kind === 'area' ? 0.6 : l.kind === 'ai' ? 0.12 : 0.04)))
-    .force('charge', forceManyBody<GNode>().strength((n) => (n.n.kind === 'area' ? -900 : -220)).distanceMax(900))
-    .force('center', forceCenter(0, 0).strength(0.03))
-    .force('collide', forceCollide<GNode>((n) => n.r + (n.n.kind === 'area' ? 26 : 16)).iterations(2))
-    // nós sem ligação: ficam num anel em volta, como no Obsidian
-    .force('ring', forceRadial<GNode>(ring, 0, 0).strength((n) => (n.n.kind === 'feature' && !n.n.degree && hidden.value.has(n.n.area) ? 0.3 : 0)))
     .alpha(hadSaved ? 0.25 : 1)
     .alphaDecay(hadSaved ? 0.06 : 0.025)
     .on('tick', () => {
@@ -274,6 +320,7 @@ function rebuild() {
       if (fitPending) fit()
     })
   // começa centrado e, no primeiro layout, vai enquadrando enquanto a física assenta
+  applyForces()
   fitPending = !hadSaved
   if (hadSaved) fit()
   else view = { k: Math.max(0.1, Math.min(1, Math.min(size.w, size.h) / 2 / (spread + 80))), x: size.w / 2, y: size.h / 2 }
@@ -282,8 +329,31 @@ function rebuild() {
   requestRender()
 }
 
+/** As forças do 2D com os ajustes do painel (também ao mexer nos sliders, sem refazer o gráfico) */
+function applyForces() {
+  if (!sim) return
+  const p = tune.value
+  const ns = p.nodeSize
+  const ring = Math.sqrt(nodes.length) * 34 + 160
+  sim
+    // funcionalidades em volta da sua área (mola curta e forte); ligações entre funcionalidades puxam de leve;
+    // repulsão forte para os rótulos não se amontoarem
+    .force('link', forceLink<GNode, GLink>(links).distance((l) => (l.kind === 'area' ? 70 + l.source.r * ns : 160) * p.linkDistance).strength((l) => Math.min(1, (l.kind === 'area' ? 0.6 : l.kind === 'ai' ? 0.12 : 0.04) * p.linkForce)))
+    .force('charge', forceManyBody<GNode>().strength((n) => (n.n.kind === 'area' ? -900 : -220) * p.repel).distanceMax(900))
+    .force('center', forceCenter(0, 0).strength(0.03 * p.center))
+    .force('collide', forceCollide<GNode>((n) => n.r * ns + (n.n.kind === 'area' ? 26 : 16)).iterations(2))
+    // nós sem ligação: ficam num anel em volta, como no Obsidian
+    .force('ring', forceRadial<GNode>(ring, 0, 0).strength((n) => (n.n.kind === 'feature' && !n.n.degree ? 0.3 : 0)))
+}
+/** Reaquece a física: o gráfico se reorganiza com as forças atuais */
+function animate() {
+  if (mode.value === '3d') return void g3?.d3ReheatSimulation()
+  sim?.alpha(1).restart()
+}
+
 /** Enquadra o gráfico inteiro na área (`keep`: continua enquadrando a cada tanto, até a física assentar) */
 function fit(keep = false) {
+  if (!keep && mode.value === '3d') return void g3?.zoomToFit(600, 60)
   if (!keep) fitPending = false
   if (!nodes.length || !size.w) return
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
@@ -311,9 +381,9 @@ function requestRender() {
 function neighborsOf(id: string | null): Set<string> | null {
   if (!id) return null
   const out = new Set<string>([id])
-  for (const l of links) {
-    if (l.source.id === id) out.add(l.target.id)
-    else if (l.target.id === id) out.add(l.source.id)
+  for (const e of graph.value?.edges ?? []) {
+    if (e.from === id) out.add(e.to)
+    else if (e.to === id) out.add(e.from)
   }
   return out
 }
@@ -333,6 +403,8 @@ function render() {
   const matches = matchesOf(search.value.trim().toLowerCase())
   const dimmed = (id: string) => (near ? !near.has(id) : matches ? !matches.has(id) : false)
   const cols = areas.value.map((a) => a.color)
+  const ns = tune.value.nodeSize
+  const lw = tune.value.linkWidth
   // traços: os da área na cor dela; os da IA cheios; os deduzidos pontilhados
   for (const l of links) {
     const on = near ? near.has(l.source.id) && near.has(l.target.id) && (l.source.id === focusId || l.target.id === focusId) : false
@@ -340,25 +412,43 @@ function render() {
     const areaLink = l.kind === 'area'
     ctx.strokeStyle = on ? t.accent : areaLink ? (cols[l.source.ai] ?? t.text) : t.text
     ctx.globalAlpha = on ? 0.85 : off ? 0.03 : areaLink ? 0.28 : l.kind === 'ai' ? (t.dark ? 0.22 : 0.3) : t.dark ? 0.1 : 0.14
-    ctx.lineWidth = (on ? 1.6 : areaLink ? 1.2 : l.kind === 'ai' ? 1.3 : 1) / view.k
+    ctx.lineWidth = ((on ? 1.6 : areaLink ? 1.2 : l.kind === 'ai' ? 1.3 : 1) * lw) / view.k
     if (l.kind === 'import') ctx.setLineDash([3 / view.k, 4 / view.k])
     ctx.beginPath()
     ctx.moveTo(l.source.x, l.source.y)
     ctx.lineTo(l.target.x, l.target.y)
     ctx.stroke()
     if (l.kind === 'import') ctx.setLineDash([])
+    // seta na ponta (de quem usa para quem é usado), encostada no nó de destino
+    if (tune.value.arrows && l.kind === 'ai' && !off) {
+      const dx = l.target.x - l.source.x
+      const dy = l.target.y - l.source.y
+      const len = Math.hypot(dx, dy) || 1
+      const ux = dx / len, uy = dy / len
+      const tx = l.target.x - ux * (l.target.r * ns + 3 / view.k)
+      const ty = l.target.y - uy * (l.target.r * ns + 3 / view.k)
+      const a = 7 / view.k
+      ctx.fillStyle = ctx.strokeStyle
+      ctx.beginPath()
+      ctx.moveTo(tx, ty)
+      ctx.lineTo(tx - ux * a - uy * a * 0.5, ty - uy * a + ux * a * 0.5)
+      ctx.lineTo(tx - ux * a + uy * a * 0.5, ty - uy * a - ux * a * 0.5)
+      ctx.closePath()
+      ctx.fill()
+    }
   }
   // nós
   for (const n of nodes) {
     const off = dimmed(n.id)
     const color = cols[n.ai] ?? t.text
+    const r = n.r * ns
     ctx.globalAlpha = off ? 0.15 : 1
     if (n.n.kind === 'area') {
       // núcleo: disco translúcido com borda cheia
       ctx.fillStyle = color
       ctx.globalAlpha = off ? 0.08 : 0.22
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
       ctx.fill()
       ctx.globalAlpha = off ? 0.15 : 0.9
       ctx.strokeStyle = color
@@ -367,32 +457,33 @@ function render() {
     } else {
       ctx.fillStyle = color
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
       ctx.fill()
     }
     if (touched(n.n) && !off) {
       ctx.strokeStyle = t.mod
       ctx.lineWidth = 2 / view.k
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r + 3 / view.k, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
       ctx.stroke()
     }
     if (n.id === focusId) {
       ctx.strokeStyle = t.accent
       ctx.lineWidth = 2 / view.k
       ctx.beginPath()
-      ctx.arc(n.x, n.y, n.r + 5 / view.k, 0, Math.PI * 2)
+      ctx.arc(n.x, n.y, r + 5 / view.k, 0, Math.PI * 2)
       ctx.stroke()
     }
   }
   // rótulos: áreas sempre; funcionalidades em destaque, na busca ou as mais ligadas, mais conforme o zoom
   ctx.globalAlpha = 1
-  const budget = view.k >= 1.5 ? Infinity : Math.max(areas.value.length + 6, Math.round(areas.value.length + 14 * view.k * view.k))
+  const lf = tune.value.labels
+  const budget = lf === 0 ? 0 : view.k >= 1.5 / lf ? Infinity : Math.max(areas.value.length + Math.round(6 * lf), Math.round(areas.value.length + 14 * lf * view.k * view.k))
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   for (const n of nodes) {
     const isArea = n.n.kind === 'area'
-    const show = isArea || n.id === focusId || (near ? near.has(n.id) : matches ? matches.has(n.id) : (rank.get(n.id) ?? Infinity) < budget)
+    const show = (isArea && lf > 0) || n.id === focusId || (near ? near.has(n.id) : matches ? matches.has(n.id) : (rank.get(n.id) ?? Infinity) < budget)
     if (!show) continue
     const off = dimmed(n.id)
     const px = (isArea ? 13 : Math.max(10, Math.min(12.5, 11 / Math.sqrt(view.k)))) / view.k
@@ -403,7 +494,7 @@ function render() {
       ctx.textBaseline = 'middle'
       ctx.fillText(n.label, n.x, n.y)
       ctx.textBaseline = 'top'
-    } else ctx.fillText(n.label, n.x, n.y + n.r + 3 / view.k)
+    } else ctx.fillText(n.label, n.x, n.y + n.r * ns + 3 / view.k)
   }
   ctx.globalAlpha = 1
 }
@@ -417,7 +508,7 @@ function hit(px: number, py: number): GNode | null {
   let bd = Infinity
   for (const n of nodes) {
     const d = Math.hypot(n.x - p.x, n.y - p.y)
-    const lim = n.r + 3 / view.k
+    const lim = n.r * tune.value.nodeSize + 3 / view.k
     if (d <= lim && d < bd) {
       bd = d
       best = n
@@ -497,12 +588,14 @@ function onLeave() {
 function select(id: string | null) {
   selectedId.value = id
   requestRender()
+  refresh3d()
 }
 /** Centraliza o nó na área (busca e cliques na lista de ligações) */
 function goTo(id: string) {
+  select(id)
+  if (mode.value === '3d') return flyTo(id)
   const n = byId.get(id)
   if (!n) return
-  select(id)
   const k = Math.max(view.k, 1.2)
   view = { k, x: size.w / 2 - n.x * k, y: size.h / 2 - n.y * k }
   requestRender()
@@ -551,6 +644,227 @@ function onlyArea(id: string) {
   hidden.value = hidden.value.size === all.length - 1 && !hidden.value.has(id) ? new Set() : new Set(all.filter((a) => a !== id))
 }
 
+// ---------- 3D: a mesma física em três eixos; arrastar gira, a roda aproxima ----------
+interface N3 {
+  id: string
+  r: number
+  ai: number
+  n: FeatureNode
+  x?: number
+  y?: number
+  z?: number
+}
+interface L3 {
+  source: string | N3
+  target: string | N3
+  kind: FeatureEdge['kind']
+  why?: string
+}
+const mode = ref<'2d' | '3d'>(localStorage.getItem('ovseer.map.mode') === '3d' ? '3d' : '2d')
+/** Giro automático (3D) */
+const spin = ref(false)
+const el3d = ref<HTMLElement>()
+let g3: ForceGraph3DInstance<N3, L3> | null = null
+const nodes3 = new Map<string, N3>()
+let ticks3 = 0
+/** Primeiro layout do 3D em andamento: o enquadramento acompanha */
+let settling3 = true
+function setMode(m: '2d' | '3d') {
+  mode.value = m
+  localStorage.setItem('ovseer.map.mode', m)
+}
+const idOf = (v: string | N3) => (typeof v === 'string' ? v : v.id)
+/** Dados do 3D a partir do gráfico (nós já existentes mantêm a posição) */
+function data3d() {
+  const g = graph.value
+  if (!g) return { nodes: [], links: [] }
+  const ai = areaIndex.value
+  const visible = g.nodes.filter((n) => isShown(n))
+  const keep = new Set<string>()
+  const nodes: N3[] = visible.map((n) => {
+    keep.add(n.id)
+    const prev = nodes3.get(n.id)
+    const r = n.kind === 'area' ? Math.min(14, 6 + Math.sqrt(g.nodes.filter((x) => x.area === n.area).length) * 0.9) : Math.min(7, 2.2 + Math.sqrt(n.degree) * 0.9)
+    const node: N3 = prev ?? { id: n.id, r, ai: 0, n }
+    node.r = r
+    node.ai = ai.get(n.area) ?? 0
+    node.n = n
+    nodes3.set(n.id, node)
+    return node
+  })
+  for (const id of [...nodes3.keys()]) if (!keep.has(id)) nodes3.delete(id)
+  const links: L3[] = g.edges.filter((e) => keep.has(e.from) && keep.has(e.to)).map((e) => ({ source: e.from, target: e.to, kind: e.kind, why: e.why }))
+  return { nodes, links }
+}
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+async function build3d() {
+  const el = el3d.value
+  if (!el) return
+  const [{ default: ForceGraph3D }, { default: SpriteText }] = await Promise.all([import('3d-force-graph'), import('three-spritetext')])
+  if (!el3d.value || mode.value !== '3d') return
+  if (!g3) {
+    const t = theme.value
+    // o construtor não é genérico nos tipos da biblioteca: os nós e as ligações são os nossos
+    const g = (new ForceGraph3D(el, { controlType: 'orbit' }) as unknown as ForceGraph3DInstance<N3, L3>)
+      .showNavInfo(false)
+      .backgroundColor(t.bg)
+      .nodeRelSize(1)
+      .nodeVal((n) => Math.pow(n.r * tune.value.nodeSize, 3))
+      .nodeResolution(14)
+      .nodeOpacity(1)
+      .nodeColor((n) => nodeColor3(n))
+      .nodeThreeObjectExtend(true)
+      .nodeThreeObject((n: N3) => {
+        // rótulo flutuando sobre a esfera: as áreas em destaque, as funcionalidades menores
+        const area = n.n.kind === 'area'
+        const label = new SpriteText(n.n.name, area ? 7 : 3.4, theme.value.text) as InstanceType<typeof SpriteText> & { material: { depthWrite: boolean }; position: { y: number } }
+        label.fontFace = 'system-ui, -apple-system, sans-serif'
+        label.fontWeight = area ? 'bold' : 'normal'
+        label.backgroundColor = false
+        label.material.depthWrite = false
+        label.position.y = n.r + (area ? 7 : 4)
+        return label as never
+      })
+      .nodeLabel((n) => {
+        const a = n.n.kind === 'area' ? 'Área' : areaName(n.n.area)
+        return `<div class="tip3"><strong>${esc(n.n.name)}</strong>${n.n.description ? `<small>${esc(n.n.description)}</small>` : ''}<small class="faint">${esc(a)}${n.n.kind === 'feature' ? ` · ${n.n.files.length} ${n.n.files.length === 1 ? 'arquivo' : 'arquivos'}` : ''}</small></div>`
+      })
+      .linkColor((l) => linkColor3(l))
+      .linkWidth(() => (tune.value.linkWidth > 1.4 ? tune.value.linkWidth * 0.35 : 0))
+      .linkOpacity(0.55)
+      .onNodeHover((n) => {
+        el.style.cursor = n ? 'pointer' : ''
+        if ((n?.id ?? null) !== hoverId.value) {
+          hoverId.value = n?.id ?? null
+          refresh3d()
+        }
+      })
+      .onNodeClick((n) => {
+        select(n.id)
+        flyTo(n.id)
+      })
+      .onBackgroundClick(() => select(null))
+      .cooldownTicks(250)
+      // enquanto a física assenta o gráfico encolhe: reenquadra de tempos em tempos e, no fim, com calma
+      .onEngineTick(() => {
+        if (++ticks3 % 25 === 0 && settling3) g.zoomToFit(0, 60)
+      })
+      .onEngineStop(() => {
+        settling3 = false
+        g.zoomToFit(500, 60)
+      })
+    g3 = g
+    applyForces3d()
+    applySpin()
+  }
+  size3d()
+  settling3 = true
+  g3.graphData(data3d())
+}
+function nodeColor3(n: N3): string {
+  const focusId = hoverId.value ?? selectedId.value
+  const near = neighborsOf(focusId)
+  const q = search.value.trim().toLowerCase()
+  const off = near ? !near.has(n.id) : q ? !`${n.n.name} ${n.n.description ?? ''}`.toLowerCase().includes(q) : false
+  if (n.id === focusId) return theme.value.accent
+  return off ? colorOfA(n.ai, 0.12) : colorOf(n.ai)
+}
+function linkColor3(l: L3): string {
+  const t = theme.value
+  const a = idOf(l.source)
+  const b = idOf(l.target)
+  const focusId = hoverId.value ?? selectedId.value
+  const near = neighborsOf(focusId)
+  if (near) {
+    const on = (a === focusId || b === focusId) && near.has(a) && near.has(b)
+    return on ? t.accent : hexA(t.text, 0.03)
+  }
+  if (l.kind === 'area') return colorOfA(nodes3.get(a)?.ai ?? 0, 0.45)
+  return hexA(t.text, l.kind === 'ai' ? 0.35 : 0.14)
+}
+/** Reaplica as cores (destaque, esmaecimento e busca) */
+function refresh3d() {
+  if (!g3) return
+  g3.nodeColor(g3.nodeColor()).linkColor(g3.linkColor())
+}
+/** Voa até o nó: a câmera se aproxima dele, olhando para ele */
+function flyTo(id: string) {
+  const n = nodes3.get(id)
+  if (!g3 || !n || n.x === undefined) return
+  const x = n.x ?? 0, y = n.y ?? 0, z = n.z ?? 0
+  const dist = 110
+  const r = Math.hypot(x, y, z) || 1
+  const k = 1 + dist / r
+  g3.cameraPosition({ x: x * k, y: y * k, z: z * k }, { x, y, z }, 900)
+}
+/** As forças do 3D com os ajustes do painel */
+function applyForces3d() {
+  if (!g3) return
+  const p = tune.value
+  const charge = g3.d3Force('charge') as unknown as { strength: (s: (n: N3) => number) => void } | undefined
+  charge?.strength((n) => (n.n.kind === 'area' ? -260 : -70) * p.repel)
+  const link = g3.d3Force('link') as unknown as { distance: (d: (l: L3) => number) => void; strength: (s: (l: L3) => number) => void } | undefined
+  link?.distance((l) => (l.kind === 'area' ? 38 : 85) * p.linkDistance)
+  link?.strength((l) => Math.min(1, (l.kind === 'area' ? 0.8 : l.kind === 'ai' ? 0.3 : 0.1) * p.linkForce))
+  const center = g3.d3Force('center') as unknown as { strength?: (s: number) => void } | undefined
+  center?.strength?.(Math.min(1, 0.3 * p.center))
+  g3.d3ReheatSimulation()
+}
+function applySpin() {
+  const c = g3?.controls() as { autoRotate?: boolean; autoRotateSpeed?: number } | undefined
+  if (!c) return
+  c.autoRotate = spin.value
+  c.autoRotateSpeed = 0.8
+}
+function size3d() {
+  const el = el3d.value
+  if (!g3 || !el) return
+  const r = el.getBoundingClientRect()
+  if (r.width && r.height) g3.width(r.width).height(r.height)
+}
+function destroy3d() {
+  g3?._destructor()
+  g3 = null
+  nodes3.clear()
+}
+watch(mode, async (m) => {
+  if (m === '3d') {
+    await nextTick()
+    await build3d()
+  } else destroy3d()
+})
+watch(spin, applySpin)
+watch([graph, hidden], async () => {
+  if (mode.value !== '3d') return
+  if (g3) g3.graphData(data3d())
+  else {
+    // o mapa chegou depois de o componente montar: o palco 3D só existe agora
+    await nextTick()
+    await build3d()
+  }
+})
+watch(search, refresh3d)
+watch(
+  tune,
+  (p) => {
+    localStorage.setItem('ovseer.map.prefs', JSON.stringify(p))
+    if (mode.value === '3d' && g3) {
+      g3.nodeVal(g3.nodeVal()).linkWidth(g3.linkWidth())
+      applyForces3d()
+    } else if (sim) {
+      applyForces()
+      sim.alpha(0.5).restart()
+    }
+    requestRender()
+  },
+  { deep: true }
+)
+watch(() => tune.value.orphans, rebuild)
+watch(theme, () => {
+  g3?.backgroundColor(theme.value.bg)
+  refresh3d()
+})
+
 // ---------- ciclo de vida ----------
 let ro: ResizeObserver | undefined
 let offEvent: (() => void) | undefined
@@ -568,6 +882,7 @@ function resize() {
   c.style.height = `${r.height}px`
   if (first && nodes.length) fit()
   render()
+  size3d()
 }
 onMounted(() => {
   readTheme()
@@ -576,9 +891,11 @@ onMounted(() => {
   resize()
   window.addEventListener('ovseer-theme', readTheme)
   offEvent = api.onMapEvent(onMapEvent)
+  if (mode.value === '3d') build3d()
 })
 onUnmounted(() => {
   ro?.disconnect()
+  destroy3d()
   sim?.stop()
   cancelAnimationFrame(raf)
   window.removeEventListener('ovseer-theme', readTheme)
@@ -600,6 +917,11 @@ watch([search, changed], requestRender)
       <small v-if="hasMap && !loading" class="faint stats">{{ areas.length }} áreas · {{ featureCount }} funcionalidades · {{ linkCount }} ligações<template v-if="aiWhen"> · {{ aiWhen }}</template></small>
       <button v-if="hasMap" class="ghost icon" title="Levantar os imports de novo: as ligações deduzidas acompanham o código atual" :disabled="!root || loading || mapping" @click="rescan"><Icon name="refresh" :size="14" /></button>
       <button v-if="hasMap" class="ghost icon" title="Enquadrar o gráfico" :disabled="!featureCount" @click="fit()"><Icon name="maximize" :size="14" /></button>
+      <span v-if="hasMap" class="seg dim" role="group" aria-label="Dimensões">
+        <button :class="{ on: mode === '2d' }" title="Plano, como o gráfico do Obsidian" @click="setMode('2d')">2D</button>
+        <button :class="{ on: mode === '3d' }" title="Em três eixos: arraste para girar, role para aproximar" @click="setMode('3d')">3D</button>
+      </span>
+      <button v-if="hasMap && mode === '3d'" class="ghost icon" :class="{ on: spin }" :title="spin ? 'Parar o giro' : 'Girar sozinho'" @click="spin = !spin"><Icon name="refresh" :size="14" /></button>
       <template v-if="mapping">
         <span class="mapping">
           <span v-if="progress" class="bar" :class="{ busy: progress.stage === 'reduce' }" :title="`${progress.done} de ${progress.total}`"><i :style="{ width: `${percent}%` }" /></span>
@@ -617,7 +939,8 @@ watch([search, changed], requestRender)
     <div v-if="error" class="error-line"><Icon name="alert" :size="13" /><span class="ellipsis">{{ error }}</span><button class="ghost icon small" @click="error = null"><Icon name="x" :size="12" /></button></div>
 
     <div ref="wrap" class="stage">
-      <canvas ref="canvas" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp" @dblclick="onDbl" @wheel="onWheel" @pointerleave="onLeave" />
+      <canvas v-show="mode === '2d'" ref="canvas" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="onUp" @dblclick="onDbl" @wheel="onWheel" @pointerleave="onLeave" />
+      <div v-if="mode === '3d' && hasMap" ref="el3d" class="stage3d" />
 
       <div v-if="loading" class="center faint"><span class="spinner" /> Carregando…</div>
       <div v-else-if="!root" class="center faint">Abra um projeto para ver o mapa.</div>
@@ -663,15 +986,52 @@ watch([search, changed], requestRender)
         </div>
       </div>
 
-      <!-- legenda: as áreas; clique esconde/mostra, duplo clique isola -->
-      <div v-if="areas.length" class="legend">
-        <button v-for="a in areas" :key="a.id" class="lg" :class="{ off: hidden.has(a.id) }" :title="(a.description ? `${a.description} · ` : '') + `${a.count} ${a.count === 1 ? 'funcionalidade' : 'funcionalidades'}. Clique: esconder/mostrar; duplo clique: só esta`" @click="toggleArea(a.id)" @dblclick="onlyArea(a.id)">
-          <span class="sw" :style="{ background: a.color }" /><span class="ellipsis">{{ a.name }}</span><small class="faint">{{ a.count }}</small>
-        </button>
-      </div>
+      <!-- painel de ajustes: áreas (a legenda), exibição e forças -->
+      <button v-if="hasMap && !panelOpen" class="ghost icon panel-btn" title="Ajustes do gráfico" @click="togglePanel"><Icon name="sliders" :size="14" /></button>
+      <aside v-if="hasMap && panelOpen" class="panel">
+        <div class="pn-head">
+          <strong>Ajustes</strong>
+          <span class="gap" />
+          <button class="ghost icon small" title="Voltar ao padrão" @click="resetPrefs"><Icon name="undo" :size="13" /></button>
+          <button class="ghost icon small" title="Fechar" @click="togglePanel"><Icon name="x" :size="13" /></button>
+        </div>
 
-      <!-- dica sob o mouse -->
-      <div v-if="hovered && hovered.id !== selectedId" class="tip" :style="{ left: `${Math.min(tip.x + 14, size.w - 290)}px`, top: `${Math.min(tip.y + 14, size.h - 100)}px` }">
+        <section>
+          <button class="pn-sec" @click="secOpen.areas = !secOpen.areas"><Icon name="chevron" :size="11" class="chev" :class="{ open: secOpen.areas }" /> Áreas <small class="faint">{{ areas.length }}</small></button>
+          <div v-if="secOpen.areas" class="legend">
+            <button v-for="a in areas" :key="a.id" class="lg" :class="{ off: hidden.has(a.id) }" :title="(a.description ? `${a.description} · ` : '') + `${a.count} ${a.count === 1 ? 'funcionalidade' : 'funcionalidades'}. Clique: esconder/mostrar; duplo clique: só esta`" @click="toggleArea(a.id)" @dblclick="onlyArea(a.id)">
+              <span class="sw" :style="{ background: a.color }" /><span class="ellipsis">{{ a.name }}</span><small class="faint">{{ a.count }}</small>
+            </button>
+            <button v-if="hidden.size" class="ghost link" @click="hidden = new Set()">Mostrar todas</button>
+          </div>
+        </section>
+
+        <section>
+          <button class="pn-sec" @click="secOpen.display = !secOpen.display"><Icon name="chevron" :size="11" class="chev" :class="{ open: secOpen.display }" /> Exibir</button>
+          <div v-if="secOpen.display" class="pn-body">
+            <label class="row"><span>Setas nas ligações</span><input v-model="tune.arrows" type="checkbox" class="switch" /></label>
+            <label class="row"><span>Sem ligações (órfãs)</span><input v-model="tune.orphans" type="checkbox" class="switch" /></label>
+            <label v-for="sl in SLIDERS.filter((x) => x.sec === 'display')" :key="sl.key" class="slider">
+              <span>{{ sl.label }}</span>
+              <input v-model.number="tune[sl.key]" type="range" :min="sl.min" :max="sl.max" :step="sl.step" />
+            </label>
+          </div>
+        </section>
+
+        <section>
+          <button class="pn-sec" @click="secOpen.forces = !secOpen.forces"><Icon name="chevron" :size="11" class="chev" :class="{ open: secOpen.forces }" /> Forças</button>
+          <div v-if="secOpen.forces" class="pn-body">
+            <label v-for="sl in SLIDERS.filter((x) => x.sec === 'forces')" :key="sl.key" class="slider">
+              <span>{{ sl.label }}</span>
+              <input v-model.number="tune[sl.key]" type="range" :min="sl.min" :max="sl.max" :step="sl.step" />
+            </label>
+            <button class="ghost animate" title="Reorganiza o gráfico com as forças atuais" @click="animate"><Icon name="play" :size="12" /> Animar</button>
+          </div>
+        </section>
+      </aside>
+
+      <!-- dica sob o mouse (no 3D a dica vem da própria biblioteca) -->
+      <div v-if="mode === '2d' && hovered && hovered.id !== selectedId" class="tip" :style="{ left: `${Math.min(tip.x + 14, size.w - 290)}px`, top: `${Math.min(tip.y + 14, size.h - 100)}px` }">
         <strong class="ellipsis">{{ hovered.n.name }}</strong>
         <small v-if="hovered.n.description">{{ hovered.n.description }}</small>
         <small class="faint"><span class="sw" :style="{ background: areaColor(hovered.n.area) }" />{{ hovered.n.kind === 'area' ? `${children.length || areas.find((a) => a.id === hovered!.n.area)?.count} funcionalidades` : `${areaName(hovered.n.area)}${hovered.n.featureKind ? ` · ${kindLabel(hovered.n.featureKind)}` : ''} · ${hovered.n.files.length} ${hovered.n.files.length === 1 ? 'arquivo' : 'arquivos'}` }}</small>
@@ -749,6 +1109,15 @@ watch([search, changed], requestRender)
 .error-line { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--del); background: var(--del-bg); border-bottom: 1px solid var(--border); }
 .error-line span { flex: 1; }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
+.stage3d { position: absolute; inset: 0; }
+.stage3d :deep(.scene-tooltip) { font: 12px system-ui, -apple-system, sans-serif; }
+.stage3d :deep(.tip3) { display: flex; flex-direction: column; gap: 3px; max-width: 260px; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--text); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+.stage3d :deep(.tip3 small) { font-size: 11.5px; line-height: 1.4; }
+.stage3d :deep(.tip3 .faint) { color: var(--faint); }
+.seg.dim { display: flex; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 8px; }
+.seg.dim button { height: 22px; padding: 0 8px; border: 0; background: transparent; color: var(--muted); border-radius: 6px; font-size: 11.5px; font-weight: 600; }
+.seg.dim button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.toolbar .ghost.on { color: var(--accent); background: var(--accent-soft); }
 canvas { display: block; cursor: grab; touch-action: none; }
 canvas:active { cursor: grabbing; }
 .center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
@@ -764,7 +1133,26 @@ canvas:active { cursor: grabbing; }
 .example { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--text); }
 .ex-area { padding: 2px 9px; border-radius: 999px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
 .ex-arrow, .ex-dot { color: var(--faint); }
-.legend { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 1px; max-height: calc(100% - 24px); overflow: auto; padding: 6px; border-radius: 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--border); backdrop-filter: blur(6px); max-width: 240px; }
+.panel { position: absolute; right: 12px; top: 12px; z-index: 2; width: 236px; max-height: calc(100% - 24px); display: flex; flex-direction: column; overflow: auto; padding: 8px; border-radius: 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--border); backdrop-filter: blur(8px); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3); }
+.panel-btn { position: absolute; right: 12px; top: 12px; z-index: 2; background: var(--panel); border: 1px solid var(--border); }
+.pn-head { display: flex; align-items: center; gap: 2px; padding: 2px 4px 6px; font-size: 13px; }
+.panel section { border-top: 1px solid var(--border); padding: 4px 0; }
+.pn-sec { display: flex; align-items: center; gap: 6px; width: 100%; height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--text); font-size: 12px; font-weight: 600; text-align: left; cursor: pointer; border-radius: 6px; }
+.pn-sec:hover { background: var(--hover); }
+.pn-sec small { font-weight: 400; }
+.chev { transition: transform 0.12s; }
+.chev.open { transform: rotate(90deg); }
+.pn-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 4px 6px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+.slider { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
+.slider input { width: 100%; margin: 0; accent-color: var(--accent); }
+.switch { appearance: none; width: 30px; height: 17px; margin: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); position: relative; cursor: pointer; flex: none; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); transition: transform 0.12s, background 0.12s; }
+.switch:checked { background: var(--accent); border-color: var(--accent); }
+.switch:checked::after { transform: translateX(13px); background: var(--on-accent); }
+.animate { align-self: flex-start; height: 26px; gap: 6px; font-size: 12px; color: var(--accent); }
+.link { height: 24px; padding: 0 8px; font-size: 11.5px; color: var(--accent); justify-content: flex-start; }
+.legend { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 4px; }
 .lg { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer; }
 .lg:hover { background: var(--hover); }
 .lg.off { opacity: 0.4; }
