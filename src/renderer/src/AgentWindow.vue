@@ -156,6 +156,8 @@ const onDocClick = (e: MouseEvent) => {
 /** Modo orquestrador: a janela está presa dentro da principal (sem botões do sistema, sem arrastar nem posicionar) */
 const docked = ref(false)
 offs.push(api.onAgentDocked((u, on) => u === uid && (docked.value = on)))
+// presa, o fundo da página é o do gerenciador (nos cantos, se a janela ainda os tiver arredondados, aparece ele)
+watch(docked, (on) => document.body.classList.toggle('docked', on), { immediate: true })
 const gridOpen = ref(false)
 const gridRoot = ref<HTMLElement>()
 /** Colunas × linhas do grid: carregado das configurações do app ao abrir a janela; a troca é gravada lá
@@ -2326,6 +2328,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 /* presa à janela principal (modo orquestrador): sem os botões do sistema, o cabeçalho começa na borda */
 :root[data-platform='darwin'] .agent.docked .bar { padding-left: 14px; }
 .agent.docked .bar { -webkit-app-region: no-drag; }
+:global(body.docked) { background: var(--panel); }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
 .head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; user-select: none; cursor: default; }
 .title { display: inline-flex; align-items: center; height: 20px; gap: 6px; font-size: 13px; font-weight: 700; max-width: 100%; min-width: 0; }

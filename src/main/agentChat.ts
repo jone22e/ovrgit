@@ -359,6 +359,9 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     show: false,
     backgroundColor: setup?.background() ?? '#1e1e1e',
     titleBarStyle: 'hidden',
+    // modo orquestrador: a janela nasce para ficar presa na janela principal, de ponta a ponta, sem cantos arredondados
+    // (só dá para escolher ao criar)
+    ...(isMac && orchestratorOn() && !opts.hidden ? { roundedCorners: false } : {}),
     ...(isMac
       ? { trafficLightPosition: { x: 16, y: 16 } }
       : { titleBarOverlay: { color: '#00000000', symbolColor: '#a9a3b8', height: 48 } }),

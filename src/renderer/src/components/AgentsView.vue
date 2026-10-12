@@ -590,8 +590,8 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
     <template v-if="orch">
       <div class="dock-resizer" @mousedown.prevent="startDockResize" />
       <div class="dock" :style="{ width: `${dockWidth}px` }">
-        <!-- a janela presa cobre exatamente esta área; a margem em volta faz dos cantos arredondados dela um cartão -->
-        <div ref="dockEl" class="dock-area" :class="{ on: docked }">
+        <!-- a janela presa cobre exatamente esta área -->
+        <div ref="dockEl" class="dock-area">
           <div v-if="docked" class="dock-under">
             <span class="dot" :class="docked.status" />
             <strong class="ellipsis">{{ docked.title }}</strong>
@@ -623,9 +623,8 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
 .orch-btn.on { color: var(--accent); background: var(--accent-soft); }
 /* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
-.dock { flex: none; min-width: 0; display: flex; flex-direction: column; padding: 10px 12px 12px 8px; background: var(--panel); }
-.dock-area { flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); }
-.dock-area.on { background: transparent; border-color: transparent; }
+.dock { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); }
+.dock-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
 .dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }
