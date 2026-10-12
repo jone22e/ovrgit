@@ -91,24 +91,7 @@ function dragReset() {
 }
 const attachError = ref<string | null>(null)
 const draft = ref('')
-/** Começos de conversa do estado inicial: o clique preenche o campo e deixa o cursor no fim, para completar */
-const STARTS: { label: string; text: string }[] = [
-  { label: 'Explicar o projeto', text: 'Explique como este projeto está organizado e por onde começar a entendê-lo.' },
-  { label: 'Corrigir um bug', text: 'Corrija este bug: ' },
-  { label: 'Criar uma funcionalidade', text: 'Crie esta funcionalidade: ' },
-  { label: 'Revisar as alterações', text: 'Revise as alterações pendentes no projeto e aponte problemas antes de eu commitar.' }
-]
-function useStart(text: string) {
-  draft.value = text
-  nextTick(() => {
-    const el = box.value
-    if (!el) return
-    // o campo cresce no evento de digitação; preenchido por aqui, ajusta a altura na mão
-    autosize()
-    el.focus()
-    el.setSelectionRange(el.value.length, el.value.length)
-  })
-}
+
 const running = ref(false)
 const sessionId = ref<string | null>(null)
 const known = ref<KnownModels | null>(null)
@@ -1930,20 +1913,11 @@ onUnmounted(() => offs.forEach((f) => f()))
       <p v-if="fatal" class="fatal">{{ fatal }}</p>
       <div v-else-if="!turns.length" class="empty">
         <AgentLogo v-if="info" :source="provider" :size="28" class="empty-logo" />
-        <h2 class="ask">
-          <span>O que vamos fazer em</span>
-          <span class="ask-repo">
-            <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
-            <template v-else>este projeto</template>?
-          </span>
-        </h2>
-        <!-- começos de conversa: um clique preenche o campo, e você completa -->
-        <p class="starts">
-          <template v-for="(st, i) in STARTS" :key="st.text">
-            <span v-if="i" class="sep" />
-            <button type="button" class="start" @click="useStart(st.text)">{{ st.label }}</button>
-          </template>
-        </p>
+        <h2 class="ask">O que vamos fazer?</h2>
+        <!-- o repositório da conversa (e os juntados a ela): o clique troca ou junta outros -->
+        <div class="ask-repo">
+          <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
+        </div>
         <p class="faint keys">Enter envia · Shift+Enter quebra a linha</p>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
@@ -2413,13 +2387,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .empty { margin: auto; max-width: 520px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .empty-logo { opacity: 0.8; }
 .empty h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-.empty .ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
-.empty .ask-repo { display: inline-flex; align-items: center; gap: 2px; }
-/* começos de conversa: uma linha discreta de links */
-.starts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 8px; margin: 0; }
-.start { height: auto; padding: 2px 0; border: 0; background: transparent; font-size: 12.5px; color: var(--muted); cursor: pointer; border-radius: 4px; }
-.start:hover { color: var(--accent); background: transparent; }
-.sep { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); }
+.empty .ask-repo { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .keys { font-size: 11px !important; color: var(--faint); margin-top: 6px !important; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
