@@ -163,6 +163,9 @@ export function dockAgent(uid: string): boolean {
   return true
 }
 
+/** A janela está presa à principal (a tela pergunta ao carregar, para não voltar a arrastar depois de uma recarga) */
+export const isDocked = (uid: string): boolean => !!wins.get(uid)?.docked
+
 /** Solta a janela: volta a ser uma janela do sistema, onde estava antes de ser presa */
 function undock(w: AgentWin, show: boolean) {
   if (!w.docked) return
@@ -404,6 +407,10 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     if (win.isMinimized() || win.isFullScreen()) return
     // presa à principal, a posição que vale é a de antes de prender
     setHistoryBounds(w?.info.sessionId ?? null, w?.undocked ?? win.getBounds())
+  })
+  // presa à principal, a janela não se move (nem pelo arrasto do cabeçalho)
+  win.on('will-move', (e) => {
+    if (wins.get(uid)?.docked) e.preventDefault()
   })
   // visível ou oculta: o gerenciador mostra a situação da janela
   win.on('show', () => {

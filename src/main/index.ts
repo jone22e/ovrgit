@@ -715,6 +715,7 @@ function registerIpc() {
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('orchestrator:set', (_e, on: boolean) => setOrchestrator(!!on))
+  ipcMain.handle('agent:docked', (_e, uid: string) => agentChat.isDocked(String(uid)))
   // mapa do projeto (aba Mapa)
   ipcMain.handle('map:get', (_e, root: string) => codeMap.loadMap(String(root)))
   ipcMain.handle('map:scan', (_e, root: string) => codeMap.scanProject(String(root)))

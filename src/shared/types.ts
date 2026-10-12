@@ -1124,6 +1124,8 @@ export interface OvseerApi {
   orchestratorArea(area: WindowBounds | null): void
   /** Janela do agente: passou a ser mostrada dentro da janela principal (ou voltou a ser uma janela solta) */
   onAgentDocked(cb: (uid: string, docked: boolean) => void): () => void
+  /** A janela está presa à principal agora (para a tela saber ao carregar) */
+  agentDocked(uid: string): Promise<boolean>
   /** Mapa do projeto (aba Mapa): o gravado, a varredura dos imports, o mapeamento com IA e o andamento dele */
   mapGet(root: string): Promise<ProjectMap | null>
   mapScan(root: string): Promise<ProjectMap>

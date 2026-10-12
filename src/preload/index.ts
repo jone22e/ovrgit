@@ -342,6 +342,7 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('map:event', h)
   },
   orchestratorArea: (area) => ipcRenderer.send('orchestrator:area', area),
+  agentDocked: (uid) => ipcRenderer.invoke('agent:docked', uid),
   onAgentDocked: (cb) => {
     const h = (_e: unknown, uid: string, docked: boolean) => cb(uid, docked)
     ipcRenderer.on('agent:docked', h)

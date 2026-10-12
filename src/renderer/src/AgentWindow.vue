@@ -1818,6 +1818,8 @@ onMounted(async () => {
     })
   )
 
+  // presa à principal (modo orquestrador)? A tela pode ter recarregado depois de ser presa
+  api.agentDocked(uid).then((on) => (docked.value = on)).catch(() => undefined)
   const i = await api.agentInfo(uid).catch(() => null)
   if (!i) {
     fatal.value = 'Esta janela perdeu a ligação com o agente. Feche e abra um agente novo.'
@@ -1938,7 +1940,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <!-- começos de conversa: um clique preenche o campo, e você completa -->
         <p class="starts">
           <template v-for="(st, i) in STARTS" :key="st.text">
-            <span v-if="i" class="sep">·</span>
+            <span v-if="i" class="sep" />
             <button type="button" class="start" @click="useStart(st.text)">{{ st.label }}</button>
           </template>
         </p>
@@ -2415,7 +2417,7 @@ onUnmounted(() => offs.forEach((f) => f()))
 .starts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 8px; margin: 0; }
 .start { height: auto; padding: 2px 0; border: 0; background: transparent; font-size: 12.5px; color: var(--muted); cursor: pointer; border-radius: 4px; }
 .start:hover { color: var(--accent); background: transparent; }
-.sep { color: var(--faint); font-size: 12px; }
+.sep { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .keys { font-size: 11px !important; color: var(--faint); margin-top: 6px !important; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
