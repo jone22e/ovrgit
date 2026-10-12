@@ -60,7 +60,7 @@ const detail = computed(() => {
   }
   if (a.status === 'waiting') return a.ask?.kind === 'plan' ? (a.ask.title ?? 'Plano pronto: aprovar a implementação?') : (a.ask?.text ?? a.note ?? 'Esperando a sua resposta')
   if (a.status === 'error') return a.lastUser ? `Interrompido durante "${a.lastUser}"` : (a.error ?? 'Falhou')
-  if (a.status === 'done') return a.summary ?? ''
+  // concluído e sem conversa: nada a dizer aqui (a conversa está ao lado)
   return ''
 })
 /** Etiquetas do resultado (concluído): arquivos, testes, typecheck, build, deploy */
@@ -69,7 +69,6 @@ const chips = computed(() => {
   const a = props.a
   const c = a.checks
   if (a.status !== 'done') return out
-  if (a.files?.count) out.push({ text: `${a.files.count} ${a.files.count === 1 ? 'arquivo' : 'arquivos'}`, tone: '' })
   if (c?.tests) out.push({ text: `${c.tests.count ? `${c.tests.count} testes` : 'testes'} ${c.tests.ok ? '✓' : '✗'}`, tone: c.tests.ok ? 'ok' : 'bad' })
   if (typeof c?.typecheck === 'boolean') out.push({ text: `typecheck ${c.typecheck ? '✓' : '✗'}`, tone: c.typecheck ? 'ok' : 'bad' })
   if (c?.build !== undefined) out.push({ text: `build ${c.build ? '✓' : '✗'}`, tone: c.build ? 'ok' : 'bad' })
@@ -133,7 +132,6 @@ function onClick(e: MouseEvent) {
     </div>
 
     <p v-if="detail" class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled }" :title="detail">{{ detail }}</p>
-    <p v-else class="detail idle">Nenhuma mensagem ainda.</p>
     <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer) -->
     <ol v-if="checklist.length" class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
       <li v-for="(it, k) in checklist" :key="k" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', now: it === current && a.status === 'live' && !stalled }" />
@@ -236,7 +234,6 @@ function onClick(e: MouseEvent) {
 .detail.live::after { content: ''; display: inline-block; width: 6px; height: 12px; margin-left: 4px; vertical-align: -1px; background: var(--accent); animation: blink 1s steps(2) infinite; }
 .detail.err { color: var(--del); }
 .detail.warn { color: var(--mod); }
-.detail.idle { color: var(--faint); font-style: italic; }
 /* etapas do checklist como barrinhas */
 .track-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; }
 .track-steps li { flex: 1; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--faint) 25%, transparent); }
