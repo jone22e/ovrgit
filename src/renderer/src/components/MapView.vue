@@ -93,8 +93,11 @@ async function load() {
   loading.value = true
   try {
     map.value = await api.mapGet(r)
-    mapping.value = await api.mapRunning(r)
-    if (mapping.value) status.value = 'Mapeando…'
+    // mapeamento em curso (a aba foi aberta no meio): a barra já aparece no ponto em que está
+    const running = await api.mapRunning(r)
+    mapping.value = !!running
+    progress.value = running?.type === 'progress' ? { done: running.done, total: running.total } : null
+    status.value = running ? (running.type === 'done' ? '' : running.text) : ''
   } catch (e) {
     error.value = clean(e)
   } finally {

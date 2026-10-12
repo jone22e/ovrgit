@@ -718,7 +718,7 @@ function registerIpc() {
   // mapa do projeto (aba Mapa)
   ipcMain.handle('map:get', (_e, root: string) => codeMap.loadMap(String(root)))
   ipcMain.handle('map:scan', (_e, root: string) => codeMap.scanProject(String(root)))
-  ipcMain.handle('map:running', (_e, root: string) => codeMap.isMapping(String(root)))
+  ipcMain.handle('map:running', (_e, root: string) => codeMap.mappingState(String(root)))
   ipcMain.handle('map:cancel', (_e, root: string) => codeMap.cancelMap(String(root)))
   ipcMain.handle('map:ai', (_e, root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
     codeMap.mapWithAi(String(root), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))

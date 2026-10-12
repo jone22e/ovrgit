@@ -108,9 +108,15 @@ interface Run {
   root: string
   children: Set<ChildProcessWithoutNullStreams>
   cancelled: boolean
+  /** Último andamento publicado: quem abre a aba no meio do mapeamento recebe a barra no ponto certo */
+  last: MapEvent | null
 }
 const runs = new Map<string, Run>()
-export const isMapping = (root: string) => runs.has(path.resolve(root))
+/** Andamento do mapeamento em curso (null: nenhum) */
+export function mappingState(root: string): MapEvent | null {
+  const run = runs.get(path.resolve(root))
+  return run ? (run.last ?? { type: 'status', text: 'Mapeando…' }) : null
+}
 
 /**
  * Um pedido ao CLI com a resposta em texto. Roda numa pasta temporária (sem acesso ao projeto: tudo o que a IA
@@ -200,11 +206,16 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
   const fastModel = provider === 'claude' ? 'haiku' : (mini ?? model)
   const fastEffort: AgentEffort = 'low'
   const reduceEffort: AgentEffort = !o.effort || ['high', 'xhigh', 'max', 'ultra'].includes(o.effort) ? 'medium' : o.effort
-  const run: Run = { root: key, children: new Set(), cancelled: false }
+  const run: Run = { root: key, children: new Set(), cancelled: false, last: null }
   runs.set(key, run)
+  const emit = onEvent
+  onEvent = (ev) => {
+    if (ev.type !== 'done') run.last = ev
+    emit(ev)
+  }
   const finish = (ev: MapEvent) => {
     runs.delete(key)
-    onEvent(ev)
+    emit(ev)
   }
   try {
     onEvent({ type: 'status', text: 'Levantando os imports…' })

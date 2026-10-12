@@ -1128,7 +1128,8 @@ export interface OvseerApi {
   mapScan(root: string): Promise<ProjectMap>
   mapAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
   mapCancel(root: string): Promise<void>
-  mapRunning(root: string): Promise<boolean>
+  /** Andamento do mapeamento em curso (null: nenhum) */
+  mapRunning(root: string): Promise<MapEvent | null>
   onMapEvent(cb: (root: string, ev: MapEvent) => void): () => void
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
