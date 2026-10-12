@@ -650,7 +650,7 @@ function pick(a: AgentSnapshot) {
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
 .body { flex: 1; display: flex; min-height: 0; min-width: 0; }
-.queue-col { flex: none; width: 340px; min-width: 0; overflow: auto; border-right: 1px solid var(--border); background: var(--panel); }
+.queue-col { flex: none; width: 340px; min-width: 0; overflow: hidden auto; border-right: 1px solid var(--border); background: var(--panel); }
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
 .new-agent { height: 28px; gap: 6px; font-size: 12.5px; }
