@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { setPane, state } from '../store'
 import Icon from './Icon.vue'
+import UserMenu from './UserMenu.vue'
 
 /** Barra lateral de ícones à esquerda da janela, como no Codex: alterna entre o gerenciador de agentes, os arquivos
  * alterados (diff à direita), todos os arquivos do projeto (editor à direita) e o histórico de versões */
@@ -35,12 +36,16 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     <button :class="{ on: current() === 'map' }" title="Mapa: os arquivos do projeto e quem usa quem, num gráfico interativo" @click="go('map')">
       <Icon name="network" :size="18" /><span class="lbl">Mapa</span>
     </button>
+    <span class="gap" />
+    <!-- conta e configurações no pé, como no Codex -->
+    <UserMenu side />
   </nav>
 </template>
 
 <style scoped>
 /* barra vertical, da altura da janela abaixo da barra de topo; só ícones, o nome fica na dica */
-.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 52px; flex: none; padding: 8px 0; background: var(--panel); border-right: 1px solid var(--border); }
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 52px; flex: none; padding: 8px 0 10px; background: var(--panel); border-right: 1px solid var(--border); }
+.gap { flex: 1; }
 .rail button { position: relative; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--muted); }
 .rail button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .rail button.on { background: var(--accent-soft); color: var(--accent); }

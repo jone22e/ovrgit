@@ -146,7 +146,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app">
-    <TopBar v-model:switcher="showSwitcher" @settings="state.showSettings = true" />
+    <TopBar v-model:switcher="showSwitcher" />
 
     <div v-if="state.error" class="error-bar">
       <Icon name="alert" />
