@@ -367,6 +367,8 @@ function pick(a: AgentSnapshot) {
 <template>
   <div ref="root" class="agents" :class="{ orch }">
     <div class="toolbar">
+      <!-- no orquestrador o botão de novo agente fica aqui, no começo da barra -->
+      <button v-if="orch" class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       <span class="gap" />
       <button class="ghost orch-btn" :class="{ on: orch }" :title="orch ? 'Sair do modo orquestrador: cada agente volta à sua janela' : 'Modo orquestrador: agentes em cartões e a conversa do escolhido ao lado, nesta janela'" @click="toggleOrchestrator">
         <Icon name="columns" :size="14" /><span class="lbl">Orquestrador</span>
@@ -639,6 +641,7 @@ function pick(a: AgentSnapshot) {
 .body { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
+.new-agent { height: 28px; gap: 6px; font-size: 12.5px; }
 .orch-btn.on { color: var(--accent); background: var(--accent-soft); }
 /* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
 .dock { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); }
