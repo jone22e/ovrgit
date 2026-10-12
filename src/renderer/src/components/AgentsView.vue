@@ -150,15 +150,6 @@ function onKey(e: KeyboardEvent) {
   if (state.tab !== 'agents' || planUid.value) return
   const el = e.target as HTMLElement | null
   if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-  if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
-    const a = order.value[Number(e.key) - 1]
-    if (a) {
-      e.preventDefault()
-      select(a)
-      show(a)
-    }
-    return
-  }
   if (e.metaKey || e.ctrlKey || e.altKey) return
   const i = order.value.findIndex((a) => a.uid === selUid.value)
   if (e.key === 'ArrowDown') {
@@ -174,6 +165,17 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
+// ⌘1…⌘9 (menu do app): a conversa do cartão N, mesmo com o foco dentro da conversa embutida
+watch(
+  () => state.agentPick,
+  (pick) => {
+    const a = pick && order.value[pick.n - 1]
+    if (!a) return
+    select(a)
+    show(a)
+  },
+  { immediate: true }
+)
 // o selecionado fechou: tira a seleção
 watch(order, (l) => selUid.value && !l.some((a) => a.uid === selUid.value) && (selUid.value = null))
 

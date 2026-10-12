@@ -1,6 +1,6 @@
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell, systemPreferences,
-  type MenuItemConstructorOptions
+  type MenuItemConstructorOptions, webContents
 } from 'electron'
 import { findTheme } from '../shared/themes'
 import { cpSync, existsSync, mkdirSync, promises as fsp } from 'node:fs'
@@ -167,7 +167,7 @@ function setOrchestrator(on: boolean): Settings {
   const next = saveSettings({ orchestrator: !!on })
   const item = Menu.getApplicationMenu()?.getMenuItemById('orchestrator')
   if (item) item.checked = next.orchestrator
-  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('settings:changed', next)
+  for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('settings:changed', next)
   agentChat.setOrchestrator(next.orchestrator)
   if (next.orchestrator && win && !win.isDestroyed()) {
     win.show()
@@ -225,6 +225,9 @@ function buildMenu() {
         { label: 'Diff', accelerator: 'CmdOrCtrl+D', click: send('toggleDiff') },
         { label: 'Terminal', accelerator: 'Ctrl+`', click: send('toggleTerminal') },
         { type: 'separator' },
+        // ⌘1…⌘9: a conversa de cada cartão da aba Agentes (pelo menu, vale com o foco em qualquer lugar, inclusive
+        // dentro da conversa embutida do orquestrador)
+        { label: 'Agente', submenu: Array.from({ length: 9 }, (_, i) => ({ label: `Agente ${i + 1}`, accelerator: `CmdOrCtrl+${i + 1}`, click: send(`agent:${i + 1}`) })) },
         {
           id: 'orchestrator',
           label: 'Modo orquestrador',
@@ -642,7 +645,7 @@ function registerIpc() {
     )
   )
   ipcMain.handle('agent:pick', async (e, uid: string) => {
-    const owner = BrowserWindow.fromWebContents(e.sender)
+    const owner = BrowserWindow.fromWebContents(e.sender) ?? win
     const opts: Electron.OpenDialogOptions = {
       title: 'Anexar arquivos',
       defaultPath: agentChat.agentInfo(String(uid))?.cwd,
@@ -697,7 +700,7 @@ function registerIpc() {
   // repositórios recentes (os do seletor de projeto) para a janela do agente trocar de pasta antes de começar
   ipcMain.handle('agent:projects', () => getSettings().recentProjects.filter((p) => existsSync(p)))
   ipcMain.handle('agent:pickCwd', async (e, uid: string) => {
-    const owner = BrowserWindow.fromWebContents(e.sender)
+    const owner = BrowserWindow.fromWebContents(e.sender) ?? win
     const opts: Electron.OpenDialogOptions = {
       title: 'Escolher o repositório do agente',
       defaultPath: agentChat.agentInfo(String(uid))?.cwd,
@@ -773,8 +776,7 @@ function registerIpc() {
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)
     // as outras janelas (chats de agente) acompanham tema e fonte sem precisar reabrir
-    for (const w of BrowserWindow.getAllWindows())
-      if (!w.isDestroyed() && w.webContents !== e.sender) w.webContents.send('settings:changed', next)
+    for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed() && wc !== e.sender) wc.send('settings:changed', next)
     return next
   })
   // serviços em segundo plano (menu do usuário → Serviços)

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, Notification, screen, shell } from 'electron'
+import { app, BrowserWindow, Notification, screen, shell, WebContentsView, webContents as allWebContents } from 'electron'
 import type { AgentAction, AgentAttachment, AgentChatEvent, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, WindowBounds, DisplayInfo } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
@@ -27,6 +27,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
 interface AgentWin {
   info: AgentWindowInfo
+  /** Onde a conversa mora: uma janela do sistema (solta) ou uma vista embutida na principal (modo orquestrador).
+   * A vista imita o pedaço da BrowserWindow que este módulo usa; `isEmbedded` diz qual é */
   win: BrowserWindow
   child: ChildProcessWithoutNullStreams | null
   /** A resposta atual já terminou (o processo pode ainda estar encerrando) */
@@ -51,12 +53,10 @@ interface AgentWin {
   background?: boolean
   /** Fechamento pedido pelo gerenciador: vale mesmo com o segundo plano ligado */
   closing?: boolean
-  /** Modo orquestrador: a janela está presa à janela principal, na área da conversa (e sem moldura própria) */
+  /** Modo orquestrador: a conversa está embutida na janela principal, na área ao lado dos cartões */
   docked?: boolean
-  /** Onde a janela estava antes de ser presa: volta para lá ao soltar */
+  /** Onde a janela solta estava antes de ser embutida: volta para lá ao soltar */
   undocked?: WindowBounds
-  /** Nasceu presa (modo orquestrador): nunca foi uma janela solta, então ao soltar ganha um tamanho normal, centrada */
-  bornDocked?: boolean
 }
 
 const wins = new Map<string, AgentWin>()
@@ -68,10 +68,138 @@ export function setupAgentWindows(s: { icon: string; background: () => string; m
 
 // ---------- modo orquestrador: a conversa do agente selecionado aparece dentro da janela principal ----------
 //
-// A janela do agente continua sendo uma janela do sistema (é ela que conversa com o CLI e guarda a transcrição), mas
-// vira janela-filha da principal, sem sombra, botões nem redimensionamento, colada à área que o gerenciador reserva
-// ao lado dos cartões. Só uma fica presa por vez: escolher outro cartão troca a conversa na mesma área. As demais
-// ficam escondidas, trabalhando.
+// Nesse modo a conversa não é uma janela do sistema: é uma vista (WebContentsView) embutida na janela principal,
+// colada à área que o gerenciador reserva ao lado dos cartões. Assim clicar nela não tira o foco da principal. Só uma
+// aparece por vez: escolher outro cartão troca a conversa na mesma área; as demais ficam invisíveis, trabalhando.
+// Ao ligar ou desligar o modo, as conversas abertas trocam de hospedeiro (janela ↔ vista) recarregando a página;
+// a transcrição volta do disco e o agente, que é do processo principal, nem percebe.
+
+/**
+ * Hospedeiro embutido: imita o pedaço da BrowserWindow que o resto do módulo usa (eventos de fechar, mostrar e
+ * esconder; visibilidade; foco; webContents), por cima de uma WebContentsView presa à janela principal.
+ */
+class EmbeddedWindow {
+  readonly view: WebContentsView
+  readonly webContents: Electron.WebContents
+  private destroyed = false
+  private attached = false
+  private closedEmitted = false
+  private handlers = new Map<string, Set<(...args: unknown[]) => void>>()
+  constructor(prefs: Electron.WebPreferences, background: string) {
+    this.view = new WebContentsView({ webPreferences: prefs })
+    this.view.setBackgroundColor(background)
+    this.view.setVisible(false)
+    this.webContents = this.view.webContents
+    // invisível entre uma troca e outra, continua falando com o agente: nunca pode ficar lenta
+    this.webContents.setBackgroundThrottling(false)
+    this.webContents.on('destroyed', () => {
+      this.destroyed = true
+      this.detach()
+      this.emitClosed()
+    })
+  }
+  on(ev: string, fn: (...args: unknown[]) => void): this {
+    if (!this.handlers.has(ev)) this.handlers.set(ev, new Set())
+    this.handlers.get(ev)!.add(fn)
+    return this
+  }
+  once(ev: string, fn: (...args: unknown[]) => void): this {
+    const wrap = (...args: unknown[]) => {
+      this.handlers.get(ev)?.delete(wrap)
+      fn(...args)
+    }
+    return this.on(ev, wrap)
+  }
+  private fire(ev: string, ...args: unknown[]) {
+    for (const fn of [...(this.handlers.get(ev) ?? [])]) fn(...args)
+  }
+  private emitClosed() {
+    if (this.closedEmitted) return
+    this.closedEmitted = true
+    this.fire('closed')
+  }
+  private detach() {
+    if (!this.attached) return
+    this.attached = false
+    const main = setup?.main()
+    if (main && !main.isDestroyed()) main.contentView.removeChildView(this.view)
+  }
+  /** Coloca a vista na área (px relativos ao conteúdo da principal) e mostra */
+  place(b: WindowBounds, main: BrowserWindow) {
+    if (this.destroyed) return
+    if (!this.attached) {
+      main.contentView.addChildView(this.view)
+      this.attached = true
+    }
+    this.view.setBounds(b)
+    if (!this.view.getVisible()) {
+      this.view.setVisible(true)
+      this.fire('show')
+    }
+  }
+  isDestroyed() {
+    return this.destroyed
+  }
+  isVisible() {
+    return !this.destroyed && this.attached && this.view.getVisible()
+  }
+  show() {
+    if (this.destroyed || !this.attached || this.view.getVisible()) return
+    this.view.setVisible(true)
+    this.fire('show')
+  }
+  showInactive() {
+    this.show()
+  }
+  hide() {
+    if (this.destroyed || !this.view.getVisible()) return
+    this.view.setVisible(false)
+    this.fire('hide')
+  }
+  focus() {
+    if (!this.destroyed) this.webContents.focus()
+  }
+  /** Posição na tela (para o grid e o histórico, que só olham janelas soltas) */
+  getBounds(): WindowBounds {
+    const main = setup?.main()
+    const b = this.view.getBounds()
+    const c = main && !main.isDestroyed() ? main.getContentBounds() : { x: 0, y: 0 }
+    return { x: c.x + b.x, y: c.y + b.y, width: b.width, height: b.height }
+  }
+  /** Fechar: o mesmo ritual da janela (quem escuta 'close' pode impedir, como no segundo plano) */
+  close() {
+    const e = { defaultPrevented: false, preventDefault: () => undefined as void }
+    e.preventDefault = () => void (e.defaultPrevented = true)
+    this.fire('close', e)
+    if (!e.defaultPrevented) this.destroy()
+  }
+  destroy() {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.detach()
+    this.webContents.close()
+    this.emitClosed()
+  }
+  loadURL(url: string) {
+    return this.webContents.loadURL(url)
+  }
+  loadFile(file: string, options?: Electron.LoadFileOptions) {
+    return this.webContents.loadFile(file, options)
+  }
+  // o resto da BrowserWindow não faz sentido numa vista embutida
+  isMinimized = () => false
+  isMaximized = () => false
+  isFullScreen = () => false
+  restore = () => undefined
+  unmaximize = () => undefined
+  setFullScreen = () => undefined
+  setTitle = () => undefined
+  setBounds = () => undefined
+  setSize = () => undefined
+  center = () => undefined
+  setMinimumSize = () => undefined
+}
+const isEmbedded = (win: BrowserWindow): win is BrowserWindow & EmbeddedWindow => win instanceof EmbeddedWindow
 
 /** Área da conversa, em px da página da janela principal (null: a aba Agentes não está à vista, ou há um diálogo aberto) */
 let dockArea: WindowBounds | null = null
@@ -80,7 +208,7 @@ let dockedUid: string | null = null
 
 export const orchestratorOn = (): boolean => !!getSettings().orchestrator
 
-/** Posição, na tela, da área da conversa: a área da página deslocada para dentro do conteúdo da janela principal */
+/** Posição da vista dentro do conteúdo da principal: a área da página, no fator de zoom dela */
 export function dockedBounds(content: WindowBounds, area: WindowBounds, zoom = 1): WindowBounds {
   const z = zoom > 0 ? zoom : 1
   const x = Math.round(content.x + area.x * z)
@@ -91,36 +219,33 @@ export function dockedBounds(content: WindowBounds, area: WindowBounds, zoom = 1
   return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }
 }
 
-function currentDockBounds(): WindowBounds | null {
+function currentViewBounds(): WindowBounds | null {
   const main = setup?.main()
-  if (!main || main.isDestroyed() || !dockArea || main.isMinimized() || !main.isVisible()) return null
-  return dockedBounds(main.getContentBounds(), dockArea, main.webContents.getZoomFactor())
+  if (!main || main.isDestroyed() || !dockArea) return null
+  const c = main.getContentBounds()
+  return dockedBounds({ x: 0, y: 0, width: c.width, height: c.height }, dockArea, main.webContents.getZoomFactor())
 }
 
-/** O gerenciador avisa onde a área está (ou que ela saiu de vista): a conversa presa acompanha */
+/** O gerenciador avisa onde a área está (ou que ela saiu de vista): a conversa embutida acompanha */
 export function setDockArea(area: WindowBounds | null) {
   dockArea = area && area.width > 0 && area.height > 0 ? area : null
   layoutDocked()
 }
 
-/** Encaixa a conversa presa na área; sem área (aba trocada, diálogo aberto, janela principal minimizada), some */
+/** Encaixa a conversa embutida na área; sem área (aba trocada, diálogo aberto), some */
 export function layoutDocked() {
   const w = dockedUid ? wins.get(dockedUid) : undefined
-  if (!w || w.win.isDestroyed() || !w.docked) return
-  const b = currentDockBounds()
-  if (!b) {
-    if (w.win.isVisible()) w.win.hide()
-    return
-  }
-  w.win.setBounds(b)
-  if (!w.win.isVisible()) w.win.showInactive()
+  const main = setup?.main()
+  if (!w || w.win.isDestroyed() || !isEmbedded(w.win) || !main || main.isDestroyed()) return
+  const b = currentViewBounds()
+  if (!b) return w.win.hide()
+  w.win.place(b, main)
 }
 
-/** A janela principal mudou (tamanho, posição, minimizada, mostrada): a conversa presa acompanha */
+/** A janela principal mudou de tamanho ou zoom: a vista acompanha. Fechando a principal, as conversas viram janelas */
 export function watchMainWindow(main: BrowserWindow) {
-  for (const ev of ['resize', 'move', 'minimize', 'restore', 'show', 'hide', 'enter-full-screen', 'leave-full-screen'] as const)
-    main.on(ev as 'resize', () => layoutDocked())
-  // sem a principal, as conversas presas não teriam onde aparecer: voltam a ser janelas soltas
+  main.on('resize', () => layoutDocked())
+  main.webContents.on('zoom-changed', () => layoutDocked())
   main.on('close', () => undockAll(true))
 }
 
@@ -129,86 +254,43 @@ export function dockAgent(uid: string): boolean {
   const w = wins.get(uid)
   const main = setup?.main()
   if (!w || w.win.isDestroyed() || !main || main.isDestroyed()) return false
+  // uma janela solta vira vista embutida (a página recarrega; a conversa volta do disco)
+  if (!isEmbedded(w.win)) rehost(w, true)
   if (dockedUid && dockedUid !== uid) {
     const prev = wins.get(dockedUid)
     if (prev && !prev.win.isDestroyed()) prev.win.hide()
   }
   dockedUid = uid
-  if (!w.docked) {
-    // tela cheia não vira filha: sai dela primeiro e prende depois
-    if (w.win.isFullScreen()) {
-      w.win.once('leave-full-screen', () => dockAgent(uid))
-      w.win.setFullScreen(false)
-      return true
-    }
-    if (w.win.isMaximized()) w.win.unmaximize()
-    if (w.win.isMinimized()) w.win.restore()
-    w.docked = true
-    w.undocked = w.win.getBounds()
-    w.win.setMinimumSize(1, 1)
-    w.win.setResizable(false)
-    w.win.setMovable(false)
-    w.win.setHasShadow(false)
-    if (process.platform === 'darwin') w.win.setWindowButtonVisibility(false)
-    w.win.setParentWindow(main)
-    w.win.webContents.send('agent:docked', uid, true)
-  }
-  // presa, a janela nunca pode ficar lenta: escondida pelo sistema entre uma troca e outra, é ela que fala com o agente
-  w.win.webContents.setBackgroundThrottling(false)
-  const b = currentDockBounds()
-  if (b) {
-    w.win.setBounds(b)
-    w.win.show()
-    w.win.focus()
-  } else w.win.hide()
+  w.docked = true
+  layoutDocked()
+  w.win.focus()
+  w.win.webContents.send('agent:docked', uid, true)
   broadcastSnapshots()
   return true
 }
 
-/** A janela está presa à principal (a tela pergunta ao carregar, para não voltar a arrastar depois de uma recarga) */
+/** A conversa está embutida na principal (a tela pergunta ao carregar) */
 export const isDocked = (uid: string): boolean => !!wins.get(uid)?.docked
 
-/** Solta a janela: volta a ser uma janela do sistema, onde estava antes de ser presa */
+/** Solta: a vista embutida vira uma janela do sistema (onde a janela estava antes, ou no tamanho padrão, centrada) */
 function undock(w: AgentWin, show: boolean) {
   if (!w.docked) return
   w.docked = false
   if (dockedUid === w.info.uid) dockedUid = null
-  if (!w.win.isDestroyed()) {
-    w.win.setParentWindow(null)
-    w.win.setHasShadow(true)
-    w.win.setResizable(true)
-    w.win.setMovable(true)
-    w.win.setMinimumSize(MIN_WIN.width, MIN_WIN.height)
-    if (process.platform === 'darwin') w.win.setWindowButtonVisibility(true)
-    if (w.bornDocked) {
-      // nunca foi uma janela solta: ganha o tamanho padrão (o que couber na tela), no centro
-      const area = screen.getDisplayMatching(w.win.getBounds()).workArea
-      w.win.setSize(Math.min(760, area.width), Math.min(800, area.height))
-      w.win.center()
-      w.bornDocked = false
-    } else if (w.undocked) {
-      // o lugar de antes só vale se ainda cai numa tela ligada; senão, só o tamanho, no centro
-      const vb = visibleBounds(w.undocked)
-      if (vb.x !== undefined) w.win.setBounds(vb as WindowBounds)
-      else {
-        w.win.setSize(w.undocked.width, w.undocked.height)
-        w.win.center()
-      }
-    }
-    w.win.webContents.send('agent:docked', w.info.uid, false)
-    if (show) w.win.show()
-    else w.win.hide()
-  }
+  if (w.win.isDestroyed()) return
+  if (isEmbedded(w.win)) rehost(w, false, show)
+  else if (show) w.win.show()
+  w.win.webContents.send('agent:docked', w.info.uid, false)
   w.undocked = undefined
 }
 
-/** Todas as presas voltam a ser janelas soltas (a principal fechou, ou o modo orquestrador foi desligado) */
+/** Todas as embutidas voltam a ser janelas soltas (a principal fechou, ou o modo orquestrador foi desligado) */
 export function undockAll(show: boolean) {
   for (const w of wins.values()) undock(w, show)
   dockedUid = null
 }
 
-/** Liga ou desliga o modo orquestrador para as janelas já abertas */
+/** Liga ou desliga o modo orquestrador para as conversas já abertas */
 export function setOrchestrator(on: boolean) {
   if (!on) {
     undockAll(true)
@@ -216,17 +298,161 @@ export function setOrchestrator(on: boolean) {
     broadcastSnapshots()
     return
   }
-  // as janelas soltas somem (os agentes seguem); a que estava em foco (ou a primeira) vai para a área
-  const focused = BrowserWindow.getFocusedWindow()
+  // as janelas soltas viram vistas embutidas, invisíveis; a que estava em foco (ou a primeira) vai para a área
   const open = [...wins.values()].filter((w) => !w.win.isDestroyed())
-  const first = open.find((w) => w.win === focused) ?? open.find((w) => w.win.isVisible()) ?? open[0]
-  for (const w of open) if (w !== first) hideAgentWindow(w.info.uid)
+  const first = open.find((w) => w.win.isFocused?.() || w.win.webContents.isFocused()) ?? open.find((w) => w.win.isVisible()) ?? open[0]
+  for (const w of open) {
+    if (!isEmbedded(w.win)) {
+      w.undocked = w.win.getBounds()
+      rehost(w, true)
+    }
+    w.docked = true
+  }
   if (first) dockAgent(first.info.uid)
   else broadcastSnapshots()
 }
 
-/** Janelas soltas (as presas à principal não contam para o grid nem para Organizar) */
-const floating = () => [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.docked)
+/** A conversa que está com o foco do teclado: janela solta em foco, ou a vista embutida com o foco na principal */
+export function focusedAgent(focused: BrowserWindow | null): AgentWin | undefined {
+  return [...wins.values()].find((w) => !w.win.isDestroyed() && (w.win === focused || (isEmbedded(w.win) && w.win.webContents.isFocused())))
+}
+
+/** Janelas soltas (as embutidas na principal não contam para o grid nem para Organizar) */
+const floating = () => [...wins.values()].filter((w) => !w.win.isDestroyed() && !isEmbedded(w.win) && !w.docked)
+
+// ---------- hospedeiro da conversa: janela do sistema ou vista embutida ----------
+
+const WEB_PREFS = (): Electron.WebPreferences => ({ preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: true, nodeIntegration: false })
+
+/** Cria o hospedeiro: a janela solta (com as suas opções de sempre) ou a vista embutida */
+function createHost(info: AgentWindowInfo, bounds: Partial<WindowBounds>, embedded: boolean): BrowserWindow {
+  const background = setup?.background() ?? '#1e1e1e'
+  if (embedded) return new EmbeddedWindow(WEB_PREFS(), background) as unknown as BrowserWindow
+  const isMac = process.platform === 'darwin'
+  return new BrowserWindow({
+    width: 760,
+    height: 800,
+    ...bounds,
+    minWidth: MIN_WIN.width,
+    minHeight: MIN_WIN.height,
+    title: title(info),
+    icon: setup?.icon,
+    show: false,
+    backgroundColor: background,
+    titleBarStyle: 'hidden',
+    ...(isMac ? { trafficLightPosition: { x: 16, y: 16 } } : { titleBarOverlay: { color: '#00000000', symbolColor: '#a9a3b8', height: 48 } }),
+    webPreferences: WEB_PREFS()
+  })
+}
+
+/** Carrega a página da conversa no hospedeiro (tenta de novo se falhar; renderer que caiu recarrega) */
+function loadHost(win: BrowserWindow, uid: string) {
+  const load = () =>
+    process.env.ELECTRON_RENDERER_URL
+      ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
+      : win.loadFile(path.join(__dirname, '../renderer/agent.html'), { query: { uid } })
+  let retries = 0
+  win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3 /* abortado por outra navegação */) return
+    console.error(`Janela do agente não carregou (${code} ${desc}) ${url}`)
+    if (retries++ < 5 && !win.isDestroyed()) setTimeout(() => !win.isDestroyed() && load().catch(() => undefined), 700)
+  })
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`Renderer da janela do agente caiu (${details.reason})`)
+    if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload()
+  })
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 3) console.error(`[janela do agente ${uid.slice(0, 8)}] ${message}`)
+  })
+  load().catch((e) => console.error('Janela do agente não carregou:', e))
+}
+
+/**
+ * Liga os eventos do hospedeiro à conversa `uid`. `onReady`: o que fazer quando a página estiver pronta
+ * (mostrar a janela, embutir na área, ou nada). Um hospedeiro antigo (trocado) não mexe mais na conversa.
+ */
+function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'dock' | 'none') {
+  const current = () => wins.get(uid)?.win === win
+  const embedded = isEmbedded(win)
+  const ready = () => {
+    if (!current() || onReady === 'none') return
+    if (onReady === 'dock' || (orchestratorOn() && !embedded)) {
+      if (dockAgent(uid)) return
+    }
+    if (!embedded) win.show()
+  }
+  if (embedded) win.webContents.once('did-finish-load', ready)
+  else win.once('ready-to-show', ready)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
+  // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url.split('#')[0] !== win.webContents.getURL().split('#')[0]) e.preventDefault()
+  })
+  // o título é da janela: a página não pode trocar
+  win.on('page-title-updated', (e) => e.preventDefault())
+  win.on('close', (e) => {
+    const w = wins.get(uid)
+    if (!current()) return
+    // segundo plano: o X da janela só a esconde; a conversa e o agente seguem, e o gerenciador a traz de volta
+    if (w?.background && !w.closing && !quitting) {
+      e.preventDefault()
+      hideAgentWindow(uid)
+      return
+    }
+    // lembra onde a janela ficou, para a conversa reabrir no mesmo lugar
+    if (embedded || win.isMinimized() || win.isFullScreen()) return
+    setHistoryBounds(w?.info.sessionId ?? null, win.getBounds())
+  })
+  // visível ou oculta: o gerenciador mostra a situação da janela
+  win.on('show', () => {
+    if (!embedded) win.webContents.setBackgroundThrottling(true)
+    broadcastSnapshots()
+  })
+  win.on('hide', () => broadcastSnapshots())
+  win.on('closed', () => {
+    // hospedeiro trocado: a conversa continua no novo
+    if (!current()) return
+    const w = wins.get(uid)
+    if (dockedUid === uid) dockedUid = null
+    if (w?.child) terminate(w.child, 'codex')
+    if (w?.designChild) terminate(w.designChild, 'codex')
+    closeDesignWindow(uid)
+    wins.delete(uid)
+    broadcastWindows()
+    // cópias de imagens coladas/arrastadas desta conversa
+    rmSync(blobDir(uid), { recursive: true, force: true })
+  })
+}
+
+/**
+ * Troca o hospedeiro da conversa (janela ↔ vista embutida): o novo carrega a página de novo e a transcrição volta
+ * do disco; o antigo é destruído sem o ritual de fechar, e o agente, que é do processo principal, segue.
+ */
+function rehost(w: AgentWin, embedded: boolean, show = false) {
+  const old = w.win
+  let bounds: Partial<WindowBounds> = {}
+  if (!embedded) {
+    const vb = w.undocked ? visibleBounds(w.undocked) : {}
+    if (vb.x !== undefined) bounds = vb
+    else {
+      // nunca foi uma janela solta: o tamanho padrão (o que couber na tela), no centro da tela da principal
+      const main = setup?.main()
+      const area = (main && !main.isDestroyed() ? screen.getDisplayMatching(main.getBounds()) : screen.getPrimaryDisplay()).workArea
+      const width = Math.min(760, area.width)
+      const height = Math.min(800, area.height)
+      bounds = { width, height, x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2) }
+    }
+  }
+  const host = createHost(w.info, bounds, embedded)
+  w.win = host
+  wireHost(w.info.uid, host, embedded ? 'none' : show ? 'show' : 'none')
+  loadHost(host, w.info.uid)
+  if (!old.isDestroyed()) old.destroy()
+}
 
 const PROVIDER_NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
 const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
@@ -327,7 +553,7 @@ export function agentBase(): AgentChatOpen | undefined {
  * Sem nenhuma base, ou sem pasta válida: null (quem chama mostra o diálogo).
  */
 export async function openAgentLikeLast(focused: BrowserWindow | null, projectRoot: string | null): Promise<AgentWindowInfo | null> {
-  const here = focused ? [...wins.values()].find((w) => w.win === focused) : undefined
+  const here = focusedAgent(focused)
   const base: AgentChatOpen | undefined = here?.info ?? agentBase()
   if (!base) return null
   const cwd = here ? here.info.cwd : (projectRoot ?? base.cwd)
@@ -353,113 +579,23 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     title: prev?.title ?? '',
     renamed: !!prev?.renamed
   }
-  const isMac = process.platform === 'darwin'
   // conversa reaberta volta ao lugar de antes; janela nova vai para a próxima área livre do grid, na tela do ponteiro
   // (a última posição usada por qualquer janela só serve de reserva, quando o grid está cheio)
   const own = visibleBounds(prev?.bounds ?? null)
   const saved = own.x === undefined ? visibleBounds(historyBounds()) : own
   const slot = own.x === undefined ? freeGridSlot(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, getSettings().agentGrid, openAgentBounds()) : null
-  const win = new BrowserWindow({
-    width: 760,
-    height: 800,
-    ...(slot ?? saved),
-    minWidth: MIN_WIN.width,
-    minHeight: MIN_WIN.height,
-    title: title(info),
-    icon: setup?.icon,
-    show: false,
-    backgroundColor: setup?.background() ?? '#1e1e1e',
-    titleBarStyle: 'hidden',
-    ...(isMac
-      ? { trafficLightPosition: { x: 16, y: 16 } }
-      : { titleBarOverlay: { color: '#00000000', symbolColor: '#a9a3b8', height: 48 } }),
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false
-    }
-  })
+  // modo orquestrador: a conversa nasce embutida na principal (sem janela); escondida (ex.: pelo mascote) nasce janela
+  const main = setup?.main()
+  const embedded = orchestratorOn() && !opts.hidden && !!main && !main.isDestroyed()
+  const win = createHost(info, slot ?? saved, embedded)
   // conversa escondida (ex.: começada pelo mascote): a janela existe e trabalha, mas não aparece; sem a
   // desaceleração que o sistema aplica a janelas invisíveis, porque é ela que fala com o agente
   if (opts.hidden) win.webContents.setBackgroundThrottling(false)
-  win.once('ready-to-show', () => {
-    if (opts.hidden) return
-    // modo orquestrador: a conversa nova já aparece na área do gerenciador
-    if (orchestratorOn() && dockAgent(uid)) {
-      const w = wins.get(uid)
-      if (w) w.bornDocked = true
-      return
-    }
-    win.show()
-  })
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) shell.openExternal(url)
-    return { action: 'deny' }
-  })
-  // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
-  // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
-  win.webContents.on('will-navigate', (e, url) => {
-    if (url.split('#')[0] !== win.webContents.getURL().split('#')[0]) e.preventDefault()
-  })
-  // o título é da janela: a página não pode trocar
-  win.on('page-title-updated', (e) => e.preventDefault())
-  // lembra onde a janela ficou, para a conversa reabrir no mesmo lugar
-  win.on('close', (e) => {
-    const w = wins.get(uid)
-    // segundo plano: o X da janela só a esconde; a conversa e o agente seguem, e o gerenciador a traz de volta
-    if (w?.background && !w.closing && !quitting) {
-      e.preventDefault()
-      hideAgentWindow(uid)
-      return
-    }
-    if (win.isMinimized() || win.isFullScreen()) return
-    // presa à principal, a posição que vale é a de antes de prender
-    setHistoryBounds(w?.info.sessionId ?? null, w?.undocked ?? win.getBounds())
-  })
-  // presa à principal, a janela não se move (nem pelo arrasto do cabeçalho)
-  win.on('will-move', (e) => {
-    if (wins.get(uid)?.docked) e.preventDefault()
-  })
-  // visível ou oculta: o gerenciador mostra a situação da janela
-  win.on('show', () => {
-    win.webContents.setBackgroundThrottling(true)
-    broadcastSnapshots()
-  })
-  win.on('hide', () => broadcastSnapshots())
-  win.on('closed', () => {
-    const w = wins.get(uid)
-    if (dockedUid === uid) dockedUid = null
-    if (w?.child) terminate(w.child, 'codex')
-    if (w?.designChild) terminate(w.designChild, 'codex')
-    closeDesignWindow(uid)
-    wins.delete(uid)
-    broadcastWindows()
-    // cópias de imagens coladas/arrastadas desta conversa
-    rmSync(blobDir(uid), { recursive: true, force: true })
-  })
   // escondida já nasce em segundo plano: fechar pelo X, depois de mostrada, só a esconde de novo
-  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden })
+  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded })
   lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
-  const load = () =>
-    process.env.ELECTRON_RENDERER_URL
-      ? win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/agent.html?uid=${uid}`)
-      : win.loadFile(path.join(__dirname, '../renderer/agent.html'), { query: { uid } })
-  // a janela nunca fica em branco sem reação: falha de carregamento tenta de novo; renderer que caiu recarrega
-  let retries = 0
-  win.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
-    if (!isMainFrame || code === -3 /* abortado por outra navegação */) return
-    console.error(`Janela do agente não carregou (${code} ${desc}) ${url}`)
-    if (retries++ < 5 && !win.isDestroyed()) setTimeout(() => !win.isDestroyed() && load().catch(() => undefined), 700)
-  })
-  win.webContents.on('render-process-gone', (_e, details) => {
-    console.error(`Renderer da janela do agente caiu (${details.reason})`)
-    if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload()
-  })
-  win.webContents.on('console-message', (_e, level, message) => {
-    if (level >= 3) console.error(`[janela do agente ${uid.slice(0, 8)}] ${message}`)
-  })
-  load().catch((e) => console.error('Janela do agente não carregou:', e))
+  wireHost(uid, win, opts.hidden ? 'none' : embedded ? 'dock' : 'show')
+  loadHost(win, uid)
   broadcastWindows()
   return info
 }
@@ -596,6 +732,10 @@ export function focusAgentWindow(sessionId: string): boolean {
   const w = [...wins.values()].find((x) => x.info.sessionId === sessionId)
   if (!w) return false
   if (orchestratorOn() && dockAgent(w.info.uid)) return true
+  if (isEmbedded(w.win)) {
+    undock(w, true)
+    return true
+  }
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
@@ -610,7 +750,7 @@ function flash(w: { win: BrowserWindow; info: AgentWindowInfo }) {
 
 function broadcastWindows() {
   const ids = agentWindows()
-  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('agents:windows', ids)
+  for (const wc of allWebContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('agents:windows', ids)
   broadcastStatuses()
   broadcastSnapshots()
 }
@@ -634,8 +774,8 @@ export function agentSnapshots(): AgentSnapshot[] {
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
 function broadcastSnapshots() {
   const all = agentSnapshots()
-  const agentWins = new Set([...wins.values()].map((w) => w.win))
-  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && !agentWins.has(w)) w.webContents.send('agents:snapshots', all)
+  const agentWc = new Set([...wins.values()].map((w) => w.win.webContents))
+  for (const wc of allWebContents.getAllWebContents()) if (!wc.isDestroyed() && !agentWc.has(wc)) wc.send('agents:snapshots', all)
   // selo no ícone do app (Dock no Mac): quantos agentes precisam de você
   app.setBadgeCount(all.filter((a) => a.status === 'waiting' || a.status === 'error').length)
 }
@@ -695,8 +835,8 @@ export function showAgentWindow(uid: string) {
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) return
   if (orchestratorOn() && dockAgent(uid)) return
-  // o modo foi desligado com a janela ainda presa: solta antes de mostrar
-  undock(w, false)
+  // o modo foi desligado com a conversa ainda embutida: vira janela antes de mostrar
+  if (isEmbedded(w.win)) return undock(w, true)
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
@@ -728,7 +868,7 @@ export function hideAgentWindow(uid: string) {
 
 /** Mostra de novo as janelas escondidas (quem as traria de volta, o gerenciador, fechou) */
 export function revealHiddenAgentWindows() {
-  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.docked && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
+  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.docked && !isEmbedded(w.win) && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
 }
 
 /** Ações sobre todas as janelas de agente, do dropdown do Organizar */
@@ -817,7 +957,7 @@ export function agentStatus(uid: string): AgentStatus | undefined {
 
 function broadcastStatuses() {
   const all = agentStatuses()
-  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('agents:statuses', all)
+  for (const wc of allWebContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('agents:statuses', all)
 }
 
 const STATUSES: AgentStatus[] = ['idle', 'live', 'waiting', 'done', 'error']

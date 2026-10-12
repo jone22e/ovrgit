@@ -36,6 +36,8 @@ export const state = reactive({
   history: [] as CommitInfo[],
   /** Aba da área principal: o app abre no gerenciador de agentes */
   tab: 'agents' as 'changes' | 'history' | 'agents' | 'map',
+  /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
+  agentPick: null as { n: number; at: number } | null,
   message: '',
   messageEdited: false,
   busy: null as Busy,
