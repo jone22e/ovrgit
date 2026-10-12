@@ -110,18 +110,19 @@ function onClick(e: MouseEvent) {
         <strong class="title"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ a.title }}</strong>
         <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
       </div>
-      <!-- anel de progresso: checklist feito/total; sem checklist, gira enquanto trabalha; cheio ao terminar -->
-      <span class="ring" :class="[tone, { indet: fraction === null }]" :title="checklist.length ? `${doneCount} de ${checklist.length} etapas` : statusLabel">
+      <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
+      <span v-if="a.status === 'live' || a.status === 'waiting'" class="ring" :class="[tone, { indet: fraction === null }]" :title="checklist.length ? `${doneCount} de ${checklist.length} etapas` : statusLabel">
         <svg viewBox="0 0 36 36">
           <circle class="track" cx="18" cy="18" :r="RADIUS" />
           <circle class="bar" cx="18" cy="18" :r="RADIUS" :stroke-dasharray="CIRC" :stroke-dashoffset="dashOffset" />
         </svg>
         <span class="in">
-          <Icon v-if="a.status === 'done'" name="check" :size="13" />
-          <Icon v-else-if="a.status === 'error'" name="x" :size="13" />
-          <b v-else-if="a.status === 'waiting'">?</b>
+          <b v-if="a.status === 'waiting'">?</b>
           <b v-else-if="percent !== null && checklist.length" class="mono pct">{{ percent }}</b>
         </span>
+      </span>
+      <span v-else-if="a.status === 'done' || a.status === 'error'" class="badge" :class="a.status" :title="statusLabel">
+        <Icon :name="a.status === 'done' ? 'check' : 'x'" :size="12" />
       </span>
     </div>
 
@@ -202,9 +203,9 @@ function onClick(e: MouseEvent) {
 .ttl small { font-size: 11.5px; }
 
 /* anel de progresso */
-.ring { position: relative; width: 36px; height: 36px; flex: none; }
+.ring { position: relative; width: 28px; height: 28px; flex: none; }
 .ring > svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 3; }
+.ring circle { fill: none; stroke-width: 3.5; }
 .ring .track { stroke: color-mix(in srgb, var(--faint) 22%, transparent); }
 .ring .bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.4s ease; }
 .ring.waiting .bar, .ring.stalled .bar { stroke: var(--mod); }
@@ -214,12 +215,13 @@ function onClick(e: MouseEvent) {
 /* sem checklist e rodando: um arco girando */
 .ring.indet > svg { animation: turn 1.1s linear infinite; }
 .ring.stalled.indet > svg { animation: none; }
-.ring .in { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: var(--text); line-height: 1; }
-.ring .in :deep(svg) { width: 14px; height: 14px; }
-.ring .pct { font-size: 10.5px; font-weight: 700; color: var(--muted); }
-.ring.done .in { color: var(--add); }
-.ring.error .in { color: var(--del); }
-.ring.waiting .in { color: var(--mod); font-size: 15px; font-weight: 800; animation: blink 1.6s ease-in-out infinite; }
+.ring .in { position: absolute; inset: 0; display: grid; place-items: center; font-size: 10px; color: var(--text); line-height: 1; }
+.ring .pct { font-size: 9px; font-weight: 700; color: var(--muted); }
+.ring.waiting .in { color: var(--mod); font-size: 13px; font-weight: 800; animation: blink 1.6s ease-in-out infinite; }
+/* selo do concluído e do falhou: pequeno e preenchido */
+.badge { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; }
+.badge.done { color: var(--add); background: color-mix(in srgb, var(--add) 16%, transparent); }
+.badge.error { color: var(--del); background: color-mix(in srgb, var(--del) 16%, transparent); }
 @keyframes turn { to { transform: rotate(270deg); } }
 @keyframes blink { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
