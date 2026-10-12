@@ -13,7 +13,6 @@ import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import Modal from './Modal.vue'
-import PaneSwitch from './PaneSwitch.vue'
 import WindowGrid from './WindowGrid.vue'
 
 /**
@@ -366,7 +365,6 @@ function pick(a: AgentSnapshot) {
 <template>
   <div ref="root" class="agents" :class="{ orch }">
     <div class="toolbar">
-      <PaneSwitch />
       <span class="gap" />
       <button class="ghost orch-btn" :class="{ on: orch }" :title="orch ? 'Sair do modo orquestrador: cada agente volta à sua janela' : 'Modo orquestrador: agentes em cartões e a conversa do escolhido ao lado, nesta janela'" @click="toggleOrchestrator">
         <Icon name="columns" :size="14" /><span class="lbl">Orquestrador</span>

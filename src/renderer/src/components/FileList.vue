@@ -8,7 +8,6 @@ import {
 } from '../store'
 import { isTestFile } from '@shared/parse'
 import Icon from './Icon.vue'
-import PaneSwitch from './PaneSwitch.vue'
 
 type Row =
   | { kind: 'dir'; key: string; depth: number; name: string; files: string[] }
@@ -158,7 +157,6 @@ function split(path: string) {
 <template>
   <div class="list">
     <div class="toolbar">
-      <PaneSwitch />
       <label class="search">
         <Icon name="search" :size="13" />
         <input v-model="query" type="text" placeholder="Buscar" spellcheck="false" @keydown.esc="query = ''" />

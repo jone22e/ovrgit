@@ -4,7 +4,6 @@ import { fileMap, loadSourceFiles, openSource, state, toggleSourceDir } from '..
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 import NewFileMenu from './NewFileMenu.vue'
-import PaneSwitch from './PaneSwitch.vue'
 
 /**
  * Todos os arquivos do projeto (versionados e novos não ignorados), em árvore com as pastas fechadas.
@@ -113,7 +112,6 @@ function onKey(e: KeyboardEvent) {
 <template>
   <div class="list">
     <div class="toolbar">
-      <PaneSwitch />
       <label class="filter">
         <Icon name="search" :size="13" />
         <input v-model="filter" type="text" placeholder="Filtrar arquivos" spellcheck="false" @keydown="onKey" />

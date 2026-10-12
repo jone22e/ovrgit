@@ -7,7 +7,6 @@ import type { MapEvent } from '@shared/types'
 import { readAgentPrefs } from '../agentPrefs'
 import { api, openSource, setPane, state, toast } from '../store'
 import Icon from './Icon.vue'
-import PaneSwitch from './PaneSwitch.vue'
 
 /**
  * Mapa funcional do projeto, num gráfico de forças como o do Obsidian: as áreas do sistema são os núcleos e as
@@ -566,7 +565,6 @@ watch([search, changed], requestRender)
 <template>
   <div class="mapview">
     <div class="toolbar">
-      <PaneSwitch />
       <div v-if="hasMap" class="search">
         <Icon name="search" :size="13" />
         <input v-model="search" type="search" placeholder="Buscar funcionalidade…" spellcheck="false" @keydown.enter="onSearchEnter" @keydown.esc="search = ''" />

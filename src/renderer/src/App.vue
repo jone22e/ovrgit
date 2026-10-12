@@ -16,6 +16,7 @@ import MergeBanner from './components/MergeBanner.vue'
 import DeliveryDialog from './components/DeliveryDialog.vue'
 import NewAgentDialog from './components/NewAgentDialog.vue'
 import NewTaskDialog from './components/NewTaskDialog.vue'
+import PaneSwitch from './components/PaneSwitch.vue'
 import PlanDialog from './components/PlanDialog.vue'
 import ResolveDialog from './components/ResolveDialog.vue'
 import ReviewDialog from './components/ReviewDialog.vue'
@@ -163,6 +164,10 @@ onUnmounted(() => {
     <Welcome v-if="!state.repo" />
 
     <template v-else>
+      <div class="shell">
+      <!-- barra lateral com as áreas do projeto, como no Codex; o resto da janela fica à direita dela -->
+      <PaneSwitch />
+      <div class="main">
       <MergeBanner v-show="!termMaximized" />
       <div v-show="!termMaximized" class="body">
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
@@ -201,6 +206,8 @@ onUnmounted(() => {
           <TerminalPanel />
         </div>
       </template>
+      </div>
+      </div>
     </template>
 
     <QuickOpen v-if="showQuickOpen" @close="showQuickOpen = false" />
@@ -233,6 +240,9 @@ onUnmounted(() => {
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100%; }
 .body { flex: 1; display: flex; min-height: 0; }
+/* barra lateral à esquerda e, ao lado, a coluna com todo o resto (faixas, área de trabalho, commit, terminal) */
+.shell { flex: 1; display: flex; min-height: 0; }
+.main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
