@@ -58,11 +58,11 @@ const reuse = computed({
   <section class="queue">
     <div class="q-head">
       <strong><Icon name="listTodo" :size="13" /> Fila de tarefas</strong>
-      <small class="faint">{{ queued.length }} na fila · {{ running.length }} rodando · {{ standby }} {{ standby === 1 ? 'agente em espera' : 'agentes em espera' }}</small>
       <span class="gap" />
-      <label class="reuse" title="Ao terminar uma tarefa, o agente abre uma conversa nova (a da tarefa fica em Conversas) e pega a próxima"><input v-model="reuse" type="checkbox" class="switch" /> Reaproveitar agentes</label>
       <button v-if="finished.length" class="ghost link" @click="clear">Limpar concluídas</button>
     </div>
+    <small class="faint q-sum">{{ queued.length }} na fila · {{ running.length }} rodando · {{ standby }} {{ standby === 1 ? 'agente em espera' : 'agentes em espera' }}</small>
+    <label class="reuse" title="Ao terminar uma tarefa, o agente abre uma conversa nova (a da tarefa fica em Conversas) e pega a próxima"><input v-model="reuse" type="checkbox" class="switch" /> Reaproveitar agentes ao terminar</label>
 
     <div class="q-add">
       <textarea v-model="text" rows="2" placeholder="Descreva a tarefa… (⌘Enter adiciona)" spellcheck="false" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
@@ -81,11 +81,12 @@ const reuse = computed({
       <button class="ghost link" @click="emit('standby')">Deixar um agente em espera</button>
     </p>
 
+    <h6 v-if="queued.length" class="q-sec">Na fila</h6>
     <ol v-if="queued.length" class="q-list">
       <li v-for="(t, i) in queued" :key="t.id" class="q-item">
         <span class="n mono">{{ i + 1 }}</span>
         <span class="q-text">{{ t.text }}</span>
-        <small v-if="t.cwd" class="faint chip">{{ name(t.cwd) }}</small>
+        <small v-if="t.cwd && t.cwd !== state.repo?.root" class="faint chip">{{ name(t.cwd) }}</small>
         <span class="q-acts">
           <button class="ghost icon small" :disabled="i === 0" title="Subir" @click="move(t, -1)"><Icon name="chevron" :size="12" class="up" /></button>
           <button class="ghost icon small" :disabled="i === queued.length - 1" title="Descer" @click="move(t, 1)"><Icon name="chevron" :size="12" class="down" /></button>
@@ -94,6 +95,7 @@ const reuse = computed({
       </li>
     </ol>
 
+    <h6 v-if="running.length" class="q-sec">Rodando</h6>
     <ol v-if="running.length" class="q-list">
       <li v-for="t in running" :key="t.id" class="q-item run" @click="openTask(t)">
         <span class="spinner tiny" />
@@ -102,6 +104,7 @@ const reuse = computed({
       </li>
     </ol>
 
+    <h6 v-if="finished.length" class="q-sec">Concluídas</h6>
     <ol v-if="finished.length" class="q-list done">
       <li v-for="t in finished" :key="t.id" class="q-item" :class="t.status" @click="openTask(t)">
         <Icon :name="t.status === 'done' ? 'check' : 'x'" :size="12" class="st" />
@@ -115,10 +118,11 @@ const reuse = computed({
 </template>
 
 <style scoped>
-.queue { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+.queue { display: flex; flex-direction: column; gap: 10px; padding: 14px 14px 20px; min-height: 100%; box-sizing: border-box; }
 .q-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .q-head strong { display: inline-flex; align-items: center; gap: 6px; }
 .q-head small { font-size: 11.5px; }
+.q-sum { font-size: 11.5px; margin-top: -6px; }
 .gap { flex: 1; }
 .reuse { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .switch { appearance: none; width: 28px; height: 16px; margin: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); position: relative; cursor: pointer; }
@@ -132,14 +136,15 @@ const reuse = computed({
 .q-add-row select { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--muted); font-size: 12px; max-width: 220px; }
 .q-add-row .small { height: 28px; gap: 6px; }
 .hint { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--mod); flex-wrap: wrap; }
+.q-sec { margin: 6px 0 -6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 .q-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.q-item { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; min-width: 0; }
+.q-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 6px; border-radius: 8px; font-size: 12.5px; min-width: 0; }
 .q-item.run, .q-list.done .q-item { cursor: pointer; }
 .q-item:hover { background: var(--hover); }
 .n { width: 18px; text-align: right; font-size: 11px; color: var(--faint); flex: none; }
 .q-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--panel-2); flex: none; }
-.who { font-size: 11.5px; flex: none; max-width: 40%; }
+.who { font-size: 11.5px; flex: none; max-width: 38%; }
 .q-acts { display: inline-flex; gap: 2px; opacity: 0; flex: none; }
 .q-item:hover .q-acts { opacity: 1; }
 .up { transform: rotate(-90deg); }
