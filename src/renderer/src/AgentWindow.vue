@@ -1917,11 +1917,9 @@ onUnmounted(() => offs.forEach((f) => f()))
             <template v-else>este projeto</template>?
           </span>
         </h2>
-        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar antes de começar, ou para juntar outros repositórios à mesma conversa.</p>
-        <p v-else-if="!info?.extraDirs?.length" class="faint hint-repo">Clique no repositório para juntar outros à conversa: a IA vê e edita todos.</p>
-        <p class="faint">
-          O agente trabalha direto na pasta do projeto, como no app do {{ providerName }}. Enter envia; Shift+Enter quebra a linha.
-        </p>
+        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar ou juntar outros.</p>
+        <p v-else-if="!info?.extraDirs?.length" class="faint hint-repo">Clique no repositório para juntar outros à conversa.</p>
+        <p class="faint">Enter envia · Shift+Enter quebra a linha</p>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
 
