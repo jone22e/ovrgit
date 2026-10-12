@@ -55,6 +55,8 @@ interface AgentWin {
   docked?: boolean
   /** Onde a janela estava antes de ser presa: volta para lá ao soltar */
   undocked?: WindowBounds
+  /** Nasceu presa (modo orquestrador): nunca foi uma janela solta, então ao soltar ganha um tamanho normal, centrada */
+  bornDocked?: boolean
 }
 
 const wins = new Map<string, AgentWin>()
@@ -178,7 +180,13 @@ function undock(w: AgentWin, show: boolean) {
     w.win.setMovable(true)
     w.win.setMinimumSize(MIN_WIN.width, MIN_WIN.height)
     if (process.platform === 'darwin') w.win.setWindowButtonVisibility(true)
-    if (w.undocked) {
+    if (w.bornDocked) {
+      // nunca foi uma janela solta: ganha o tamanho padrão (o que couber na tela), no centro
+      const area = screen.getDisplayMatching(w.win.getBounds()).workArea
+      w.win.setSize(Math.min(760, area.width), Math.min(800, area.height))
+      w.win.center()
+      w.bornDocked = false
+    } else if (w.undocked) {
       // o lugar de antes só vale se ainda cai numa tela ligada; senão, só o tamanho, no centro
       const vb = visibleBounds(w.undocked)
       if (vb.x !== undefined) w.win.setBounds(vb as WindowBounds)
@@ -362,9 +370,6 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     show: false,
     backgroundColor: setup?.background() ?? '#1e1e1e',
     titleBarStyle: 'hidden',
-    // modo orquestrador: a janela nasce para ficar presa na janela principal, de ponta a ponta, sem cantos arredondados
-    // (só dá para escolher ao criar)
-    ...(isMac && orchestratorOn() && !opts.hidden ? { roundedCorners: false } : {}),
     ...(isMac
       ? { trafficLightPosition: { x: 16, y: 16 } }
       : { titleBarOverlay: { color: '#00000000', symbolColor: '#a9a3b8', height: 48 } }),
@@ -381,7 +386,11 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   win.once('ready-to-show', () => {
     if (opts.hidden) return
     // modo orquestrador: a conversa nova já aparece na área do gerenciador
-    if (orchestratorOn() && dockAgent(uid)) return
+    if (orchestratorOn() && dockAgent(uid)) {
+      const w = wins.get(uid)
+      if (w) w.bornDocked = true
+      return
+    }
     win.show()
   })
   win.webContents.setWindowOpenHandler(({ url }) => {

@@ -640,7 +640,8 @@ function pick(a: AgentSnapshot) {
 .orch-btn.on { color: var(--accent); background: var(--accent-soft); }
 /* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
 .dock { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); }
-.dock-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* o fundo imita a janela presa (cabeçalho em cima, corpo embaixo): os cantos arredondados dela ficam invisíveis */
+.dock-area { flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--panel) 0 var(--titlebar), var(--bg) var(--titlebar)); }
 .dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
 .dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }

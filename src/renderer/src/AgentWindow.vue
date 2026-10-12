@@ -2354,6 +2354,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 /* presa à janela principal (modo orquestrador): sem os botões do sistema, o cabeçalho começa na borda */
 :root[data-platform='darwin'] .agent.docked .bar { padding-left: 14px; }
 .agent.docked .bar { -webkit-app-region: no-drag; }
+/* presa: sem o brilho colorido, para o cabeçalho ter exatamente a cor do fundo da área (o canto arredondado some) */
+.agent.docked .bar.mode-plan, .agent.docked .bar.mode-checklist, .agent.docked .bar.mode-architect, .agent.docked .bar.mode-full { background: var(--panel); }
 :global(body.docked) { background: var(--panel); }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
 .head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; user-select: none; cursor: default; }
