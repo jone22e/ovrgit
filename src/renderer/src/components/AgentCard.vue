@@ -219,7 +219,8 @@ function onClick(e: MouseEvent) {
 .ring .pct { font-size: 9px; font-weight: 700; color: var(--muted); }
 .ring.waiting .in { color: var(--mod); font-size: 13px; font-weight: 800; animation: blink 1.6s ease-in-out infinite; }
 /* selo do concluído e do falhou: pequeno e preenchido */
-.badge { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%; }
+.badge { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; flex: none; border-radius: 50%; line-height: 0; }
+.badge :deep(svg) { display: block; }
 .badge.done { color: var(--add); background: color-mix(in srgb, var(--add) 16%, transparent); }
 .badge.error { color: var(--del); background: color-mix(in srgb, var(--del) 16%, transparent); }
 @keyframes turn { to { transform: rotate(270deg); } }
