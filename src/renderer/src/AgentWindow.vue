@@ -1918,7 +1918,6 @@ onUnmounted(() => offs.forEach((f) => f()))
         <div class="ask-repo">
           <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
         </div>
-        <p class="faint keys">Enter envia · Shift+Enter quebra a linha</p>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
 
@@ -2389,7 +2388,6 @@ onUnmounted(() => offs.forEach((f) => f()))
 .empty h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .empty .ask-repo { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
-.keys { font-size: 11px !important; color: var(--faint); margin-top: 6px !important; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
