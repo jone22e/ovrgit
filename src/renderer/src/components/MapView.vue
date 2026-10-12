@@ -765,20 +765,25 @@ async function build3d() {
       })
       .onBackgroundClick(() => select(null))
       .cooldownTicks(250)
-      // enquanto a física assenta o gráfico encolhe: reenquadra de tempos em tempos e, no fim, com calma
+      // só no primeiro layout: enquanto a física assenta o gráfico encolhe, e o enquadramento acompanha. Assim que
+      // você mexe na roda ou arrasta (ou o motor para), o enquadramento automático desliga e a câmera é sua
       .onEngineTick(() => {
         if (++ticks3 % 25 === 0 && settling3) g.zoomToFit(0, 60)
       })
       .onEngineStop(() => {
+        if (settling3) g.zoomToFit(500, 60)
         settling3 = false
-        g.zoomToFit(500, 60)
       })
+    const stopAutoFit = () => (settling3 = false)
+    el.addEventListener('wheel', stopAutoFit, { passive: true })
+    el.addEventListener('pointerdown', stopAutoFit)
     g3 = g
     applyForces3d()
     applySpin()
   }
   size3d()
-  settling3 = true
+  // o enquadramento automático só vale no primeiro layout (num remapeamento a câmera fica onde está)
+  settling3 = !nodes3.size
   g3.graphData(data3d())
 }
 function nodeColor3(n: N3): string {
