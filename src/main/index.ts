@@ -723,6 +723,9 @@ function registerIpc() {
   ipcMain.handle('map:ai', (_e, root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
     codeMap.mapWithAi(String(root), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))
   )
+  ipcMain.handle('map:area', (_e, root: string, areaId: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
+    codeMap.mapArea(String(root), String(areaId ?? ''), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))
+  )
   // só a janela principal diz onde fica a área da conversa
   ipcMain.on('orchestrator:area', (e, area: WindowBounds | null) => {
     if (!win || e.sender !== win.webContents) return

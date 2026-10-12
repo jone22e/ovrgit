@@ -333,6 +333,7 @@ const api: OvseerApi = {
   mapGet: (root) => ipcRenderer.invoke('map:get', root),
   mapScan: (root) => ipcRenderer.invoke('map:scan', root),
   mapAi: (root, o) => ipcRenderer.invoke('map:ai', root, o),
+  mapArea: (root, areaId, o) => ipcRenderer.invoke('map:area', root, areaId, o),
   mapCancel: (root) => ipcRenderer.invoke('map:cancel', root),
   mapRunning: (root) => ipcRenderer.invoke('map:running', root),
   onMapEvent: (cb) => {

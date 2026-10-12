@@ -7,8 +7,8 @@ import path from 'node:path'
 import { app } from 'electron'
 import type { AgentEffort, CliProvider, MapEvent } from '../shared/types'
 import {
-  aliasesFromTsconfig, buildGraph, chunkFiles, chunkPrompt, dedupeCandidates, fileDigest, isFeatureFile, isMapFile, parseCandidates, parseReduce, reducePrompt,
-  type Candidate, type FeatureMap, type ProjectMap, type Resolver
+  aliasesFromTsconfig, applyAreaReduce, areaReducePrompt, areaScope, buildGraph, chunkFiles, chunkPrompt, dedupeCandidates, fileDigest, isFeatureFile, isMapFile,
+  parseCandidates, parseReduce, reducePrompt, type Candidate, type FeatureMap, type MapArea, type ProjectMap, type Resolver
 } from '../shared/codeGraph'
 import { findBinary, needsShell } from './cli'
 import { listSourceFiles } from './sourceFiles'
@@ -241,11 +241,20 @@ function shortSummary(root: string): string {
   return projectMap(root).split('\n').filter((l) => l.trim()).slice(0, 12).join(' ').replace(/\s+/g, ' ').slice(0, 600)
 }
 
-/**
- * Mapeia com IA em pequenos contextos: resumos dos arquivos em lotes (em paralelo) e uma consolidação no fim.
- * O andamento vai por `onEvent` (lotes feitos do total).
- */
-export async function mapWithAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }, onEvent: (ev: MapEvent) => void): Promise<void> {
+interface Session {
+  run: Run
+  bin: string
+  provider: CliProvider
+  model: string
+  fastModel: string
+  fastEffort: AgentEffort
+  reduceEffort: AgentEffort
+  onEvent: (ev: MapEvent) => void
+  finish: (ev: MapEvent) => void
+}
+
+/** Prepara um mapeamento: CLI, modelos (lotes num modelo rápido; consolidação no escolhido, esforço no máximo médio) */
+async function startSession(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }, onEvent: (ev: MapEvent) => void): Promise<Session> {
   const key = path.resolve(root)
   if (runs.has(key)) throw new Error('O mapeamento deste projeto já está em andamento.')
   const provider = o.provider
@@ -256,21 +265,71 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
   // escolhido, com esforço no máximo médio (alto demora minutos e não melhora a lista)
   const mini = provider === 'codex' ? knownModels().codexCatalog.find((m) => /mini/i.test(m.id))?.id : undefined
   const fastModel = provider === 'claude' ? 'haiku' : (mini ?? model)
-  const fastEffort: AgentEffort = 'low'
   const reduceEffort: AgentEffort = !o.effort || ['high', 'xhigh', 'max', 'ultra'].includes(o.effort) ? 'medium' : o.effort
   const run: Run = { root: key, children: new Set(), cancelled: false, last: null }
   runs.set(key, run)
-  const emit = onEvent
-  onEvent = (ev) => {
-    if (ev.type !== 'done') run.last = ev
-    emit(ev)
+  return {
+    run, bin, provider, model, fastModel, fastEffort: 'low', reduceEffort,
+    onEvent: (ev) => {
+      if (ev.type !== 'done') run.last = ev
+      onEvent(ev)
+    },
+    finish: (ev) => {
+      runs.delete(key)
+      onEvent(ev)
+    }
   }
-  const finish = (ev: MapEvent) => {
-    runs.delete(key)
-    emit(ev)
+}
+
+/** Erro do mapeamento em linguagem de usuário */
+function mapError(run: Run, e: unknown): string {
+  let error = run.cancelled ? 'Interrompido.' : String((e as Error).message ?? e)
+  if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
+  return error
+}
+
+/** Os lotes em paralelo: cada um devolve as candidatas; um lote que falha não derruba o resto */
+async function analyzeChunks(s: Session, chunks: { path: string; digest: string }[][], project: string, summary: string, total: number, focus?: MapArea): Promise<Candidate[]> {
+  const { run, onEvent } = s
+  let done = 0
+  let foundCount = 0
+  onEvent({ type: 'progress', done, total, text: `${chunks.length} ${chunks.length === 1 ? 'lote' : 'lotes'} de arquivos para o ${NAME[s.provider]}`, stage: 'chunks', found: 0 })
+  const found: Candidate[][] = new Array(chunks.length)
+  let failures = 0
+  let next = 0
+  const worker = async () => {
+    while (next < chunks.length && !run.cancelled) {
+      const i = next++
+      const chunk = chunks[i]
+      try {
+        const text = await askOnce(run, s.bin, s.provider, s.fastModel, s.fastEffort, chunkPrompt(project, summary, chunk, focus), CHUNK_TIMEOUT)
+        found[i] = parseCandidates(text, i, new Set(chunk.map((f) => f.path)))
+      } catch (e) {
+        if (run.cancelled) throw e
+        failures++
+        found[i] = []
+        console.error(`Mapa: lote ${i} falhou:`, (e as Error).message)
+      }
+      done++
+      foundCount += found[i].length
+      const dir = chunk[0].path.includes('/') ? chunk[0].path.slice(0, chunk[0].path.lastIndexOf('/')) : chunk[0].path
+      onEvent({ type: 'progress', done, total, text: shortDir(dir), stage: 'chunks', found: foundCount, sample: found[i].slice(0, 4).map((c) => c.name) })
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker))
+  if (run.cancelled) throw new Error('Interrompido.')
+  if (failures === chunks.length) throw new Error('Nenhum lote foi analisado. Confira o login da IA em ⚙ Configurações.')
+  return dedupeCandidates(found.flat())
+}
+
+/**
+ * Mapeia com IA em pequenos contextos: resumos dos arquivos em lotes (em paralelo) e uma consolidação no fim.
+ * O andamento vai por `onEvent` (lotes feitos do total).
+ */
+export async function mapWithAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }, onEvent: (ev: MapEvent) => void): Promise<void> {
+  const s = await startSession(root, o, onEvent)
   try {
-    onEvent({ type: 'status', text: 'Levantando os imports…' })
+    s.onEvent({ type: 'status', text: 'Levantando os imports…' })
     const texts = await readTexts(root)
     const map = await scanProject(root, texts)
     if (!map.nodes.length) throw new Error('Nenhum arquivo de código encontrado no projeto.')
@@ -280,48 +339,53 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
     const total = chunks.length + 1
     const project = path.basename(root)
     const summary = shortSummary(root)
-    let done = 0
-    let foundCount = 0
-    onEvent({ type: 'progress', done, total, text: `${chunks.length} lotes de arquivos para o ${NAME[provider]}`, stage: 'chunks', found: 0 })
-    // lotes em paralelo: cada um devolve as candidatas; um lote que falha não derruba o resto
-    const found: Candidate[][] = new Array(chunks.length)
-    let failures = 0
-    let next = 0
-    const worker = async () => {
-      while (next < chunks.length && !run.cancelled) {
-        const i = next++
-        const chunk = chunks[i]
-        try {
-          const text = await askOnce(run, bin, provider, fastModel, fastEffort, chunkPrompt(project, summary, chunk), CHUNK_TIMEOUT)
-          found[i] = parseCandidates(text, i, new Set(chunk.map((f) => f.path)))
-        } catch (e) {
-          if (run.cancelled) throw e
-          failures++
-          found[i] = []
-          console.error(`Mapa: lote ${i} falhou:`, (e as Error).message)
-        }
-        done++
-        foundCount += found[i].length
-        const dir = chunk[0].path.includes('/') ? chunk[0].path.slice(0, chunk[0].path.lastIndexOf('/')) : chunk[0].path
-        onEvent({ type: 'progress', done, total, text: shortDir(dir), stage: 'chunks', found: foundCount, sample: found[i].slice(0, 4).map((c) => c.name) })
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker))
-    if (run.cancelled) throw new Error('Interrompido.')
-    if (failures === chunks.length) throw new Error('Nenhum lote foi analisado. Confira o login da IA em ⚙ Configurações.')
-    const candidates = dedupeCandidates(found.flat())
+    const candidates = await analyzeChunks(s, chunks, project, summary, total)
     if (!candidates.length) throw new Error('A IA não encontrou funcionalidades nos arquivos do projeto.')
-    onEvent({ type: 'progress', done, total, text: `${candidates.length} funcionalidades candidatas`, stage: 'reduce', found: candidates.length })
-    const reduced = await askOnce(run, bin, provider, model, reduceEffort, reducePrompt(project, summary, candidates), REDUCE_TIMEOUT)
+    s.onEvent({ type: 'progress', done: total - 1, total, text: `${candidates.length} funcionalidades candidatas`, stage: 'reduce', found: candidates.length })
+    const reduced = await askOnce(s.run, s.bin, s.provider, s.model, s.reduceEffort, reducePrompt(project, summary, candidates), REDUCE_TIMEOUT)
     const features = parseReduce(reduced, candidates)
     if (!features) throw new Error('A consolidação não veio no formato esperado. Tente de novo.')
-    map.features = { ...features, provider, model, at: Date.now() }
+    map.features = { ...features, provider: s.provider, model: s.model, at: Date.now() }
     saveMap(map)
-    finish({ type: 'done', ok: true, map })
+    s.finish({ type: 'done', ok: true, map })
   } catch (e) {
-    let error = run.cancelled ? 'Interrompido.' : String((e as Error).message ?? e)
-    if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
-    finish({ type: 'done', ok: false, error })
+    s.finish({ type: 'done', ok: false, error: mapError(s.run, e) })
+  }
+}
+
+/**
+ * Remapeia uma área só: relê os arquivos dela e os vizinhos (pasta e imports) que não são de outra área, com foco e
+ * mais detalhe, e consolida junto com o que a área já tinha. As outras áreas não mudam.
+ */
+export async function mapArea(root: string, areaId: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }, onEvent: (ev: MapEvent) => void): Promise<void> {
+  const s = await startSession(root, o, onEvent)
+  try {
+    const texts = await readTexts(root)
+    const map = await scanProject(root, texts)
+    const fm = map.features
+    const area = fm?.areas.find((a) => a.id === areaId)
+    if (!fm || !area) throw new Error('Área não encontrada no mapa.')
+    s.onEvent({ type: 'status', text: `Separando os arquivos de ${area.name}…` })
+    const all = [...texts.keys()].filter((p) => isFeatureFile(p) && texts.get(p)!.trim())
+    const scope = areaScope(map, areaId, all)
+    if (!scope.length) throw new Error('A área não tem arquivos para reler.')
+    const chunks = chunkFiles(scope.map((p) => ({ path: p, digest: fileDigest(texts.get(p)!) })))
+    const total = chunks.length + 1
+    const project = path.basename(root)
+    const summary = shortSummary(root)
+    const found = (await analyzeChunks(s, chunks, project, summary, total, area)).map((c) => ({ ...c, id: `n${c.id.slice(1)}` }))
+    const existing: Candidate[] = fm.features.filter((f) => f.area === areaId).map((f) => ({ id: f.id, name: f.name, area: area.name, kind: f.kind, description: f.description, files: f.files }))
+    if (!found.length && !existing.length) throw new Error('A IA não encontrou funcionalidades nos arquivos da área.')
+    s.onEvent({ type: 'progress', done: total - 1, total, text: `${found.length} candidatas novas em ${area.name}`, stage: 'reduce', found: found.length })
+    const others = fm.features.filter((f) => f.area !== areaId).map((f) => ({ id: f.id, name: f.name, area: fm.areas.find((a) => a.id === f.area)?.name ?? f.area })).slice(0, 400)
+    const reduced = await askOnce(s.run, s.bin, s.provider, s.model, s.reduceEffort, areaReducePrompt(project, area, existing, found, others), REDUCE_TIMEOUT)
+    const next = applyAreaReduce(fm, areaId, reduced, existing, found)
+    if (!next) throw new Error('A consolidação da área não veio no formato esperado. Tente de novo.')
+    map.features = { ...next, provider: s.provider, model: s.model, at: Date.now() }
+    saveMap(map)
+    s.finish({ type: 'done', ok: true, map })
+  } catch (e) {
+    s.finish({ type: 'done', ok: false, error: mapError(s.run, e) })
   }
 }
 

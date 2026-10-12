@@ -1128,6 +1128,8 @@ export interface OvseerApi {
   mapGet(root: string): Promise<ProjectMap | null>
   mapScan(root: string): Promise<ProjectMap>
   mapAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
+  /** Remapeia só uma área: relê os arquivos dela (e vizinhos) atrás de funcionalidades e ligações novas */
+  mapArea(root: string, areaId: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
   mapCancel(root: string): Promise<void>
   /** Andamento do mapeamento em curso (null: nenhum) */
   mapRunning(root: string): Promise<MapEvent | null>

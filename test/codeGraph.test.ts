@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aliasesFromTsconfig, buildGraph, chunkFiles, chunkPrompt, dedupeCandidates, extractImports, featureGraph, fileDigest, isFeatureFile, isMapFile, parseCandidates, parseReduce, reducePrompt, resolveImport, type ProjectMap } from '../src/shared/codeGraph'
+import { aliasesFromTsconfig, applyAreaReduce, areaReducePrompt, areaScope, buildGraph, chunkFiles, chunkPrompt, dedupeCandidates, extractImports, featureGraph, fileDigest, isFeatureFile, isMapFile, parseCandidates, parseReduce, reducePrompt, resolveImport, type ProjectMap } from '../src/shared/codeGraph'
 
 const files = new Set([
   'src/main/index.ts', 'src/main/git.ts', 'src/shared/types.ts', 'src/renderer/src/store.ts', 'src/renderer/src/App.vue',
@@ -164,5 +164,40 @@ describe('mapa do projeto: grafo dos imports e mapa funcional', () => {
       { from: 'rodar-git', to: 'tipos', kind: 'import', weight: 1 }
     ])
     expect(featureGraph(map).nodes).toEqual([])
+  })
+  it('remapear uma área: escopo de arquivos, pedido com foco e junção com o que já existia', () => {
+    const withAi: ProjectMap = {
+      ...map,
+      features: {
+        provider: 'claude', model: '', at: 0,
+        areas: [{ id: 'nucleo', name: 'Núcleo' }, { id: 'git', name: 'Git' }],
+        features: [
+          { id: 'iniciar', name: 'Iniciar o app', area: 'nucleo', files: ['src/main/index.ts'] },
+          { id: 'rodar-git', name: 'Rodar comandos git', area: 'git', files: ['src/main/git.ts'] }
+        ],
+        links: [{ from: 'iniciar', to: 'rodar-git', why: 'chama ao abrir' }]
+      }
+    }
+    const all = ['src/main/index.ts', 'src/main/git.ts', 'src/shared/types.ts', 'src/main/env.ts']
+    // a área "git": o próprio git.ts, o vizinho por import (types.ts) e o vizinho de pasta (env.ts); index.ts é de outra área
+    expect(areaScope(withAi, 'git', all).sort()).toEqual(['src/main/env.ts', 'src/main/git.ts', 'src/shared/types.ts'])
+    expect(chunkPrompt('p', '', [{ path: 'a', digest: 'x' }], { id: 'git', name: 'Git' })).toContain('FOCO: a área "Git"')
+    const existing = [{ id: 'rodar-git', name: 'Rodar comandos git', area: 'Git', files: ['src/main/git.ts'] }]
+    const found = [
+      { id: 'n0-0', name: 'Executar git', area: 'Git', files: ['src/main/git.ts'] },
+      { id: 'n0-1', name: 'Ler variáveis de ambiente', area: 'Git', files: ['src/main/env.ts'] }
+    ]
+    const prompt = areaReducePrompt('p', { id: 'git', name: 'Git' }, existing, found, [{ id: 'iniciar', name: 'Iniciar o app', area: 'Núcleo' }])
+    expect(prompt).toContain('(A) Funcionalidades que a área já tinha')
+    expect(prompt).toContain('n0-1 | Ler variáveis de ambiente')
+    const next = applyAreaReduce(withAi.features!, 'git', '{"features":[{"id":"rodar-git","name":"Rodar comandos git","merge":["n0-0"]},{"id":"n0-1"}],"links":[{"from":"n0-1","to":"iniciar","why":"lê ao iniciar"},{"from":"rodar-git","to":"nada"}]}', existing, found)
+    expect(next?.features.map((f) => [f.id, f.area, f.files])).toEqual([
+      ['iniciar', 'nucleo', ['src/main/index.ts']],
+      ['rodar-git', 'git', ['src/main/git.ts']],
+      ['n0-1', 'git', ['src/main/env.ts']]
+    ])
+    // a ligação antiga fica; a nova entra; a inválida cai
+    expect(next?.links).toEqual([{ from: 'iniciar', to: 'rodar-git', why: 'chama ao abrir' }, { from: 'n0-1', to: 'iniciar', why: 'lê ao iniciar' }])
+    expect(applyAreaReduce(withAi.features!, 'git', 'nada', existing, found)).toBeNull()
   })
 })

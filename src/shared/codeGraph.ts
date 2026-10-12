@@ -292,10 +292,13 @@ export function chunkFiles(digests: { path: string; digest: string }[], maxFiles
   return out
 }
 
-/** Pedido de um lote: as funcionalidades que estes arquivos implementam */
-export function chunkPrompt(project: string, summary: string, files: { path: string; digest: string }[]): string {
+/** Pedido de um lote: as funcionalidades que estes arquivos implementam (`focus`: só as de uma área, com mais detalhe) */
+export function chunkPrompt(project: string, summary: string, files: { path: string; digest: string }[], focus?: MapArea): string {
   const body = files.map((f) => `### ${f.path}\n${f.digest}`).join('\n\n')
-  return `Projeto "${project}". ${summary ? `Resumo: ${summary}\n` : ''}
+  const focusNote = focus
+    ? `\nFOCO: a área "${focus.name}"${focus.description ? ` (${focus.description})` : ''}. Liste só funcionalidades dessa área, ou fortemente ligadas a ela, e com mais detalhe que o normal: ações, telas, relatórios, rotinas e integrações específicas, até 15 por lote.\n`
+    : ''
+  return `Projeto "${project}". ${summary ? `Resumo: ${summary}\n` : ''}${focusNote}
 Abaixo estão resumos de ${files.length} arquivos do projeto (começo de cada um e linhas relevantes). Liste as FUNCIONALIDADES do sistema que esses arquivos implementam, em linguagem de quem usa o sistema: o que o usuário faz (tela, ação, relatório) ou o que o sistema faz sozinho (rotina, integração, API, importação). Exemplos: "Imprimir nota fiscal", "Enviar nota por email", "Sincronizar estoque com o Mercado Livre", "Login com Google".
 
 Responda SÓ com um bloco JSON, sem texto antes ou depois:
@@ -411,6 +414,102 @@ export function parseReduce(text: string, candidates: Candidate[]): Omit<Feature
     .map((l) => ({ from: str(l.from), to: str(l.to), why: str(l.why).slice(0, 120) || undefined }))
     .filter((l) => ids.has(l.from) && ids.has(l.to) && l.from !== l.to && !seen.has(`${l.from}|${l.to}`) && seen.add(`${l.from}|${l.to}`))
   return { areas: areas.filter((a) => features.some((f) => f.area === a.id)), features, links }
+}
+
+/**
+ * Arquivos a reler ao remapear uma área: os das funcionalidades dela, mais os vizinhos de pasta e os ligados por
+ * import que não pertencem a outra área (é onde funcionalidades novas podem estar). `all`: arquivos com funcionalidade.
+ */
+export function areaScope(map: ProjectMap, areaId: string, all: string[], max = 600): string[] {
+  const fm = map.features
+  if (!fm) return []
+  const own = new Set<string>()
+  const others = new Set<string>()
+  for (const f of fm.features) for (const p of f.files) (f.area === areaId ? own : others).add(p)
+  for (const p of own) others.delete(p)
+  const dirs = new Set([...own].map(dirOf))
+  const neighbors = new Set<string>()
+  for (const e of map.edges) {
+    if (own.has(e.from) && !own.has(e.to) && !others.has(e.to)) neighbors.add(e.to)
+    if (own.has(e.to) && !own.has(e.from) && !others.has(e.from)) neighbors.add(e.from)
+  }
+  const siblings = all.filter((p) => !own.has(p) && !others.has(p) && !neighbors.has(p) && dirs.has(dirOf(p)))
+  const allowed = new Set(all)
+  return [...new Set([...own, ...neighbors, ...siblings])].filter((p) => allowed.has(p)).slice(0, max)
+}
+
+/** Consolidação de uma área só: o que ela já tinha, as candidatas novas e as outras funcionalidades (para ligações) */
+export function areaReducePrompt(project: string, area: MapArea, existing: Candidate[], found: Candidate[], others: { id: string; name: string; area: string }[]): string {
+  const line = (c: Candidate) => `${c.id} | ${c.name}${c.kind ? ` | ${c.kind}` : ''}${c.description ? ` | ${c.description}` : ''}`
+  return `Projeto "${project}". Você está refinando a área "${area.name}"${area.description ? ` (${area.description})` : ''} do mapa funcional do sistema.
+
+(A) Funcionalidades que a área já tinha (id | nome | tipo | descrição):
+${existing.map(line).join('\n') || '(nenhuma)'}
+
+(B) Candidatas novas, levantadas agora nos arquivos da área:
+${found.map(line).join('\n') || '(nenhuma)'}
+
+(C) Outras funcionalidades do sistema, de outras áreas (id | nome | área), só para ligações:
+${others.map((o) => `${o.id} | ${o.name} | ${o.area}`).join('\n') || '(nenhuma)'}
+
+Monte a lista final da área: junte o que é a mesma coisa (mantendo o id de A quando a funcionalidade já existia), inclua o que é novo, descarte o que não é desta área. Responda SÓ com um bloco JSON, sem texto antes ou depois:
+\`\`\`json
+{
+  "features": [ { "id": "c3-1", "name": "Imprimir nota fiscal", "merge": ["n0-2"] } ],
+  "links": [ { "from": "c3-1", "to": "c9-0", "why": "anexa o PDF gerado" } ]
+}
+\`\`\`
+
+Regras:
+- "id": um id de A ou de B. Toda candidata de A ou B entra em alguma funcionalidade (como "id" ou no "merge"), a não ser que não seja desta área: aí fica de fora.
+- links: entre funcionalidades desta área, ou delas com as de C, quando uma usa, dispara ou depende da outra. "why" curto. Até 120.
+- Use só ids das listas.`
+}
+
+/** Aplica a consolidação da área ao mapa: as funcionalidades da área são trocadas; as outras áreas ficam como estão */
+export function applyAreaReduce(fm: FeatureMap, areaId: string, text: string, existing: Candidate[], found: Candidate[]): FeatureMap | null {
+  const j = jsonIn(text)
+  if (!j) return null
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : [])
+  const byId = new Map([...existing, ...found].map((c) => [c.id, c]))
+  const prevById = new Map(fm.features.filter((f) => f.area === areaId).map((f) => [f.id, f]))
+  const used = new Set<string>()
+  const features: MapFeature[] = []
+  for (const f of arr(j.features)) {
+    const id = str(f.id)
+    const base = byId.get(id)
+    if (!base || used.has(id)) continue
+    used.add(id)
+    const merged = (Array.isArray(f.merge) ? f.merge : []).map(str).filter((m) => byId.has(m) && !used.has(m) && m !== id)
+    for (const m of merged) used.add(m)
+    const parts = [base, ...merged.map((m) => byId.get(m)!)]
+    const files = [...new Set(parts.flatMap((c) => c.files))].slice(0, 40)
+    const prev = prevById.get(id)
+    features.push({ id, name: str(f.name).slice(0, 80) || base.name, area: areaId, description: base.description ?? prev?.description, kind: base.kind ?? prev?.kind, files })
+  }
+  if (!features.length) return null
+  const kept = new Set(features.map((f) => f.id))
+  const removed = new Set([...prevById.keys()].filter((id) => !kept.has(id)))
+  const rest = fm.features.filter((f) => f.area !== areaId)
+  const all = [...rest, ...features]
+  const ids = new Set(all.map((f) => f.id))
+  const seen = new Set<string>()
+  const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+  const links: MapLink[] = []
+  for (const l of fm.links) {
+    if (removed.has(l.from) || removed.has(l.to) || !ids.has(l.from) || !ids.has(l.to)) continue
+    seen.add(key(l.from, l.to))
+    links.push(l)
+  }
+  for (const l of arr(j.links)) {
+    const from = str(l.from)
+    const to = str(l.to)
+    if (!ids.has(from) || !ids.has(to) || from === to || seen.has(key(from, to))) continue
+    seen.add(key(from, to))
+    links.push({ from, to, why: str(l.why).slice(0, 120) || undefined })
+  }
+  return { ...fm, features: all, links }
 }
 
 /** Candidatas com o mesmo nome (ignorando caixa e acentos) viram uma só antes da consolidação */

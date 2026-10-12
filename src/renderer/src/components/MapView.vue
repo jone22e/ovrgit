@@ -212,6 +212,23 @@ async function mapWithAi() {
   }
 }
 const cancelAi = () => root.value && api.mapCancel(root.value).catch(() => undefined)
+/** Remapeia só a área selecionada: funcionalidades e ligações novas, sem mexer nas outras áreas */
+async function remapArea(areaId: string) {
+  const r = root.value
+  if (!r || mapping.value) return
+  error.value = null
+  mapping.value = true
+  progress.value = null
+  recent.value = []
+  startedAt.value = Date.now()
+  status.value = 'Começando…'
+  try {
+    await api.mapArea(r, areaId, { provider: prefs.provider, model: prefs.model[prefs.provider], effort: prefs.effort[prefs.provider] })
+  } catch (e) {
+    mapping.value = false
+    error.value = clean(e)
+  }
+}
 function onMapEvent(r: string, ev: MapEvent) {
   if (r !== root.value) return
   if (ev.type === 'status') status.value = ev.text
@@ -246,6 +263,8 @@ let size = { w: 0, h: 0 }
 let raf = 0
 let fitPending = false
 let ticks = 0
+/** Muda a cada gráfico refeito: o painel de detalhes (que lê `nodes` e `links`, não reativos) acompanha */
+const graphRev = ref(0)
 /** Posição de cada nó na ordem de ligações (0 = mais ligado): quem ganha rótulo com pouco zoom */
 const rank = new Map<string, number>()
 const posKey = () => `ovseer.map.pos:${root.value}`
@@ -326,6 +345,7 @@ function rebuild() {
   else view = { k: Math.max(0.1, Math.min(1, Math.min(size.w, size.h) / 2 / (spread + 80))), x: size.w / 2, y: size.h / 2 }
   rank.clear()
   ;[...nodes].sort((a, b) => (b.n.kind === 'area' ? 1e6 : b.n.degree) - (a.n.kind === 'area' ? 1e6 : a.n.degree)).forEach((n, i) => rank.set(n.id, i))
+  graphRev.value++
   requestRender()
 }
 
@@ -605,7 +625,7 @@ function open(path: string) {
   setPane('files')
   openSource(path, true)
 }
-const selected = computed(() => (selectedId.value ? byId.get(selectedId.value) ?? null : null))
+const selected = computed(() => (graphRev.value, selectedId.value ? byId.get(selectedId.value) ?? null : null))
 const hovered = computed(() => (hoverId.value ? byId.get(hoverId.value) ?? null : null))
 const areaName = (id: string) => areas.value.find((a) => a.id === id)?.name ?? id
 const areaColor = (id: string) => areas.value.find((a) => a.id === id)?.color ?? theme.value.text
@@ -614,7 +634,7 @@ const kindLabel = (k?: string) => (k ? KIND[k] ?? k : '')
 /** Ligações do selecionado (fora a da área), com o motivo */
 const related = computed(() => {
   const s = selected.value
-  if (!s) return []
+  if (!s || graphRev.value < 0) return []
   return links
     .filter((l) => l.kind !== 'area' && (l.source.id === s.id || l.target.id === s.id))
     .map((l) => {
@@ -624,7 +644,7 @@ const related = computed(() => {
     .sort((a, b) => Number(b.ai) - Number(a.ai))
 })
 /** Funcionalidades de uma área selecionada */
-const children = computed(() => (selected.value?.n.kind === 'area' ? nodes.filter((n) => n.n.kind === 'feature' && n.n.area === selected.value!.n.area) : []))
+const children = computed(() => (graphRev.value, selected.value?.n.kind === 'area' ? nodes.filter((n) => n.n.kind === 'feature' && n.n.area === selected.value!.n.area) : []))
 const basename = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 /** Busca: Enter vai para o primeiro resultado */
 function onSearchEnter() {
@@ -1048,6 +1068,9 @@ watch([search, changed], requestRender)
           <button class="ghost icon small" title="Fechar" @click="select(null)"><Icon name="x" :size="13" /></button>
         </div>
         <p v-if="selected.n.description" class="d-desc">{{ selected.n.description }}</p>
+        <button v-if="selected.n.kind === 'area'" class="ghost d-remap" :disabled="mapping" :title="`Relê os arquivos de ${selected.n.name} (e vizinhos) com o ${aiLabel}, atrás de funcionalidades e ligações novas; as outras áreas não mudam`" @click="remapArea(selected.n.area)">
+          <Icon name="sparkles" :size="13" /> {{ mapping ? 'Mapeando…' : 'Remapear esta área' }}
+        </button>
         <div class="d-body">
           <div v-if="children.length" class="d-sec">
             <h6>Funcionalidades ({{ children.length }})</h6>
@@ -1174,4 +1197,5 @@ canvas:active { cursor: grabbing; }
 .d-link { display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 6px; justify-content: flex-start; font-size: 12px; color: var(--text); }
 .d-link small { font-size: 11px; margin-left: auto; max-width: 45%; flex: none; }
 .warn { color: var(--mod); }
+.d-remap { align-self: flex-start; height: 26px; gap: 6px; font-size: 12px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
 </style>
