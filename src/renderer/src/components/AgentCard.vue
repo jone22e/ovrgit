@@ -3,8 +3,8 @@ import { computed } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
 import { EFFORT_LABEL, MODES } from '@shared/models'
+import { api, ask } from '../store'
 import AgentLogo from './AgentLogo.vue'
-import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
 
 /**
@@ -86,6 +86,14 @@ const clock = computed(() => {
   const sec = s % 60
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 })
+/** Encerra a conversa (no orquestrador não há janela para esconder: só encerrar); trabalhando, confirma antes */
+async function close() {
+  if (props.a.status === 'live') {
+    const ok = await ask({ title: 'Encerrar a conversa?', message: 'O agente está trabalhando e será interrompido. A conversa fica em Conversas.', confirmLabel: 'Encerrar', danger: true })
+    if (!ok) return
+  }
+  api.agentClose([props.a.uid]).catch(() => undefined)
+}
 /** Clique fora de botões, campos e texto selecionado: escolhe o cartão */
 function onClick(e: MouseEvent) {
   const t = e.target as HTMLElement
@@ -148,7 +156,7 @@ function onClick(e: MouseEvent) {
       <span class="gap" />
       <span class="ctl">
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-        <AgentWindowMenu :a="a" />
+        <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
       </span>
       <span class="go" :class="{ on: selected }" :title="selected ? 'Conversa mostrada ao lado' : 'Mostrar a conversa ao lado'"><Icon name="columns" :size="13" /></span>
     </div>
@@ -259,10 +267,10 @@ function onClick(e: MouseEvent) {
 .retry, .nudge { height: 24px; font-size: 11.5px; }
 .nudge { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
 .ctl { display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
-.acard:hover .ctl, .ctl:has(.pinned), .ctl:has(.win-menu.on) { opacity: 1; }
-.pin { color: var(--faint); }
+.acard:hover .ctl, .ctl:has(.pinned) { opacity: 1; }
+.pin, .close { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
-.ctl :deep(.win-btn) { opacity: 1; }
+.close:hover { color: var(--del); }
 .go { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--faint); }
 .go.on { color: var(--accent); background: var(--accent-soft); }
 </style>
