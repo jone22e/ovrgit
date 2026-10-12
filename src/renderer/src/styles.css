@@ -167,3 +167,8 @@ input[type='checkbox'] { accent-color: var(--accent); width: 14px; height: 14px;
 .faint { color: var(--faint); }
 .mono { font-family: var(--mono); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* tema Terminal: nada de cantos arredondados, como num shell (os cantos da janela são do sistema e ficam) */
+:root[data-theme='terminal'] *,
+:root[data-theme='terminal'] *::before,
+:root[data-theme='terminal'] *::after { border-radius: 0 !important; }
