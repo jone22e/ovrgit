@@ -108,6 +108,7 @@ onUnmounted(() => {
   background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--panel-2);
 }
 .card.connected { background: var(--panel-2); }
+:root[data-theme='terminal'] .card { background: var(--panel-2); }
 .head { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .brand { width: 40px; height: 40px; flex: none; }
 .avatar {

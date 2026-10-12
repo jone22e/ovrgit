@@ -296,6 +296,7 @@ async function submit() {
 .title { font-size: 14px; padding: 9px 12px; }
 .md { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); transition: border-color 0.12s, box-shadow 0.12s; }
 .md:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme='terminal'] .md:focus-within { box-shadow: none; }
 .md textarea:focus { box-shadow: none; }
 .md-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 .md-bar .mono { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }

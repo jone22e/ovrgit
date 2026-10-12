@@ -106,6 +106,7 @@ async function submit() {
 .ai { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); flex: none; }
 .md { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
 .md:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme='terminal'] .md:focus-within { box-shadow: none; }
 .md-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 .small-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
 .spacer { flex: 1; }

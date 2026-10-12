@@ -174,6 +174,11 @@ function onClick(e: MouseEvent) {
 @keyframes waiting { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mod) 22%, transparent); } }
 .acard.waiting .detail { color: var(--text); }
 .acard.error:not(.sel) { border-color: color-mix(in srgb, var(--del) 40%, var(--border)); }
+/* tema Terminal: cartão chapado, sem gradiente, sombra nem brilho; a conversa da vez se marca pela borda e pelo número invertido */
+:root[data-theme='terminal'] .acard, :root[data-theme='terminal'] .acard:hover, :root[data-theme='terminal'] .acard.sel { background: var(--panel); box-shadow: none; transform: none; }
+:root[data-theme='terminal'] .acard.waiting, :root[data-theme='terminal'] .acard.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); }
+:root[data-theme='terminal'] .acard.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
+:root[data-theme='terminal'] .acard.sel .num { box-shadow: none; }
 
 .top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 /* número do atalho: uma tecla; na conversa da vez, cheia */

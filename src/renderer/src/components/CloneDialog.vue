@@ -158,6 +158,7 @@ h5 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06
 .search input { border: 0; background: transparent; padding: 7px 0; }
 .search input:focus { box-shadow: none; }
 .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme='terminal'] .search:focus-within { box-shadow: none; }
 .repos { list-style: none; margin: 0; padding: 4px; max-height: 210px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
 .repos li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
 .repos li:hover { background: var(--hover); }

@@ -105,6 +105,7 @@ async function submit() {
 .fields > label { font-size: 12px; color: var(--muted); }
 .name { display: flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .name:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-theme='terminal'] .name:focus-within { box-shadow: none; }
 .name input:focus { box-shadow: none; }
 .prefix { padding-left: 10px; color: var(--faint); font-size: 12.5px; white-space: nowrap; }
 .name input { border: 0; outline: none; padding-left: 2px; background: transparent; font-size: 12.5px; }

@@ -2324,6 +2324,9 @@ onUnmounted(() => offs.forEach((f) => f()))
     radial-gradient(ellipse 26% 120% at 78% -10%, color-mix(in srgb, var(--mode-tint) 10%, transparent), transparent 70%),
     var(--panel);
 }
+/* tema Terminal: sem manchas de luz, um tom chapado */
+:root[data-theme='terminal'] .bar.mode-plan, :root[data-theme='terminal'] .bar.mode-checklist, :root[data-theme='terminal'] .bar.mode-architect,
+:root[data-theme='terminal'] .bar.mode-full { background: color-mix(in srgb, var(--mode-tint) 7%, var(--panel)); }
 :root[data-platform='darwin'] .bar { padding-left: 90px; }
 /* presa à janela principal (modo orquestrador): sem os botões do sistema, o cabeçalho começa na borda */
 :root[data-platform='darwin'] .agent.docked .bar { padding-left: 14px; }

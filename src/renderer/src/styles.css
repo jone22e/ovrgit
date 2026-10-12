@@ -168,7 +168,12 @@ input[type='checkbox'] { accent-color: var(--accent); width: 14px; height: 14px;
 .mono { font-family: var(--mono); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* tema Terminal: nada de cantos arredondados, como num shell (os cantos da janela são do sistema e ficam) */
-:root[data-theme='terminal'] *,
-:root[data-theme='terminal'] *::before,
-:root[data-theme='terminal'] *::after { border-radius: 0 !important; }
+/* tema Terminal: interface inteira em fonte mono, chapada, sem cantos arredondados nem halos, como num shell
+   (os cantos da janela são do sistema e ficam). Só as caixas ficam quadradas: círculos (spinners, anéis,
+   pontos, avatares, rádios) continuam redondos. */
+:root[data-theme='terminal'] { --font: var(--mono); }
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio),
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio)::before,
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio)::after { border-radius: 0 !important; }
+/* foco: a borda muda de cor e pronto */
+:root[data-theme='terminal'] :is(input, textarea, select):focus { box-shadow: none; }

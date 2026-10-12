@@ -207,19 +207,20 @@ export const THEMES: Theme[] = [
       brightWhite: '#ffffff'
     }
   },
-  // Terminal: fundo quase preto e o verde fósforo dos monitores antigos; o resto em cinza, como um shell
+  // Terminal: fundo quase preto e o verde dos terminais (xterm 77, sem neon); o resto em cinza, como um shell.
+  // A interface vira mono, chapada e sem halos (styles.css e os componentes com `[data-theme='terminal']`).
   {
     id: 'terminal',
     name: 'Terminal',
     dark: true,
     colors: {
-      accent: '#33ff66', accentStrong: '#22dd55', onAccent: '#061a0a',
+      accent: '#5fd75f', accentStrong: '#4cbf4c', onAccent: '#061a0a',
       bg: '#070907', panel: '#0c0f0c', panel2: '#131813', hover: '#1b221b', border: '#223022',
       text: '#c9e8c9', muted: '#8fb58f', faint: '#5b7a5b',
-      add: '#33ff66', del: '#ff5f5f', mod: '#ffd75f', hunk: '#5fd7ff'
+      add: '#5fd75f', del: '#d75f5f', mod: '#d7af5f', hunk: '#5fafd7'
     },
     ansi: {
-      black: '#070907', red: '#ff5f5f', green: '#33ff66', yellow: '#ffd75f', blue: '#5f87ff', magenta: '#d787ff',
+      black: '#070907', red: '#ff5f5f', green: '#5fd75f', yellow: '#ffd75f', blue: '#5f87ff', magenta: '#d787ff',
       cyan: '#5fd7ff', white: '#c9e8c9', brightBlack: '#5b7a5b', brightRed: '#ff8787', brightGreen: '#87ff87',
       brightYellow: '#ffff87', brightBlue: '#87afff', brightMagenta: '#ffafff', brightCyan: '#87ffff',
       brightWhite: '#ffffff'

@@ -353,6 +353,7 @@ textarea { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; paddin
   animation: send-shine 1.4s linear infinite;
 }
 .sending.ok .fill { background: var(--add); animation: none; }
+:root[data-theme='terminal'] .sending:not(.ok, .fail) .fill { background: var(--accent); animation: none; }
 .sending.fail .fill { background: var(--del); animation: none; }
 .sending.ok, .sending.fail { color: #fff; border-color: transparent; }
 @keyframes send-shine { from { background-position: 150% 0, 0 0; } to { background-position: -150% 0, 0 0; } }
