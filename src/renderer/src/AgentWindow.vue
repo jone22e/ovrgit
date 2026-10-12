@@ -92,11 +92,11 @@ function dragReset() {
 const attachError = ref<string | null>(null)
 const draft = ref('')
 /** Começos de conversa do estado inicial: o clique preenche o campo e deixa o cursor no fim, para completar */
-const STARTS: { label: string; text: string; icon: 'search' | 'alert' | 'sparkles' | 'listChecks' }[] = [
-  { label: 'Explicar o projeto', text: 'Explique como este projeto está organizado e por onde começar a entendê-lo.', icon: 'search' },
-  { label: 'Corrigir um bug', text: 'Corrija este bug: ', icon: 'alert' },
-  { label: 'Criar uma funcionalidade', text: 'Crie esta funcionalidade: ', icon: 'sparkles' },
-  { label: 'Revisar as alterações', text: 'Revise as alterações pendentes no projeto e aponte problemas antes de eu commitar.', icon: 'listChecks' }
+const STARTS: { label: string; text: string }[] = [
+  { label: 'Explicar o projeto', text: 'Explique como este projeto está organizado e por onde começar a entendê-lo.' },
+  { label: 'Corrigir um bug', text: 'Corrija este bug: ' },
+  { label: 'Criar uma funcionalidade', text: 'Crie esta funcionalidade: ' },
+  { label: 'Revisar as alterações', text: 'Revise as alterações pendentes no projeto e aponte problemas antes de eu commitar.' }
 ]
 function useStart(text: string) {
   draft.value = text
@@ -1934,9 +1934,12 @@ onUnmounted(() => offs.forEach((f) => f()))
           </span>
         </h2>
         <!-- começos de conversa: um clique preenche o campo, e você completa -->
-        <div class="starts">
-          <button v-for="st in STARTS" :key="st.text" type="button" class="ghost start" @click="useStart(st.text)"><Icon :name="st.icon" :size="13" />{{ st.label }}</button>
-        </div>
+        <p class="starts">
+          <template v-for="(st, i) in STARTS" :key="st.text">
+            <span v-if="i" class="sep">·</span>
+            <button type="button" class="start" @click="useStart(st.text)">{{ st.label }}</button>
+          </template>
+        </p>
         <p class="faint keys">Enter envia · Shift+Enter quebra a linha</p>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
@@ -2406,11 +2409,11 @@ onUnmounted(() => offs.forEach((f) => f()))
 .empty h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .empty .ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .empty .ask-repo { display: inline-flex; align-items: center; gap: 2px; }
-/* começos de conversa */
-.starts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 460px; margin-top: 4px; }
-.start { height: 30px; padding: 0 12px; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
-.start:hover { color: var(--text); border-color: color-mix(in srgb, var(--text) 25%, var(--border)); background: var(--hover); }
-.start :deep(svg) { color: var(--faint); }
+/* começos de conversa: uma linha discreta de links */
+.starts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 8px; margin: 0; }
+.start { height: auto; padding: 2px 0; border: 0; background: transparent; font-size: 12.5px; color: var(--muted); cursor: pointer; border-radius: 4px; }
+.start:hover { color: var(--accent); background: transparent; }
+.sep { color: var(--faint); font-size: 12px; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .keys { font-size: 11px !important; color: var(--faint); margin-top: 6px !important; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
