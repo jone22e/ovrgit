@@ -1,3 +1,4 @@
+import type { ProjectMap } from './codeGraph'
 import type { ChecklistItem } from './checklist'
 import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
@@ -536,6 +537,13 @@ export interface GridCell {
   own: boolean
   title: string
 }
+
+/** Andamento do mapeamento com IA */
+export type MapEvent =
+  | { type: 'status'; text: string }
+  /** Lotes analisados pela IA, do total (o percentual do andamento) */
+  | { type: 'progress'; done: number; total: number; text: string }
+  | { type: 'done'; ok: boolean; error?: string; map?: ProjectMap }
 
 export interface WindowBounds {
   x: number
@@ -1115,6 +1123,13 @@ export interface OvseerApi {
   orchestratorArea(area: WindowBounds | null): void
   /** Janela do agente: passou a ser mostrada dentro da janela principal (ou voltou a ser uma janela solta) */
   onAgentDocked(cb: (uid: string, docked: boolean) => void): () => void
+  /** Mapa do projeto (aba Mapa): o gravado, a varredura dos imports, o mapeamento com IA e o andamento dele */
+  mapGet(root: string): Promise<ProjectMap | null>
+  mapScan(root: string): Promise<ProjectMap>
+  mapAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
+  mapCancel(root: string): Promise<void>
+  mapRunning(root: string): Promise<boolean>
+  onMapEvent(cb: (root: string, ev: MapEvent) => void): () => void
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
   /** Mascote do topo da tela */

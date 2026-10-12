@@ -9,7 +9,7 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
-  AgentAction, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds
+  AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -24,6 +24,7 @@ import * as sshImport from './sshImport'
 import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
+import * as codeMap from './codeMap'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
 import { livePtys, shutdownPtys } from './ptyRegistry'
@@ -714,6 +715,14 @@ function registerIpc() {
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('orchestrator:set', (_e, on: boolean) => setOrchestrator(!!on))
+  // mapa do projeto (aba Mapa)
+  ipcMain.handle('map:get', (_e, root: string) => codeMap.loadMap(String(root)))
+  ipcMain.handle('map:scan', (_e, root: string) => codeMap.scanProject(String(root)))
+  ipcMain.handle('map:running', (_e, root: string) => codeMap.isMapping(String(root)))
+  ipcMain.handle('map:cancel', (_e, root: string) => codeMap.cancelMap(String(root)))
+  ipcMain.handle('map:ai', (_e, root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
+    codeMap.mapWithAi(String(root), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))
+  )
   // só a janela principal diz onde fica a área da conversa
   ipcMain.on('orchestrator:area', (e, area: WindowBounds | null) => {
     if (!win || e.sender !== win.webContents) return

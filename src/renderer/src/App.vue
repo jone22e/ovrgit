@@ -8,6 +8,7 @@ import DiffView from './components/DiffView.vue'
 import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
 import AgentsView from './components/AgentsView.vue'
+import MapView from './components/MapView.vue'
 import HistoryView from './components/HistoryView.vue'
 import SourceEditor from './components/SourceEditor.vue'
 import SourceTree from './components/SourceTree.vue'
@@ -182,11 +183,12 @@ onUnmounted(() => {
           </template>
         </main>
         <AgentsView v-else-if="state.tab === 'agents'" />
+        <MapView v-else-if="state.tab === 'map'" />
         <HistoryView v-else />
       </div>
       </div>
       <!-- em Agentes e no modo Arquivos a barra de commit some: o espaço fica para a árvore e o editor -->
-      <CommitBar v-show="!termMaximized && state.tab !== 'agents' && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      <CommitBar v-show="!termMaximized && state.tab !== 'agents' && state.tab !== 'map' && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
         <div v-show="state.showTerminal && !termMaximized" class="term-resizer" @mousedown.prevent="startTermResize" />

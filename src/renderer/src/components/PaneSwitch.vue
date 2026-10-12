@@ -8,8 +8,8 @@ import Icon from './Icon.vue'
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
-function go(v: 'agents' | 'changes' | 'files' | 'history') {
-  if (v === 'history' || v === 'agents') {
+function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
+  if (v === 'history' || v === 'agents' || v === 'map') {
     state.tab = v
     return
   }
@@ -31,6 +31,9 @@ function go(v: 'agents' | 'changes' | 'files' | 'history') {
     </button>
     <button :class="{ on: current() === 'history' }" title="Histórico: versões salvas e alterações guardadas" @click="go('history')">
       <Icon name="history" :size="14" /><span class="lbl">Histórico</span>
+    </button>
+    <button :class="{ on: current() === 'map' }" title="Mapa: os arquivos do projeto e quem usa quem, num gráfico interativo" @click="go('map')">
+      <Icon name="network" :size="14" /><span class="lbl">Mapa</span>
     </button>
   </div>
 </template>

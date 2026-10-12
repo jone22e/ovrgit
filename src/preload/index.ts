@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, ServiceState, Settings, TerminalSpec, UpdateState } from '../shared/types'
+import type {
+  AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, MapEvent, OvseerApi, ServiceState, Settings, TerminalSpec, UpdateState
+} from '../shared/types'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
@@ -328,6 +330,16 @@ const api: OvseerApi = {
   },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
   setOrchestrator: (on) => ipcRenderer.invoke('orchestrator:set', on),
+  mapGet: (root) => ipcRenderer.invoke('map:get', root),
+  mapScan: (root) => ipcRenderer.invoke('map:scan', root),
+  mapAi: (root, o) => ipcRenderer.invoke('map:ai', root, o),
+  mapCancel: (root) => ipcRenderer.invoke('map:cancel', root),
+  mapRunning: (root) => ipcRenderer.invoke('map:running', root),
+  onMapEvent: (cb) => {
+    const h = (_e: unknown, root: string, ev: MapEvent) => cb(root, ev)
+    ipcRenderer.on('map:event', h)
+    return () => ipcRenderer.off('map:event', h)
+  },
   orchestratorArea: (area) => ipcRenderer.send('orchestrator:area', area),
   onAgentDocked: (cb) => {
     const h = (_e: unknown, uid: string, docked: boolean) => cb(uid, docked)

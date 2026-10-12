@@ -35,7 +35,7 @@ export const state = reactive({
   diffLoading: false,
   history: [] as CommitInfo[],
   /** Aba da área principal: o app abre no gerenciador de agentes */
-  tab: 'agents' as 'changes' | 'history' | 'agents',
+  tab: 'agents' as 'changes' | 'history' | 'agents' | 'map',
   message: '',
   messageEdited: false,
   busy: null as Busy,
