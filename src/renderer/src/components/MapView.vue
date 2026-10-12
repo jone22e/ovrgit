@@ -212,11 +212,14 @@ async function mapWithAi() {
   }
 }
 const cancelAi = () => root.value && api.mapCancel(root.value).catch(() => undefined)
+/** Área sendo remapeada agora (o painel de detalhes dela mostra o andamento) */
+const remapId = ref<string | null>(null)
 /** Remapeia só a área selecionada: funcionalidades e ligações novas, sem mexer nas outras áreas */
 async function remapArea(areaId: string) {
   const r = root.value
   if (!r || mapping.value) return
   error.value = null
+  remapId.value = areaId
   mapping.value = true
   progress.value = null
   recent.value = []
@@ -226,6 +229,7 @@ async function remapArea(areaId: string) {
     await api.mapArea(r, areaId, { provider: prefs.provider, model: prefs.model[prefs.provider], effort: prefs.effort[prefs.provider] })
   } catch (e) {
     mapping.value = false
+    remapId.value = null
     error.value = clean(e)
   }
 }
@@ -238,6 +242,7 @@ function onMapEvent(r: string, ev: MapEvent) {
     if (ev.sample?.length) recent.value = [...ev.sample, ...recent.value].slice(0, 6)
   } else {
     mapping.value = false
+    remapId.value = null
     status.value = ''
     progress.value = null
     if (ev.ok && ev.map) {
@@ -1073,10 +1078,23 @@ watch([search, changed], requestRender)
           <button class="ghost icon small" title="Fechar" @click="select(null)"><Icon name="x" :size="13" /></button>
         </div>
         <p v-if="selected.n.description" class="d-desc">{{ selected.n.description }}</p>
-        <button v-if="selected.n.kind === 'area'" class="ghost d-remap" :disabled="mapping" :title="`Relê os arquivos de ${selected.n.name} (e vizinhos) com o ${aiLabel}, atrás de funcionalidades e ligações novas; as outras áreas não mudam`" @click="remapArea(selected.n.area)">
+        <!-- remapeando esta área: o andamento no lugar da lista -->
+        <div v-if="mapping && remapId === selected.n.area" class="d-prog">
+          <div class="d-prog-head">
+            <span class="faint">{{ progress?.stage === 'reduce' ? 'Consolidando a área' : 'Relendo os arquivos' }}<template v-if="startedAt"> · {{ fmt(elapsed) }}</template></span>
+            <b class="mono">{{ progress ? percent : 0 }}%</b>
+          </div>
+          <span class="bar big" :class="{ busy: progress?.stage === 'reduce' }"><i :style="{ width: `${progress ? percent : 0}%` }" :class="{ indet: !progress }" /></span>
+          <small class="faint ellipsis">{{ progress?.stage === 'chunks' && progress.total > 1 ? `Lote ${progress.done} de ${progress.total - 1} · ` : '' }}{{ status || 'Preparando…' }}</small>
+          <ul v-if="recent.length" class="d-found">
+            <li v-for="(r, i) in recent.slice(0, 4)" :key="`${i}:${r}`" :style="{ opacity: 1 - i * 0.2 }">{{ r }}</li>
+          </ul>
+          <button class="ghost small d-stop" @click="cancelAi">Parar</button>
+        </div>
+        <button v-else-if="selected.n.kind === 'area'" class="ghost d-remap" :disabled="mapping" :title="`Relê os arquivos de ${selected.n.name} (e vizinhos) com o ${aiLabel}, atrás de funcionalidades e ligações novas; as outras áreas não mudam`" @click="remapArea(selected.n.area)">
           <Icon name="sparkles" :size="13" /> {{ mapping ? 'Mapeando…' : 'Remapear esta área' }}
         </button>
-        <div class="d-body">
+        <div v-if="!(mapping && remapId === selected.n.area)" class="d-body">
           <div v-if="children.length" class="d-sec">
             <h6>Funcionalidades ({{ children.length }})</h6>
             <button v-for="c in children" :key="c.id" class="ghost d-link" :title="c.n.description" @click="goTo(c.id)"><span class="ellipsis">{{ c.n.name }}</span><small v-if="touched(c.n)" class="warn">alterado</small></button>
@@ -1203,4 +1221,13 @@ canvas:active { cursor: grabbing; }
 .d-link small { font-size: 11px; margin-left: auto; max-width: 45%; flex: none; }
 .warn { color: var(--mod); }
 .d-remap { align-self: flex-start; height: 26px; gap: 6px; font-size: 12px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
+/* andamento do remapeamento da área, no lugar da lista */
+.d-prog { display: flex; flex-direction: column; gap: 8px; }
+.d-prog-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.d-prog-head b { font-size: 14px; color: var(--text); }
+.d-prog small { font-size: 11.5px; }
+.d-found { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.d-found li { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-found li::before { content: '✓ '; color: var(--add); }
+.d-stop { align-self: flex-end; }
 </style>
