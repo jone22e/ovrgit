@@ -103,6 +103,8 @@ function useStart(text: string) {
   nextTick(() => {
     const el = box.value
     if (!el) return
+    // o campo cresce no evento de digitação; preenchido por aqui, ajusta a altura na mão
+    autosize()
     el.focus()
     el.setSelectionRange(el.value.length, el.value.length)
   })
