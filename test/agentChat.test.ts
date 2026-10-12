@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, codexArgs, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -412,5 +412,21 @@ describe('contagem de linhas por repositório', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
+  })
+})
+
+describe('modo orquestrador: área da conversa dentro da janela principal', () => {
+  const content = { x: 100, y: 50, width: 1200, height: 800 }
+  it('desloca a área da página para dentro do conteúdo da janela', () => {
+    expect(dockedBounds(content, { x: 600, y: 48, width: 600, height: 752 })).toEqual({ x: 700, y: 98, width: 600, height: 752 })
+  })
+  it('respeita o zoom da página', () => {
+    expect(dockedBounds(content, { x: 100, y: 10, width: 200, height: 100 }, 1.5)).toEqual({ x: 250, y: 65, width: 300, height: 150 })
+  })
+  it('nunca sai do conteúdo da janela', () => {
+    const b = dockedBounds(content, { x: 1000, y: 700, width: 600, height: 400 })
+    expect(b.x + b.width).toBe(content.x + content.width)
+    expect(b.y + b.height).toBe(content.y + content.height)
+    expect(dockedBounds(content, { x: 0, y: 0, width: 0, height: 0 }, 0)).toEqual({ x: 100, y: 50, width: 1, height: 1 })
   })
 })

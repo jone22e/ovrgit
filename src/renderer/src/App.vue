@@ -122,6 +122,7 @@ onMounted(() => {
     if (action === 'open') openProject()
     else if (action === 'settings') state.showSettings = true
     else if (action === 'newAgent') openNewAgent()
+    else if (action === 'agents') state.tab = 'agents'
     else if (action === 'switch') state.repo ? (showSwitcher.value = true) : openProject()
     else if (!state.repo) return
     else if (action === 'refresh') refresh()

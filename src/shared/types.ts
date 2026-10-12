@@ -310,6 +310,9 @@ export interface Settings {
   lastProject: string | null
   /** Mascote no topo da tela, ao lado do recorte da câmera */
   buddy: boolean
+  /** Modo orquestrador: na aba Agentes, os agentes viram cartões e a conversa do selecionado aparece ao lado,
+   * dentro da janela principal, em vez de cada um numa janela solta */
+  orchestrator: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
@@ -629,6 +632,8 @@ export interface AgentSnapshot {
   /** Situação da janela, preenchida pelo processo principal: escondida, e se fechar só a esconde (segundo plano) */
   hidden?: boolean
   background?: boolean
+  /** Modo orquestrador: é a conversa mostrada na área ao lado dos cartões */
+  docked?: boolean
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean
@@ -1102,8 +1107,14 @@ export interface OvseerApi {
   onDesignEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   /** A janela foi trazida para a frente pelo gerenciador ou pela lista de conversas: pisca a borda */
   onAgentFlash(cb: (uid: string) => void): () => void
-  /** Traz a janela do agente para a frente */
+  /** Traz a janela do agente para a frente (no modo orquestrador, mostra a conversa na área ao lado dos cartões) */
   agentShow(uid: string): Promise<void>
+  /** Liga ou desliga o modo orquestrador (também pelo menu Exibir); devolve as configurações atualizadas */
+  setOrchestrator(on: boolean): Promise<Settings>
+  /** Modo orquestrador: onde fica a área da conversa na janela principal (em px da página); null quando ela não está à vista */
+  orchestratorArea(area: WindowBounds | null): void
+  /** Janela do agente: passou a ser mostrada dentro da janela principal (ou voltou a ser uma janela solta) */
+  onAgentDocked(cb: (uid: string, docked: boolean) => void): () => void
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
   /** Mascote do topo da tela */

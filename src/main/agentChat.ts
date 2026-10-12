@@ -51,14 +51,171 @@ interface AgentWin {
   background?: boolean
   /** Fechamento pedido pelo gerenciador: vale mesmo com o segundo plano ligado */
   closing?: boolean
+  /** Modo orquestrador: a janela está presa à janela principal, na área da conversa (e sem moldura própria) */
+  docked?: boolean
+  /** Onde a janela estava antes de ser presa: volta para lá ao soltar */
+  undocked?: WindowBounds
 }
 
 const wins = new Map<string, AgentWin>()
-let setup: { icon: string; background: () => string } | null = null
+let setup: { icon: string; background: () => string; main: () => BrowserWindow | null } | null = null
 
-export function setupAgentWindows(s: { icon: string; background: () => string }) {
+export function setupAgentWindows(s: { icon: string; background: () => string; main: () => BrowserWindow | null }) {
   setup = s
 }
+
+// ---------- modo orquestrador: a conversa do agente selecionado aparece dentro da janela principal ----------
+//
+// A janela do agente continua sendo uma janela do sistema (é ela que conversa com o CLI e guarda a transcrição), mas
+// vira janela-filha da principal, sem sombra, botões nem redimensionamento, colada à área que o gerenciador reserva
+// ao lado dos cartões. Só uma fica presa por vez: escolher outro cartão troca a conversa na mesma área. As demais
+// ficam escondidas, trabalhando.
+
+/** Área da conversa, em px da página da janela principal (null: a aba Agentes não está à vista, ou há um diálogo aberto) */
+let dockArea: WindowBounds | null = null
+/** Conversa mostrada na área agora */
+let dockedUid: string | null = null
+
+export const orchestratorOn = (): boolean => !!getSettings().orchestrator
+
+/** Posição, na tela, da área da conversa: a área da página deslocada para dentro do conteúdo da janela principal */
+export function dockedBounds(content: WindowBounds, area: WindowBounds, zoom = 1): WindowBounds {
+  const z = zoom > 0 ? zoom : 1
+  const x = Math.round(content.x + area.x * z)
+  const y = Math.round(content.y + area.y * z)
+  // nunca sai do conteúdo da janela principal
+  const right = Math.min(content.x + content.width, Math.round(content.x + (area.x + area.width) * z))
+  const bottom = Math.min(content.y + content.height, Math.round(content.y + (area.y + area.height) * z))
+  return { x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }
+}
+
+function currentDockBounds(): WindowBounds | null {
+  const main = setup?.main()
+  if (!main || main.isDestroyed() || !dockArea || main.isMinimized() || !main.isVisible()) return null
+  return dockedBounds(main.getContentBounds(), dockArea, main.webContents.getZoomFactor())
+}
+
+/** O gerenciador avisa onde a área está (ou que ela saiu de vista): a conversa presa acompanha */
+export function setDockArea(area: WindowBounds | null) {
+  dockArea = area && area.width > 0 && area.height > 0 ? area : null
+  layoutDocked()
+}
+
+/** Encaixa a conversa presa na área; sem área (aba trocada, diálogo aberto, janela principal minimizada), some */
+export function layoutDocked() {
+  const w = dockedUid ? wins.get(dockedUid) : undefined
+  if (!w || w.win.isDestroyed() || !w.docked) return
+  const b = currentDockBounds()
+  if (!b) {
+    if (w.win.isVisible()) w.win.hide()
+    return
+  }
+  w.win.setBounds(b)
+  if (!w.win.isVisible()) w.win.showInactive()
+}
+
+/** A janela principal mudou (tamanho, posição, minimizada, mostrada): a conversa presa acompanha */
+export function watchMainWindow(main: BrowserWindow) {
+  for (const ev of ['resize', 'move', 'minimize', 'restore', 'show', 'hide', 'enter-full-screen', 'leave-full-screen'] as const)
+    main.on(ev as 'resize', () => layoutDocked())
+  // sem a principal, as conversas presas não teriam onde aparecer: voltam a ser janelas soltas
+  main.on('close', () => undockAll(true))
+}
+
+/** Mostra a conversa `uid` na área do orquestrador (a que estava lá sai de cena). false: não dá (sem janela principal) */
+export function dockAgent(uid: string): boolean {
+  const w = wins.get(uid)
+  const main = setup?.main()
+  if (!w || w.win.isDestroyed() || !main || main.isDestroyed()) return false
+  if (dockedUid && dockedUid !== uid) {
+    const prev = wins.get(dockedUid)
+    if (prev && !prev.win.isDestroyed()) prev.win.hide()
+  }
+  dockedUid = uid
+  if (!w.docked) {
+    // tela cheia não vira filha: sai dela primeiro e prende depois
+    if (w.win.isFullScreen()) {
+      w.win.once('leave-full-screen', () => dockAgent(uid))
+      w.win.setFullScreen(false)
+      return true
+    }
+    if (w.win.isMaximized()) w.win.unmaximize()
+    if (w.win.isMinimized()) w.win.restore()
+    w.docked = true
+    w.undocked = w.win.getBounds()
+    w.win.setMinimumSize(1, 1)
+    w.win.setResizable(false)
+    w.win.setMovable(false)
+    w.win.setHasShadow(false)
+    if (process.platform === 'darwin') w.win.setWindowButtonVisibility(false)
+    w.win.setParentWindow(main)
+    w.win.webContents.send('agent:docked', uid, true)
+  }
+  // presa, a janela nunca pode ficar lenta: escondida pelo sistema entre uma troca e outra, é ela que fala com o agente
+  w.win.webContents.setBackgroundThrottling(false)
+  const b = currentDockBounds()
+  if (b) {
+    w.win.setBounds(b)
+    w.win.show()
+    w.win.focus()
+  } else w.win.hide()
+  broadcastSnapshots()
+  return true
+}
+
+/** Solta a janela: volta a ser uma janela do sistema, onde estava antes de ser presa */
+function undock(w: AgentWin, show: boolean) {
+  if (!w.docked) return
+  w.docked = false
+  if (dockedUid === w.info.uid) dockedUid = null
+  if (!w.win.isDestroyed()) {
+    w.win.setParentWindow(null)
+    w.win.setHasShadow(true)
+    w.win.setResizable(true)
+    w.win.setMovable(true)
+    w.win.setMinimumSize(MIN_WIN.width, MIN_WIN.height)
+    if (process.platform === 'darwin') w.win.setWindowButtonVisibility(true)
+    if (w.undocked) {
+      // o lugar de antes só vale se ainda cai numa tela ligada; senão, só o tamanho, no centro
+      const vb = visibleBounds(w.undocked)
+      if (vb.x !== undefined) w.win.setBounds(vb as WindowBounds)
+      else {
+        w.win.setSize(w.undocked.width, w.undocked.height)
+        w.win.center()
+      }
+    }
+    w.win.webContents.send('agent:docked', w.info.uid, false)
+    if (show) w.win.show()
+    else w.win.hide()
+  }
+  w.undocked = undefined
+}
+
+/** Todas as presas voltam a ser janelas soltas (a principal fechou, ou o modo orquestrador foi desligado) */
+export function undockAll(show: boolean) {
+  for (const w of wins.values()) undock(w, show)
+  dockedUid = null
+}
+
+/** Liga ou desliga o modo orquestrador para as janelas já abertas */
+export function setOrchestrator(on: boolean) {
+  if (!on) {
+    undockAll(true)
+    revealHiddenAgentWindows()
+    broadcastSnapshots()
+    return
+  }
+  // as janelas soltas somem (os agentes seguem); a que estava em foco (ou a primeira) vai para a área
+  const focused = BrowserWindow.getFocusedWindow()
+  const open = [...wins.values()].filter((w) => !w.win.isDestroyed())
+  const first = open.find((w) => w.win === focused) ?? open.find((w) => w.win.isVisible()) ?? open[0]
+  for (const w of open) if (w !== first) hideAgentWindow(w.info.uid)
+  if (first) dockAgent(first.info.uid)
+  else broadcastSnapshots()
+}
+
+/** Janelas soltas (as presas à principal não contam para o grid nem para Organizar) */
+const floating = () => [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.docked)
 
 const PROVIDER_NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
 const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
@@ -141,7 +298,7 @@ export function freeGridSlot(area: WindowBounds, grid: GridSize, occupied: Windo
 
 /** Janelas de agente abertas e visíveis, na tela onde o ponteiro está: são as que ocupam células do grid */
 function openAgentBounds(): WindowBounds[] {
-  return [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.win.isMinimized()).map((w) => w.win.getBounds())
+  return floating().filter((w) => !w.win.isMinimized()).map((w) => w.win.getBounds())
 }
 
 /** Último agente aberto ou usado desde que o app abriu: é a base do atalho de "novo agente" */
@@ -215,7 +372,12 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   // conversa escondida (ex.: começada pelo mascote): a janela existe e trabalha, mas não aparece; sem a
   // desaceleração que o sistema aplica a janelas invisíveis, porque é ela que fala com o agente
   if (opts.hidden) win.webContents.setBackgroundThrottling(false)
-  win.once('ready-to-show', () => !opts.hidden && win.show())
+  win.once('ready-to-show', () => {
+    if (opts.hidden) return
+    // modo orquestrador: a conversa nova já aparece na área do gerenciador
+    if (orchestratorOn() && dockAgent(uid)) return
+    win.show()
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
     return { action: 'deny' }
@@ -237,7 +399,8 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
       return
     }
     if (win.isMinimized() || win.isFullScreen()) return
-    setHistoryBounds(w?.info.sessionId ?? null, win.getBounds())
+    // presa à principal, a posição que vale é a de antes de prender
+    setHistoryBounds(w?.info.sessionId ?? null, w?.undocked ?? win.getBounds())
   })
   // visível ou oculta: o gerenciador mostra a situação da janela
   win.on('show', () => {
@@ -247,6 +410,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   win.on('hide', () => broadcastSnapshots())
   win.on('closed', () => {
     const w = wins.get(uid)
+    if (dockedUid === uid) dockedUid = null
     if (w?.child) terminate(w.child, 'codex')
     if (w?.designChild) terminate(w.designChild, 'codex')
     closeDesignWindow(uid)
@@ -386,9 +550,7 @@ export function agentDisplays(fallback?: BrowserWindow | null): DisplayInfo[] {
 export function regridAgentWindows(uid: string, from: GridSize, to: GridSize, fallback?: BrowserWindow | null, displayId?: number) {
   const display = displayFor(uid, fallback, displayId)
   if (!display) return
-  const open = [...wins.values()].filter(
-    (w) => !w.win.isDestroyed() && !w.win.isMinimized() && !w.win.isFullScreen() && screen.getDisplayMatching(w.win.getBounds()).id === display.id
-  )
+  const open = floating().filter((w) => !w.win.isMinimized() && !w.win.isFullScreen() && screen.getDisplayMatching(w.win.getBounds()).id === display.id)
   const next = regridBounds(display.workArea, from, to, open.map((w) => w.win.getBounds()))
   open.forEach((w, i) => {
     if (w.win.isMaximized()) w.win.unmaximize()
@@ -401,8 +563,8 @@ export function agentGridCells(uid: string, grid: GridSize, fallback?: BrowserWi
   const display = displayFor(uid, fallback, displayId)
   if (!display) return []
   const me = wins.get(uid)
-  const open = [...wins.values()]
-    .filter((w) => !w.win.isDestroyed() && !w.win.isMinimized() && screen.getDisplayMatching(w.win.getBounds()).id === display.id)
+  const open = floating()
+    .filter((w) => !w.win.isMinimized() && screen.getDisplayMatching(w.win.getBounds()).id === display.id)
     .map((w) => ({ bounds: w.win.getBounds(), own: w === me, title: w.info.title || w.info.project }))
   return coveredCells(display.workArea, grid, open)
 }
@@ -414,6 +576,7 @@ export function agentWindows(): string[] {
 export function focusAgentWindow(sessionId: string): boolean {
   const w = [...wins.values()].find((x) => x.info.sessionId === sessionId)
   if (!w) return false
+  if (orchestratorOn() && dockAgent(w.info.uid)) return true
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
@@ -445,7 +608,7 @@ export function agentSnapshots(): AgentSnapshot[] {
   // a situação da janela (oculta, segundo plano) é do processo principal: entra aqui, por cima do resumo da janela
   return [...wins.values()]
     .filter((w) => w.snap && !w.win.isDestroyed())
-    .map((w) => ({ ...w.snap!, hidden: !w.win.isVisible(), background: !!w.background }))
+    .map((w) => ({ ...w.snap!, hidden: !w.win.isVisible() && w.info.uid !== dockedUid, background: !!w.background, docked: w.info.uid === dockedUid }))
 }
 
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
@@ -511,6 +674,9 @@ export function actOnAgent(uid: string, action: AgentAction) {
 export function showAgentWindow(uid: string) {
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) return
+  if (orchestratorOn() && dockAgent(uid)) return
+  // o modo foi desligado com a janela ainda presa: solta antes de mostrar
+  undock(w, false)
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
   w.win.focus()
@@ -530,6 +696,8 @@ export function closeAgentWindows(uids: string[]) {
 export function hideAgentWindow(uid: string) {
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) return
+  // a conversa sai da área do orquestrador (a área fica vazia até outro cartão ser escolhido)
+  if (dockedUid === uid) dockedUid = null
   // janela escondida não pode ficar lenta: é ela que recebe a resposta do agente e publica o resumo
   w.win.webContents.setBackgroundThrottling(false)
   if (w.win.isFullScreen()) {
@@ -540,7 +708,7 @@ export function hideAgentWindow(uid: string) {
 
 /** Mostra de novo as janelas escondidas (quem as traria de volta, o gerenciador, fechou) */
 export function revealHiddenAgentWindows() {
-  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
+  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.docked && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
 }
 
 /** Ações sobre todas as janelas de agente, do dropdown do Organizar */
@@ -549,6 +717,8 @@ export function actOnAllAgentWindows(action: 'show' | 'hide' | 'background' | 'f
   if (action === 'close') return closeAgentWindows(all.map((w) => w.info.uid))
   for (const w of all) {
     if (action === 'show') {
+      // no modo orquestrador, só uma conversa aparece por vez: "abrir todas" não tem o que abrir
+      if (orchestratorOn()) continue
       if (w.win.isMinimized()) w.win.restore()
       if (!w.win.isVisible()) w.win.show()
     } else if (action === 'hide') hideAgentWindow(w.info.uid)
@@ -572,8 +742,8 @@ export function setAgentBackground(uid: string, on: boolean) {
 export function arrangeAgentWindows() {
   const grid = getSettings().agentGrid
   const byDisplay = new Map<number, { area: WindowBounds; list: AgentWin[] }>()
-  for (const w of wins.values()) {
-    if (w.win.isDestroyed() || w.win.isMinimized() || w.win.isFullScreen()) continue
+  for (const w of floating()) {
+    if (w.win.isMinimized() || w.win.isFullScreen()) continue
     const d = screen.getDisplayMatching(w.win.getBounds())
     if (!byDisplay.has(d.id)) byDisplay.set(d.id, { area: d.workArea, list: [] })
     byDisplay.get(d.id)!.list.push(w)
@@ -604,8 +774,8 @@ export function arrangeAgentWindowsInto(grid: GridSize, cells: { col: number; ro
     .map((c) => ({ col: Math.floor(c.col), row: Math.floor(c.row), colSpan: Math.max(1, Math.floor(c.colSpan ?? 1)), rowSpan: Math.max(1, Math.floor(c.rowSpan ?? 1)) }))
     .filter((c, i, all) => c.col >= 0 && c.col < cols && c.row >= 0 && c.row < rows && all.findIndex((x) => x.col === c.col && x.row === c.row) === i)
     .sort((a, b) => a.row - b.row || a.col - b.col)
-  const list = [...wins.values()]
-    .filter((w) => !w.win.isDestroyed() && !w.win.isMinimized())
+  const list = floating()
+    .filter((w) => !w.win.isMinimized())
     .sort((a, b) => a.win.getBounds().y - b.win.getBounds().y || a.win.getBounds().x - b.win.getBounds().x)
   list.slice(0, slots.length).forEach((w, i) => {
     if (w.win.isFullScreen()) w.win.setFullScreen(false)

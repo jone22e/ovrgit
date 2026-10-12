@@ -1001,6 +1001,8 @@ function listenAgents() {
   api.onAgentStatuses((s) => (state.agentStatuses = s))
   api.agentSnapshots().then((s) => (state.agentSnaps = s)).catch(() => undefined)
   api.onAgentSnapshots((s) => (state.agentSnaps = s))
+  // configurações mudadas pelo processo principal (ex.: modo orquestrador pelo menu Exibir)
+  api.onSettingsChanged((s) => (state.settings = s))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`

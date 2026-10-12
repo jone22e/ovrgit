@@ -9,7 +9,7 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
-  AgentAction, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec
+  AgentAction, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -136,6 +136,8 @@ function createWindow() {
     }
   })
   win.once('ready-to-show', () => win?.show())
+  // modo orquestrador: a conversa presa à principal acompanha tamanho, posição e minimização dela
+  agentChat.watchMainWindow(win)
   win.on('closed', () => {
     win = null
     // sem a janela principal, uma janela de agente escondida não teria mais como voltar: reaparece
@@ -154,6 +156,23 @@ function createWindow() {
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(path.join(__dirname, '../renderer/index.html'))
+}
+
+/**
+ * Liga ou desliga o modo orquestrador (menu Exibir ou botão na aba Agentes): guarda nas configurações, avisa todas
+ * as janelas e prende/solta as janelas de agente já abertas.
+ */
+function setOrchestrator(on: boolean): Settings {
+  const next = saveSettings({ orchestrator: !!on })
+  const item = Menu.getApplicationMenu()?.getMenuItemById('orchestrator')
+  if (item) item.checked = next.orchestrator
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('settings:changed', next)
+  agentChat.setOrchestrator(next.orchestrator)
+  if (next.orchestrator && win && !win.isDestroyed()) {
+    win.show()
+    toMain('menu', 'agents')
+  }
+  return next
 }
 
 function buildMenu() {
@@ -204,6 +223,15 @@ function buildMenu() {
       submenu: [
         { label: 'Diff', accelerator: 'CmdOrCtrl+D', click: send('toggleDiff') },
         { label: 'Terminal', accelerator: 'Ctrl+`', click: send('toggleTerminal') },
+        { type: 'separator' },
+        {
+          id: 'orchestrator',
+          label: 'Modo orquestrador',
+          type: 'checkbox',
+          checked: getSettings().orchestrator,
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: (item) => setOrchestrator(item.checked)
+        },
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
@@ -685,6 +713,14 @@ function registerIpc() {
   ipcMain.handle('agent:snapshots', () => agentChat.agentSnapshots())
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
+  ipcMain.handle('orchestrator:set', (_e, on: boolean) => setOrchestrator(!!on))
+  // só a janela principal diz onde fica a área da conversa
+  ipcMain.on('orchestrator:area', (e, area: WindowBounds | null) => {
+    if (!win || e.sender !== win.webContents) return
+    const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN)
+    const a = area && typeof area === 'object' ? { x: n(area.x), y: n(area.y), width: n(area.width), height: n(area.height) } : null
+    agentChat.setDockArea(a && Object.values(a).every((v) => !Number.isNaN(v)) ? a : null)
+  })
   ipcMain.handle('agent:close', (_e, uids: string[]) => agentChat.closeAgentWindows(Array.isArray(uids) ? uids.map(String) : []))
   ipcMain.handle('agent:hide', (_e, uid: string) => agentChat.hideAgentWindow(String(uid)))
   ipcMain.handle('agent:all', (_e, action: string) => {
@@ -830,7 +866,7 @@ app.whenReady().then(() => {
   })
   registerIpc()
   buildMenu()
-  agentChat.setupAgentWindows({ icon, background: initialBackground })
+  agentChat.setupAgentWindows({ icon, background: initialBackground, main: () => win })
   buddy.registerBuddyIpc()
   buddy.setupBuddy({
     showMain: () => {

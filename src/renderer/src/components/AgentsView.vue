@@ -149,6 +149,12 @@ function onCardClick(e: MouseEvent) {
   selUid.value = null
 }
 function clickDone(a: AgentSnapshot) {
+  // no modo orquestrador a conversa inteira está ao lado: o cartão não precisa abrir
+  if (orch.value) {
+    select(a)
+    show(a)
+    return
+  }
   if (selUid.value === a.uid) selUid.value = null
   else select(a)
 }
@@ -277,14 +283,91 @@ const onDocGrid = (e: MouseEvent) => {
 }
 onMounted(() => document.addEventListener('mousedown', onDocGrid))
 onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
+
+// ---------- modo orquestrador: cartões à esquerda, a conversa do agente escolhido à direita ----------
+/**
+ * A conversa é a própria janela do agente, presa dentro desta pela janela principal (processo principal). Daqui vai
+ * só onde a área fica: a cada mudança de tamanho ou posição, e quando um diálogo cobre a tela (aí a área some, para
+ * a janela presa não ficar por cima do diálogo).
+ */
+const orch = computed(() => !!state.settings?.orchestrator)
+async function toggleOrchestrator() {
+  state.settings = await api.setOrchestrator(!orch.value)
+}
+/** Conversa mostrada na área agora */
+const docked = computed(() => snaps.value.find((a) => a.docked) ?? null)
+const dockEl = ref<HTMLElement>()
+const dockWidth = ref(Number(localStorage.getItem('ovseer.dock') ?? 620))
+function startDockResize(e: MouseEvent) {
+  const startX = e.clientX
+  const start = dockWidth.value
+  const move = (ev: MouseEvent) => {
+    dockWidth.value = Math.min(Math.max(start - (ev.clientX - startX), 380), window.innerWidth - 320)
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    localStorage.setItem('ovseer.dock', String(dockWidth.value))
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
+const covered = () => !!document.querySelector('.backdrop, .overlay-backdrop')
+let areaRaf = 0
+function reportArea() {
+  cancelAnimationFrame(areaRaf)
+  areaRaf = requestAnimationFrame(() => {
+    const el = dockEl.value
+    if (!orch.value || !el || covered()) return api.orchestratorArea(null)
+    const r = el.getBoundingClientRect()
+    api.orchestratorArea({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
+  })
+}
+let sizeObs: ResizeObserver | undefined
+let domObs: MutationObserver | undefined
+watch(dockEl, (el) => {
+  sizeObs?.disconnect()
+  sizeObs = undefined
+  if (el) {
+    sizeObs = new ResizeObserver(reportArea)
+    sizeObs.observe(el)
+  }
+  reportArea()
+})
+onMounted(() => {
+  window.addEventListener('resize', reportArea)
+  // diálogos abrem e fecham, barras aparecem: a área muda de lugar ou precisa sumir
+  domObs = new MutationObserver(reportArea)
+  domObs.observe(document.body, { childList: true, subtree: true })
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', reportArea)
+  domObs?.disconnect()
+  sizeObs?.disconnect()
+  cancelAnimationFrame(areaRaf)
+  api.orchestratorArea(null)
+})
+/** Clique no cartão (fora de botões, campos e texto selecionável): a conversa vai para a área */
+function onPick(e: MouseEvent, a: AgentSnapshot) {
+  if (!orch.value) return
+  const t = e.target as HTMLElement
+  if (t.closest('button, input, textarea, a, select, .ask-in') || window.getSelection()?.toString()) return
+  select(a)
+  show(a)
+}
 </script>
 
 <template>
-  <div ref="root" class="agents">
+  <div ref="root" class="agents" :class="{ orch }">
     <div class="toolbar">
       <PaneSwitch />
+      <span class="gap" />
+      <button class="ghost orch-btn" :class="{ on: orch }" :title="orch ? 'Sair do modo orquestrador: cada agente volta à sua janela' : 'Modo orquestrador: agentes em cartões e a conversa do escolhido ao lado, nesta janela'" @click="toggleOrchestrator">
+        <Icon name="columns" :size="14" /><span class="lbl">Orquestrador</span>
+      </button>
     </div>
 
+    <div class="body">
     <div class="scroll">
       <header class="head">
         <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'janela' : 'janelas' }}</strong>
@@ -297,7 +380,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
           <span class="bars"><span v-for="a in order.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
         </span>
-        <span ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
+        <span v-if="!orch" ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
           <button class="arrange-main" :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
             <span v-if="arranging" class="spinner" />
             <Icon v-else name="grid" :size="13" />
@@ -336,7 +419,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
       <section v-if="needYou.length">
         <h3 class="sec waiting">Precisa de você</h3>
-        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
+        <div class="list">
+        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid || a.docked }]" @click="onPick($event, a)">
           <div class="row">
             <span class="dot" :class="a.status" />
             <span class="text">
@@ -370,11 +454,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             @nav="(index) => act(a, { type: 'nav', index })"
           />
         </article>
+        </div>
       </section>
 
       <section v-if="running.length">
         <h3 class="sec live">Rodando</h3>
-        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
+        <div class="list">
+        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid || a.docked, 'has-cl': a.checklist?.length }" @click="select(a), show(a)">
           <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
             <span class="line">
@@ -401,6 +487,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <AgentWindowMenu :a="a" />
           <Icon name="external" :size="13" class="go" />
         </div>
+        </div>
       </section>
 
       <section v-if="done.length">
@@ -411,8 +498,9 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
           </span>
         </h3>
+        <div class="list">
         <template v-for="a in done" :key="a.uid">
-          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
+          <article v-if="selUid === a.uid && !orch" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
             <div class="row">
               <span class="dot done" />
               <strong class="ellipsis grow">{{ a.title }}</strong>
@@ -436,7 +524,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             </div>
             <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts, attachments) => act(a, { type: 'reply', text, ...opts, attachments })" />
           </article>
-          <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
+          <div v-else :data-uid="a.uid" class="item" :class="{ sel: orch && (selUid === a.uid || a.docked) }" @click="clickDone(a)">
             <span class="dot done" :class="{ seen: !isNew(a) }" />
             <span class="text">
               <span class="line">
@@ -455,11 +543,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <button class="ghost icon small go-btn" title="Abrir a janela" @click.stop="show(a)"><Icon name="external" :size="13" /></button>
           </div>
         </template>
+        </div>
       </section>
 
       <section v-if="idle.length">
         <h3 class="sec">Sem conversa</h3>
-        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
+        <div class="list">
+        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid || a.docked }" @click="select(a), show(a)">
           <span class="dot" />
           <span class="text">
             <strong class="ellipsis">{{ a.title }}</strong>
@@ -468,6 +558,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
             <AgentWindowMenu :a="a" />
           <Icon name="external" :size="13" class="go" />
+        </div>
         </div>
       </section>
 
@@ -479,6 +570,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
             <button v-if="closedPinned.length > 1" class="ghost link accent" title="Reabre todas as conversas fixadas, cada uma na sua janela" @click="reopenAllPinned">Abrir as {{ closedPinned.length }} →</button>
           </span>
         </h3>
+        <div class="list">
         <div v-for="h in closedPinned" :key="h.sessionId" class="item closed" :title="'Reabrir a conversa'" @click="reopen(h)">
           <span class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />
           <span class="text">
@@ -490,7 +582,25 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
           <button class="ghost icon small pin pinned" title="Soltar a conversa (sai desta lista; continua em Conversas)" @click.stop="unpin(h)"><Icon name="pin" :size="13" /></button>
           <Icon name="external" :size="13" class="go" />
         </div>
+        </div>
       </section>
+    </div>
+
+    <!-- modo orquestrador: a área da conversa. A janela do agente escolhido fica presa por cima dela (processo principal) -->
+    <template v-if="orch">
+      <div class="dock-resizer" @mousedown.prevent="startDockResize" />
+      <div ref="dockEl" class="dock" :style="{ width: `${dockWidth}px` }">
+        <div v-if="docked" class="dock-under">
+          <span class="dot" :class="docked.status" />
+          <strong class="ellipsis">{{ docked.title }}</strong>
+        </div>
+        <div v-else class="dock-empty">
+          <Icon name="bot" :size="28" />
+          <p>{{ snaps.length ? 'Escolha um agente nos cartões: a conversa aparece aqui.' : 'Nenhum agente aberto.' }}</p>
+          <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
+        </div>
+      </div>
+    </template>
     </div>
 
     <Modal v-if="planOf" :title="planOf.a.title" :width="760" @close="planUid = null">
@@ -505,7 +615,34 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
+.body { flex: 1; display: flex; min-height: 0; min-width: 0; }
 .toolbar { gap: 10px; }
+.orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
+.orch-btn.on { color: var(--accent); background: var(--accent-soft); }
+/* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
+.dock { flex: none; min-width: 0; position: relative; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); }
+.dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
+.dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }
+/* por baixo da janela presa: só aparece se ela estiver escondida por um instante (ex.: com um diálogo aberto) */
+.dock-under { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-size: 13px; color: var(--muted); min-width: 0; }
+.dock-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: var(--faint); text-align: center; }
+.dock-empty p { margin: 0; font-size: 13px; color: var(--muted); max-width: 280px; }
+.dock-empty button { gap: 6px; }
+/* cartões: quantas colunas couberem na largura da lista */
+.orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.orch .list > .card { grid-column: 1 / -1; margin-bottom: 0; cursor: pointer; }
+.orch .item { flex-wrap: wrap; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.orch .item.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.orch .item > .dot { margin-top: 6px; }
+/* primeira linha: ponto e texto; o resto (hora, contadores, botões) desce para o rodapé do cartão */
+.orch .item > .text { flex: 1 1 calc(100% - 20px); min-width: 0; }
+.orch .item > .when { margin-right: auto; min-width: 0; text-align: left; }
+.orch .item > .pin { margin-left: auto; }
+.orch .item > .when ~ .pin { margin-left: 0; }
+.orch .item.has-cl > .cl-pill, .orch .item.has-cl > .ring, .orch .item.has-cl > .when, .orch .item.has-cl > .go, .orch .item.has-cl > .pin, .orch .item.has-cl > .nudge { margin-top: 0; }
+.orch .item.has-cl > .dot { margin-top: 6px; }
+.orch .item.has-cl > .win-menu { margin-top: 0; }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }

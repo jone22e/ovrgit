@@ -327,6 +327,13 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('agent:design', h)
   },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
+  setOrchestrator: (on) => ipcRenderer.invoke('orchestrator:set', on),
+  orchestratorArea: (area) => ipcRenderer.send('orchestrator:area', area),
+  onAgentDocked: (cb) => {
+    const h = (_e: unknown, uid: string, docked: boolean) => cb(uid, docked)
+    ipcRenderer.on('agent:docked', h)
+    return () => ipcRenderer.off('agent:docked', h)
+  },
   agentClose: (uids) => ipcRenderer.invoke('agent:close', uids),
   buddySet: (on) => ipcRenderer.invoke('buddy:set', on),
   buddyFiles: (paths) => ipcRenderer.invoke('buddy:files', paths),
