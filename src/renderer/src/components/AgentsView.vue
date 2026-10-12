@@ -301,14 +301,29 @@ function startDockResize(e: MouseEvent) {
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
 }
-const covered = () => !!document.querySelector('.backdrop, .overlay-backdrop')
+/**
+ * Algo por cima da área (diálogo, menu aberto, dropdown): a janela presa, que fica sempre por cima da página,
+ * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela.
+ */
+function covered(el: HTMLElement, r: DOMRect): boolean {
+  if (document.querySelector('.backdrop, .overlay-backdrop')) return true
+  const step = 56
+  for (let y = r.top + 6; y < r.bottom; y += step) {
+    for (let x = r.left + 8; x < r.right; x += step) {
+      const top = document.elementFromPoint(Math.min(x, r.right - 4), Math.min(y, r.bottom - 4))
+      if (top && !el.contains(top)) return true
+    }
+  }
+  return false
+}
 let areaRaf = 0
 function reportArea() {
   cancelAnimationFrame(areaRaf)
   areaRaf = requestAnimationFrame(() => {
     const el = dockEl.value
-    if (!orch.value || !el || covered()) return api.orchestratorArea(null)
+    if (!orch.value || !el) return api.orchestratorArea(null)
     const r = el.getBoundingClientRect()
+    if (covered(el, r)) return api.orchestratorArea(null)
     api.orchestratorArea({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
   })
 }
@@ -411,36 +426,11 @@ function pick(a: AgentSnapshot) {
         <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       </div>
 
-      <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa) -->
+      <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa).
+           Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
       <section v-if="orch && order.length" class="orch-list">
         <div class="list">
-          <AgentCard
-            v-for="a in order"
-            :key="a.uid"
-            :a="a"
-            :n="numberOf(a)"
-            :now="now"
-            :selected="selUid === a.uid || !!a.docked"
-            :fresh="isNew(a)"
-            :stalled="stalled(a)"
-            :class="{ wide: !!a.ask }"
-            @pick="pick(a)"
-            @act="(action) => act(a, action)"
-          >
-            <AskCard
-              v-if="a.ask"
-              class="ask-in"
-              :ask="a.ask"
-              :agent="PROVIDER_LABEL[a.provider]"
-              :current="a.ask.kind === 'question' ? a.ask.current : null"
-              @decide="(choice) => act(a, { type: 'decide', choice })"
-              @plan="(mode) => act(a, { type: 'plan', mode })"
-              @adjust="(text) => act(a, { type: 'reply', text })"
-              @see-plan="planUid = a.uid"
-              @close="act(a, { type: 'dismiss' })"
-              @nav="(index) => act(a, { type: 'nav', index })"
-            />
-          </AgentCard>
+          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" />
         </div>
       </section>
 
@@ -662,8 +652,7 @@ function pick(a: AgentSnapshot) {
 .dock-empty p { margin: 0; font-size: 13px; color: var(--muted); max-width: 280px; }
 .dock-empty button { gap: 6px; }
 /* cartões: quantas colunas couberem na largura da lista; os que esperam resposta ocupam a linha inteira */
-.orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; align-items: start; }
-.orch .list > .wide { grid-column: 1 / -1; }
+.orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: stretch; }
 .orch-list { margin-top: 14px; }
 /* fixadas sem janela: cartão simples, no mesmo espírito */
 .orch .item.closed { flex-wrap: wrap; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }

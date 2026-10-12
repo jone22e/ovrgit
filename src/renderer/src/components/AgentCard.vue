@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
+import { EFFORT_LABEL, MODES } from '@shared/models'
 import AgentLogo from './AgentLogo.vue'
 import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
@@ -75,6 +76,17 @@ const chips = computed(() => {
   if (c?.deploy) out.push({ text: 'com deploy', tone: 'warn' })
   return out
 })
+/** Rodapé: modo e esforço da conversa */
+const modeLabel = computed(() => MODES.find((m) => m.id === props.a.mode)?.label ?? '')
+const effortLabel = computed(() => EFFORT_LABEL[props.a.effort] ?? '')
+/** Rodando: tempo decorrido como relógio (m:ss, ou h:mm:ss) */
+const clock = computed(() => {
+  const s = Math.max(0, Math.round((props.now - (props.a.startedAt ?? props.a.since)) / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
+})
 /** Clique fora de botões, campos e texto selecionado: escolhe o cartão */
 function onClick(e: MouseEvent) {
   const t = e.target as HTMLElement
@@ -84,15 +96,11 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <article class="acard" :class="[tone, { sel: selected, fresh, numbered: n !== null }]" :data-uid="a.uid" @click="onClick">
+  <article class="acard" :class="[tone, { sel: selected, fresh }]" :data-uid="a.uid" @click="onClick">
     <div class="top">
       <span v-if="n !== null" class="num mono" :title="`⌘${n}: mostra esta conversa`">{{ n }}</span>
       <div class="ttl">
-        <span class="line">
-          <AgentLogo :source="a.provider" :size="14" class="logo" />
-          <strong class="ellipsis">{{ a.title }}</strong>
-          <span v-if="fresh" class="new">novo</span>
-        </span>
+        <strong class="title"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ a.title }}</strong>
         <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
       </div>
       <!-- anel de progresso: checklist feito/total; sem checklist, gira enquanto trabalha; cheio ao terminar -->
@@ -112,16 +120,21 @@ function onClick(e: MouseEvent) {
 
     <div class="status">
       <span class="pill" :class="tone"><span class="dot" />{{ statusLabel }}</span>
-      <small v-if="since" class="faint">{{ since }}</small>
+      <span v-if="a.status === 'live'" class="clock mono" :title="`Trabalhando há ${ago(now, a.startedAt ?? a.since)}`">{{ clock }}</span>
+      <small v-else-if="since" class="faint">{{ since }}</small>
+      <span v-if="fresh" class="new">novo</span>
+      <span class="gap" />
       <span v-if="checklist.length" class="steps mono" :title="`${doneCount} de ${checklist.length} etapas concluídas`"><Icon name="listChecks" :size="11" /> {{ doneCount }}/{{ checklist.length }}</span>
-      <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
+      <span v-if="a.files?.count" class="stats mono" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'}`">
+        <Icon name="pencil" :size="11" /> {{ a.files.count }}
         <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
         <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
       </span>
     </div>
 
-    <p v-if="detail" class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled' }" :title="detail">{{ detail }}</p>
-    <!-- checklist por etapas: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer) -->
+    <p v-if="detail" class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled }" :title="detail">{{ detail }}</p>
+    <p v-else class="detail idle">Nenhuma mensagem ainda.</p>
+    <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer) -->
     <ol v-if="checklist.length" class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
       <li v-for="(it, k) in checklist" :key="k" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', now: it === current && a.status === 'live' && !stalled }" />
     </ol>
@@ -129,14 +142,16 @@ function onClick(e: MouseEvent) {
       <span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
     </div>
 
-    <slot />
-
     <div class="foot">
       <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
-      <button v-if="tone === 'stalled'" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="emit('act', { type: 'nudge' })">Cutucar</button>
+      <button v-else-if="tone === 'stalled'" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="emit('act', { type: 'nudge' })">Cutucar</button>
+      <small v-else-if="a.status === 'waiting'" class="meta hint ellipsis">Clique para responder</small>
+      <small v-else class="faint meta ellipsis">{{ modeLabel }}<template v-if="effortLabel"> · {{ effortLabel }}</template></small>
       <span class="gap" />
-      <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-      <AgentWindowMenu :a="a" />
+      <span class="ctl">
+        <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+        <AgentWindowMenu :a="a" />
+      </span>
       <span class="go" :class="{ on: selected }" :title="selected ? 'Conversa mostrada ao lado' : 'Mostrar a conversa ao lado'"><Icon name="columns" :size="13" /></span>
     </div>
   </article>
@@ -144,42 +159,39 @@ function onClick(e: MouseEvent) {
 
 <style scoped>
 .acard {
-  position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px 10px;
-  border: 1px solid var(--border); border-radius: 14px; background: var(--panel); cursor: pointer;
-  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  position: relative; display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 14px 14px 10px;
+  border: 1px solid var(--border); border-radius: 14px; cursor: pointer;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel-2) 55%, var(--panel)), var(--panel) 70%);
+  transition: border-color 0.12s, box-shadow 0.15s, transform 0.12s;
 }
-.acard:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-.acard.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 10px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); }
-/* cor da situação: uma faixa fina na borda de cima */
-.acard::before { content: ''; position: absolute; left: 14px; right: 14px; top: -1px; height: 2px; border-radius: 0 0 2px 2px; background: transparent; }
-.acard.live::before { background: var(--accent); }
-.acard.stalled::before, .acard.waiting::before { background: var(--mod); }
-.acard.done::before { background: var(--add); }
-.acard.error::before { background: var(--del); }
-.acard.waiting { background: color-mix(in srgb, var(--mod) 4%, var(--panel)); }
-.acard.error { background: color-mix(in srgb, var(--del) 5%, var(--panel)); }
-.acard.stalled { background: color-mix(in srgb, var(--mod) 6%, var(--panel)); }
+.acard:hover { border-color: color-mix(in srgb, var(--text) 22%, var(--border)); transform: translateY(-1px); box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.8); }
+/* a conversa da vez: contorno na cor do tema e um brilho suave por baixo */
+.acard.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 12px 32px -14px color-mix(in srgb, var(--accent) 70%, transparent); }
+.acard.sel { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--panel)), var(--panel) 75%); }
+.acard.waiting { background: linear-gradient(180deg, color-mix(in srgb, var(--mod) 9%, var(--panel)), var(--panel) 75%); }
+.acard.error { background: linear-gradient(180deg, color-mix(in srgb, var(--del) 9%, var(--panel)), var(--panel) 75%); }
+.acard.stalled { background: linear-gradient(180deg, color-mix(in srgb, var(--mod) 7%, var(--panel)), var(--panel) 75%); }
+/* aguardando resposta: o cartão é um aviso e pulsa de leve até ser atendido */
+.acard.waiting:not(.sel) { border-color: color-mix(in srgb, var(--mod) 55%, var(--border)); animation: waiting 2.2s ease-in-out infinite; }
+@keyframes waiting { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mod) 22%, transparent); } }
+.acard.waiting .detail { color: var(--text); }
+.acard.error:not(.sel) { border-color: color-mix(in srgb, var(--del) 40%, var(--border)); }
 
-.top { display: flex; align-items: center; gap: 10px; min-width: 0; }
-/* número do atalho: quadrado em destaque, na cor do tema */
+.top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+/* número do atalho: uma tecla; na conversa da vez, cheia */
 .num {
-  display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 9px;
-  font-size: 15px; font-weight: 800; color: var(--on-accent); background: var(--accent);
-  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--accent) 80%, transparent);
+  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; flex: none; margin-top: 1px; border-radius: 6px;
+  font-size: 12px; font-weight: 800; color: var(--accent); background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.acard.done .num { background: var(--add); color: #0f1a12; box-shadow: none; }
-.acard.error .num { background: var(--del); color: #fff; box-shadow: none; }
-.acard.waiting .num, .acard.stalled .num { background: var(--mod); color: #1a1a1a; box-shadow: none; }
-.acard.idle .num { background: var(--panel-2); color: var(--muted); box-shadow: none; }
-.ttl { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.line strong { font-size: 13.5px; min-width: 0; }
-.logo { flex: none; opacity: 0.85; }
+.acard.sel .num { color: var(--on-accent); background: var(--accent); box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 80%, transparent); }
+.ttl { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.logo { display: inline-block; vertical-align: -2px; margin-right: 6px; opacity: 0.9; }
 .ttl small { font-size: 11.5px; }
-.new { flex: none; font-size: 10px; padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
 
 /* anel de progresso */
-.ring { position: relative; width: 34px; height: 34px; flex: none; }
+.ring { position: relative; width: 36px; height: 36px; flex: none; }
 .ring > svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 3; }
 .ring .track { stroke: color-mix(in srgb, var(--faint) 22%, transparent); }
@@ -192,33 +204,39 @@ function onClick(e: MouseEvent) {
 .ring.indet > svg { animation: turn 1.1s linear infinite; }
 .ring.stalled.indet > svg { animation: none; }
 .ring .in { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: var(--text); line-height: 1; }
-.ring .in :deep(svg) { width: 13px; height: 13px; }
+.ring .in :deep(svg) { width: 14px; height: 14px; }
 .ring .pct { font-size: 10.5px; font-weight: 700; color: var(--muted); }
 .ring.done .in { color: var(--add); }
 .ring.error .in { color: var(--del); }
-.ring.waiting .in { color: var(--mod); font-size: 14px; font-weight: 800; animation: blink 1.6s ease-in-out infinite; }
+.ring.waiting .in { color: var(--mod); font-size: 15px; font-weight: 800; animation: blink 1.6s ease-in-out infinite; }
 @keyframes turn { to { transform: rotate(270deg); } }
 @keyframes blink { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
 
-.status { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); }
+.status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gap { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); flex: none; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.live { color: var(--accent); background: var(--accent-soft); }
 .pill.live .dot { animation: blink 1.4s ease-in-out infinite; }
 .pill.waiting, .pill.stalled { color: var(--mod); background: color-mix(in srgb, var(--mod) 14%, transparent); }
 .pill.done { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .pill.error { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
-.status small { font-size: 11.5px; }
-.steps { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--hunk); }
-.stats { display: inline-flex; gap: 6px; font-size: 11.5px; }
+.status small { font-size: 11.5px; white-space: nowrap; }
+.clock { font-size: 11.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.new { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.steps { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--hunk); flex: none; }
+.stats { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); flex: none; }
 .stats .add { color: var(--add); }
 .stats .del { color: var(--del); }
 
 .detail { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.acard.live .detail { color: var(--text); }
+.detail.live { color: var(--text); }
+/* rodando: um cursor piscando no fim do que está fazendo */
+.detail.live::after { content: ''; display: inline-block; width: 6px; height: 12px; margin-left: 4px; vertical-align: -1px; background: var(--accent); animation: blink 1s steps(2) infinite; }
 .detail.err { color: var(--del); }
 .detail.warn { color: var(--mod); }
+.detail.idle { color: var(--faint); font-style: italic; }
 /* etapas do checklist como barrinhas */
 .track-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; }
 .track-steps li { flex: 1; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--faint) 25%, transparent); }
@@ -232,16 +250,17 @@ function onClick(e: MouseEvent) {
 .chip.bad { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .chip.warn { color: var(--mod); background: color-mix(in srgb, var(--mod) 12%, transparent); }
 
-.foot { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
-.gap { flex: 1; }
-.retry { height: 26px; }
-.nudge { height: 26px; color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
-.pin { opacity: 0; color: var(--faint); }
-.acard:hover .pin, .pin.pinned { opacity: 1; }
+/* rodapé, sempre na base do cartão (os cartões da mesma linha têm a mesma altura): modo e esforço; os controles da janela só ao passar o mouse */
+.foot { display: flex; align-items: center; gap: 2px; min-height: 26px; margin-top: auto; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.meta { font-size: 11px; min-width: 0; }
+.hint { color: var(--mod); font-weight: 600; }
+.retry, .nudge { height: 24px; font-size: 11.5px; }
+.nudge { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
+.ctl { display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
+.acard:hover .ctl, .ctl:has(.pinned), .ctl:has(.win-menu.on) { opacity: 1; }
+.pin { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
-.acard:hover :deep(.win-btn) { opacity: 1; }
+.ctl :deep(.win-btn) { opacity: 1; }
 .go { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--faint); }
 .go.on { color: var(--accent); background: var(--accent-soft); }
-/* o cartão de pergunta, sem a própria moldura */
-.acard :deep(.ask-in) { width: 100%; max-width: none; box-sizing: border-box; padding: 0; border: 0; background: transparent; }
 </style>

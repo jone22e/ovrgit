@@ -1776,7 +1776,8 @@ export async function generateTitle(provider: CliProvider, request: string, answ
         rm(dir, { recursive: true, force: true }).catch(() => undefined)
       }
     }
-    const t = text.split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^["'“”«]+|["'“”»]+$/g, '').replace(/[.。]$/, '').trim() ?? ''
+    // algumas IAs respondem "Título: …" ou em negrito: fica só o título
+    const t = text.split('\n').map((l) => l.trim()).find(Boolean)?.replace(/^\**\s*t[ií]tulo\s*:\s*/i, '').replace(/^["'“”«*]+|["'“”»*]+$/g, '').replace(/[.。]$/, '').trim() ?? ''
     return t && t.length <= 80 ? t : null
   } catch {
     return null
