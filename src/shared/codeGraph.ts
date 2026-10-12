@@ -304,7 +304,7 @@ Responda SÓ com um bloco JSON, sem texto antes ou depois:
 \`\`\`
 
 Regras:
-- De 0 a 15 funcionalidades. Agrupe o que é a mesma coisa; não liste utilitários técnicos, tipos, configurações ou helpers (eles não são funcionalidades). Se nenhum arquivo implementar uma funcionalidade, devolva "features": [].
+- De 0 a 10 funcionalidades, do ponto de vista de quem usa: prefira poucas e amplas a muitas e miúdas (variações, etapas internas e casos de uso parecidos são a MESMA funcionalidade). Não liste utilitários técnicos, tipos, configurações ou helpers. Se nenhum arquivo implementar uma funcionalidade, devolva "features": [].
 - "name": curto, em português do Brasil, começando pelo verbo ou pelo substantivo da ação. "area": o módulo do sistema a que pertence ("Nota fiscal", "Clientes", "Estoque"…). "kind": screen, action, report, job, integration, api, config ou outro. "description": até 15 palavras.
 - "files": só caminhos exatos da lista abaixo, os que implementam a funcionalidade.
 - Não leia nem peça mais nada: responda com o que está aqui.

@@ -541,8 +541,9 @@ export interface GridCell {
 /** Andamento do mapeamento com IA */
 export type MapEvent =
   | { type: 'status'; text: string }
-  /** Lotes analisados pela IA, do total (o percentual do andamento) */
-  | { type: 'progress'; done: number; total: number; text: string }
+  /** Lotes analisados pela IA, do total (o percentual do andamento); `found`: funcionalidades achadas até aqui;
+   * `sample`: as últimas achadas; `stage`: analisando os lotes ou consolidando no fim */
+  | { type: 'progress'; done: number; total: number; text: string; stage: 'chunks' | 'reduce'; found: number; sample?: string[] }
   | { type: 'done'; ok: boolean; error?: string; map?: ProjectMap }
 
 export interface WindowBounds {

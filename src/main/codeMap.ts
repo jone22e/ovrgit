@@ -8,7 +8,7 @@ import { app } from 'electron'
 import type { AgentEffort, CliProvider, MapEvent } from '../shared/types'
 import {
   aliasesFromTsconfig, buildGraph, chunkFiles, chunkPrompt, dedupeCandidates, fileDigest, isFeatureFile, isMapFile, parseCandidates, parseReduce, reducePrompt,
-  type Candidate, type ProjectMap, type Resolver
+  type Candidate, type FeatureMap, type ProjectMap, type Resolver
 } from '../shared/codeGraph'
 import { findBinary, needsShell } from './cli'
 import { listSourceFiles } from './sourceFiles'
@@ -19,7 +19,10 @@ import { knownModels } from './agentWatch'
  * Mapa funcional do projeto (aba Mapa). A varredura dos imports é feita aqui, em milissegundos, e serve de insumo.
  * "Mapear com IA" roda em pequenos contextos: os arquivos vão em lotes a um pedido avulso do CLI (sem ferramentas,
  * sem sessão, vários em paralelo) que devolve as funcionalidades de cada lote; um último pedido consolida tudo em
- * áreas, funcionalidades e ligações. O resultado fica gravado por projeto na pasta de dados do app.
+ * áreas, funcionalidades e ligações.
+ *
+ * O mapa funcional fica no repositório, em `.ovseer/map.json` (pequeno, legível, versionável: o time compartilha).
+ * O grafo de imports fica em cache na pasta de dados do app: é grande e se recalcula em milissegundos.
  */
 
 const MAX_FILES = 4000
@@ -32,11 +35,38 @@ const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy
 const NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
 
 const mapsDir = () => path.join(app.getPath('userData'), 'maps')
-const mapFile = (root: string) => path.join(mapsDir(), `${createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 16)}.json`)
+const cacheFile = (root: string) => path.join(mapsDir(), `${createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 16)}.json`)
+/** O mapa funcional, no repositório */
+export const MAP_FILE = '.ovseer/map.json'
+const repoFile = (root: string) => path.join(root, MAP_FILE)
 
-export function loadMap(root: string): ProjectMap | null {
+/** O mapa funcional gravado no repositório (null: ainda não mapeado) */
+function readFeatures(root: string): FeatureMap | null {
   try {
-    const f = mapFile(root)
+    const f = repoFile(root)
+    if (!existsSync(f)) return null
+    const j = JSON.parse(readFileSync(f, 'utf8')) as Partial<FeatureMap> & { version?: number }
+    return j && j.version === 1 && Array.isArray(j.features) && Array.isArray(j.areas)
+      ? { provider: String(j.provider ?? ''), model: String(j.model ?? ''), at: Number(j.at) || 0, areas: j.areas, features: j.features, links: Array.isArray(j.links) ? j.links : [] }
+      : null
+  } catch {
+    return null
+  }
+}
+
+function writeFeatures(root: string, fm: FeatureMap) {
+  const f = repoFile(root)
+  const next = JSON.stringify({ version: 1, generatedBy: 'Ovseer', ...fm }, null, 2)
+  // só grava quando mudou: o arquivo é versionado, e um mapa igual não vira alteração no git
+  if (existsSync(f) && readFileSync(f, 'utf8') === next) return
+  mkdirSync(path.dirname(f), { recursive: true })
+  writeFileSync(f, next)
+}
+
+/** O grafo de imports em cache (null: ainda não varrido) */
+function readCache(root: string): ProjectMap | null {
+  try {
+    const f = cacheFile(root)
     if (!existsSync(f)) return null
     const m = JSON.parse(readFileSync(f, 'utf8')) as ProjectMap
     return m && m.version === 2 && Array.isArray(m.nodes) ? m : null
@@ -45,9 +75,26 @@ export function loadMap(root: string): ProjectMap | null {
   }
 }
 
+/** O mapa do projeto: o grafo em cache (ou varrido agora) mais o mapa funcional do repositório */
+export async function loadMap(root: string): Promise<ProjectMap | null> {
+  const cached = readCache(root)
+  let features = readFeatures(root)
+  // mapas de antes de o arquivo ir para o repositório: migra o que estava no cache
+  if (!features && cached?.features) {
+    features = cached.features
+    writeFeatures(root, features)
+  }
+  if (!cached && !features) return null
+  const map = cached ?? (await scanProject(root))
+  map.features = features ?? undefined
+  return map
+}
+
 function saveMap(map: ProjectMap) {
   mkdirSync(mapsDir(), { recursive: true })
-  writeFileSync(mapFile(map.root), JSON.stringify(map))
+  const { features, ...graph } = map
+  writeFileSync(cacheFile(map.root), JSON.stringify(graph))
+  if (features) writeFeatures(map.root, features)
 }
 
 /** Apelidos de caminho do projeto (tsconfig e, por cima, o jsconfig) e o módulo Go */
@@ -96,8 +143,7 @@ async function readTexts(root: string): Promise<Map<string, string>> {
 export async function scanProject(root: string, texts?: Map<string, string>): Promise<ProjectMap> {
   texts ??= await readTexts(root)
   const map = buildGraph(root, texts, await resolverFor(root, new Set(texts.keys())))
-  const prev = loadMap(root)
-  if (prev?.features) map.features = prev.features
+  map.features = readFeatures(root) ?? undefined
   saveMap(map)
   return map
 }
@@ -184,6 +230,12 @@ async function askOnce(run: Run, bin: string, provider: CliProvider, model: stri
   }
 }
 
+/** Pasta curta para a tela de andamento: os dois últimos nomes ("…/precificacao/campanhas") */
+function shortDir(dir: string): string {
+  const parts = dir.split('/').filter(Boolean)
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : dir || '(raiz)'
+}
+
 /** Resumo curto do projeto para os pedidos (primeiras linhas do mapa do Modo Arquiteto) */
 function shortSummary(root: string): string {
   return projectMap(root).split('\n').filter((l) => l.trim()).slice(0, 12).join(' ').replace(/\s+/g, ' ').slice(0, 600)
@@ -229,7 +281,8 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
     const project = path.basename(root)
     const summary = shortSummary(root)
     let done = 0
-    onEvent({ type: 'progress', done, total, text: `${chunks.length} lotes de arquivos para o ${NAME[provider]}…` })
+    let foundCount = 0
+    onEvent({ type: 'progress', done, total, text: `${chunks.length} lotes de arquivos para o ${NAME[provider]}`, stage: 'chunks', found: 0 })
     // lotes em paralelo: cada um devolve as candidatas; um lote que falha não derruba o resto
     const found: Candidate[][] = new Array(chunks.length)
     let failures = 0
@@ -248,8 +301,9 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
           console.error(`Mapa: lote ${i} falhou:`, (e as Error).message)
         }
         done++
+        foundCount += found[i].length
         const dir = chunk[0].path.includes('/') ? chunk[0].path.slice(0, chunk[0].path.lastIndexOf('/')) : chunk[0].path
-        onEvent({ type: 'progress', done, total, text: `Analisado ${dir}` })
+        onEvent({ type: 'progress', done, total, text: shortDir(dir), stage: 'chunks', found: foundCount, sample: found[i].slice(0, 4).map((c) => c.name) })
       }
     }
     await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker))
@@ -257,14 +311,13 @@ export async function mapWithAi(root: string, o: { provider: CliProvider; model:
     if (failures === chunks.length) throw new Error('Nenhum lote foi analisado. Confira o login da IA em ⚙ Configurações.')
     const candidates = dedupeCandidates(found.flat())
     if (!candidates.length) throw new Error('A IA não encontrou funcionalidades nos arquivos do projeto.')
-    onEvent({ type: 'progress', done, total, text: `Consolidando ${candidates.length} funcionalidades em áreas…` })
+    onEvent({ type: 'progress', done, total, text: `${candidates.length} funcionalidades candidatas`, stage: 'reduce', found: candidates.length })
     const reduced = await askOnce(run, bin, provider, model, reduceEffort, reducePrompt(project, summary, candidates), REDUCE_TIMEOUT)
     const features = parseReduce(reduced, candidates)
     if (!features) throw new Error('A consolidação não veio no formato esperado. Tente de novo.')
-    const fresh = loadMap(root) ?? map
-    fresh.features = { ...features, provider, model, at: Date.now() }
-    saveMap(fresh)
-    finish({ type: 'done', ok: true, map: fresh })
+    map.features = { ...features, provider, model, at: Date.now() }
+    saveMap(map)
+    finish({ type: 'done', ok: true, map })
   } catch (e) {
     let error = run.cancelled ? 'Interrompido.' : String((e as Error).message ?? e)
     if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'

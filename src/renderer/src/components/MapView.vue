@@ -38,8 +38,29 @@ const loading = ref(false)
 const mapping = ref(false)
 const status = ref('')
 /** Andamento do mapeamento com IA: lotes feitos do total (null: ainda preparando) */
-const progress = ref<{ done: number; total: number } | null>(null)
+const progress = ref<{ done: number; total: number; stage: 'chunks' | 'reduce'; found: number } | null>(null)
 const percent = computed(() => (progress.value ? Math.round((progress.value.done / Math.max(1, progress.value.total)) * 100) : 0))
+/** Últimas funcionalidades encontradas, para a tela de andamento */
+const recent = ref<string[]>([])
+const startedAt = ref(0)
+const clock = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | undefined
+const elapsed = computed(() => Math.max(0, Math.round((clock.value - startedAt.value) / 1000)))
+const fmt = (s: number) => (s >= 60 ? `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s` : `${s} s`)
+/** Estimativa do que falta, pelo ritmo dos lotes (só depois de alguns lotes) */
+const remaining = computed(() => {
+  const p = progress.value
+  if (!p || p.stage !== 'chunks' || p.done < 3 || !startedAt.value) return null
+  const per = (clock.value - startedAt.value) / 1000 / p.done
+  return Math.round(per * (p.total - p.done))
+})
+watch(mapping, (on) => {
+  clearInterval(clockTimer)
+  if (on) {
+    if (!startedAt.value) startedAt.value = Date.now()
+    clockTimer = setInterval(() => (clock.value = Date.now()), 1000)
+  } else startedAt.value = 0
+})
 const error = ref<string | null>(null)
 const search = ref('')
 const hidden = ref(new Set<string>())
@@ -96,7 +117,7 @@ async function load() {
     // mapeamento em curso (a aba foi aberta no meio): a barra já aparece no ponto em que está
     const running = await api.mapRunning(r)
     mapping.value = !!running
-    progress.value = running?.type === 'progress' ? { done: running.done, total: running.total } : null
+    progress.value = running?.type === 'progress' ? { done: running.done, total: running.total, stage: running.stage, found: running.found } : null
     status.value = running ? (running.type === 'done' ? '' : running.text) : ''
   } catch (e) {
     error.value = clean(e)
@@ -125,6 +146,8 @@ async function mapWithAi() {
   error.value = null
   mapping.value = true
   progress.value = null
+  recent.value = []
+  startedAt.value = Date.now()
   status.value = 'Começando…'
   try {
     await api.mapAi(r, { provider: prefs.provider, model: prefs.model[prefs.provider], effort: prefs.effort[prefs.provider] })
@@ -138,8 +161,9 @@ function onMapEvent(r: string, ev: MapEvent) {
   if (r !== root.value) return
   if (ev.type === 'status') status.value = ev.text
   else if (ev.type === 'progress') {
-    progress.value = { done: ev.done, total: ev.total }
+    progress.value = { done: ev.done, total: ev.total, stage: ev.stage, found: ev.found }
     status.value = ev.text
+    if (ev.sample?.length) recent.value = [...ev.sample, ...recent.value].slice(0, 6)
   } else {
     mapping.value = false
     status.value = ''
@@ -578,10 +602,10 @@ watch([search, changed], requestRender)
       <button v-if="hasMap" class="ghost icon" title="Enquadrar o gráfico" :disabled="!featureCount" @click="fit()"><Icon name="maximize" :size="14" /></button>
       <template v-if="mapping">
         <span class="mapping">
-          <span v-if="progress" class="bar" :title="`${progress.done} de ${progress.total}`"><i :style="{ width: `${percent}%` }" /></span>
+          <span v-if="progress" class="bar" :class="{ busy: progress.stage === 'reduce' }" :title="`${progress.done} de ${progress.total}`"><i :style="{ width: `${percent}%` }" /></span>
           <span v-else class="spinner" />
           <b v-if="progress" class="mono pct">{{ percent }}%</b>
-          <span class="ellipsis">{{ status || 'Mapeando…' }}</span>
+          <span class="ellipsis">{{ progress?.stage === 'reduce' ? 'Consolidando as áreas…' : status || 'Mapeando…' }}</span>
         </span>
         <button class="ghost small" @click="cancelAi">Parar</button>
       </template>
@@ -602,18 +626,40 @@ watch([search, changed], requestRender)
         <div class="invite">
           <Icon name="network" :size="34" class="faint" />
           <h3>Mapa funcional do projeto</h3>
-          <p class="faint">A IA lê o código e monta um gráfico das <b>funcionalidades</b> do sistema, em linguagem de quem usa: as áreas ("Nota fiscal") como núcleos e, em volta, o que cada uma faz ("Imprimir nota fiscal", "Enviar por email"). Cada funcionalidade guarda os arquivos que a implementam.</p>
+          <p class="faint">O sistema desenhado por <b>funcionalidades</b>, não por arquivos: cada área é um núcleo e, em volta, o que ela faz.</p>
+          <p class="example"><span class="ex-area">Nota fiscal</span><span class="ex-arrow">→</span><span>Imprimir nota fiscal</span><span class="ex-dot">·</span><span>Enviar por email</span><span class="ex-dot">·</span><span>Cancelar nota</span></p>
           <button class="primary" :disabled="!root" @click="mapWithAi"><Icon name="sparkles" :size="14" /> Mapear projeto com {{ aiLabel }}</button>
-          <small class="faint">Leva alguns minutos num projeto grande. O mapa fica guardado; o botão usa a IA escolhida em "Novo agente".</small>
+          <small class="faint">Alguns minutos num projeto grande. O mapa fica salvo em <code>.ovseer/map.json</code>, no repositório.</small>
         </div>
       </div>
       <div v-else-if="!hasMap && mapping" class="center">
-        <div class="invite">
-          <h3>Mapeando com {{ aiLabel }}…</h3>
-          <span class="bar big"><i :style="{ width: `${progress ? percent : 0}%` }" :class="{ indet: !progress }" /></span>
-          <b v-if="progress" class="mono pct-big">{{ percent }}%</b>
-          <p class="faint">{{ status || 'Preparando…' }}</p>
-          <small class="faint">Os arquivos vão em pequenos lotes para a IA, em paralelo; no fim, um pedido consolida as áreas e as ligações.</small>
+        <div class="invite prog">
+          <div class="p-head">
+            <div class="p-title">
+              <h3>Mapeando o projeto</h3>
+              <small class="faint">com {{ aiLabel }} · {{ fmt(elapsed) }}</small>
+            </div>
+            <b class="mono pct-big">{{ progress ? percent : 0 }}<span>%</span></b>
+          </div>
+          <span class="bar big" :class="{ busy: progress?.stage === 'reduce' }"><i :style="{ width: `${progress ? percent : 0}%` }" :class="{ indet: !progress }" /></span>
+          <div class="p-row">
+            <span class="p-stage" :class="{ on: !progress || progress.stage === 'chunks' }"><i>1</i> Lendo os arquivos</span>
+            <span class="p-stage" :class="{ on: progress?.stage === 'reduce' }"><i>2</i> Consolidando as áreas</span>
+          </div>
+          <p v-if="!progress" class="p-status faint">{{ status || 'Preparando…' }}</p>
+          <p v-else-if="progress.stage === 'chunks'" class="p-status">
+            <span class="faint">Lote {{ progress.done }} de {{ progress.total - 1 }}</span>
+            <span class="mono p-dir ellipsis" :title="status">{{ status }}</span>
+            <span v-if="remaining !== null" class="faint">~{{ fmt(remaining) }} restantes</span>
+          </p>
+          <p v-else class="p-status wrap faint">Juntando {{ progress.found }} funcionalidades candidatas em áreas e ligações. Leva um ou dois minutos.</p>
+          <div v-if="progress?.found" class="p-found">
+            <small class="faint">{{ progress.found }} {{ progress.found === 1 ? 'funcionalidade encontrada' : 'funcionalidades encontradas' }}</small>
+            <ul v-if="recent.length">
+              <li v-for="(r, i) in recent" :key="`${i}:${r}`" :style="{ opacity: 1 - i * 0.14 }">{{ r }}</li>
+            </ul>
+          </div>
+          <button class="ghost small p-stop" @click="cancelAi">Parar</button>
         </div>
       </div>
 
@@ -675,8 +721,31 @@ watch([search, changed], requestRender)
 .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); transition: width 0.3s ease; }
 .bar.big { width: 100%; height: 8px; }
 .bar i.indet { width: 30% !important; animation: slide 1.2s ease-in-out infinite; }
+/* consolidando: a barra cheia respira, para mostrar que ainda está trabalhando */
+.bar.busy i { animation: breathe 1.6s ease-in-out infinite; }
 @keyframes slide { 0% { left: -30%; } 100% { left: 100%; } }
-.pct-big { font-size: 22px; color: var(--text); }
+@keyframes breathe { 50% { opacity: 0.45; } }
+.pct-big { font-size: 26px; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
+.pct-big span { font-size: 14px; color: var(--muted); margin-left: 1px; }
+/* tela de andamento */
+.invite.prog { width: 460px; max-width: calc(100% - 48px); box-sizing: border-box; align-items: stretch; text-align: left; gap: 12px; padding: 20px 22px; }
+.p-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.p-title { display: flex; flex-direction: column; gap: 2px; }
+.p-title h3 { font-size: 15px; }
+.p-row { display: flex; gap: 14px; }
+.p-stage { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--faint); }
+.p-stage i { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-style: normal; font-size: 10px; font-weight: 700; background: var(--panel-2); color: var(--muted); }
+.p-stage.on { color: var(--text); }
+.p-stage.on i { background: var(--accent); color: var(--on-accent); }
+.p-status { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; margin: 0; }
+.p-status > .faint { flex: none; }
+.p-status.wrap { display: block; line-height: 1.45; }
+.p-dir { flex: 1; min-width: 0; font-size: 11.5px; color: var(--muted); }
+.p-found { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.p-found ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.p-found li { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-found li::before { content: '✓ '; color: var(--add); }
+.p-stop { align-self: flex-end; }
 .error-line { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--del); background: var(--del-bg); border-bottom: 1px solid var(--border); }
 .error-line span { flex: 1; }
 .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg); }
@@ -690,6 +759,11 @@ canvas:active { cursor: grabbing; }
 .invite p b { color: var(--text); font-weight: 600; }
 .invite button { gap: 6px; }
 .invite small { font-size: 11.5px; }
+.invite code { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 5px; background: var(--panel-2); color: var(--text); }
+/* o exemplo: uma área e as funcionalidades dela */
+.example { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--text); }
+.ex-area { padding: 2px 9px; border-radius: 999px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+.ex-arrow, .ex-dot { color: var(--faint); }
 .legend { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 1px; max-height: calc(100% - 24px); overflow: auto; padding: 6px; border-radius: 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--border); backdrop-filter: blur(6px); max-width: 240px; }
 .lg { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer; }
 .lg:hover { background: var(--hover); }

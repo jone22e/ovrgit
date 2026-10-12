@@ -1,0 +1,784 @@
+{
+  "version": 1,
+  "generatedBy": "Ovseer",
+  "areas": [
+    {
+      "id": "agentes",
+      "name": "Agentes de IA",
+      "description": "Conversas, acompanhamento, contas e recursos dos agentes de inteligência artificial"
+    },
+    {
+      "id": "arquiteto",
+      "name": "Modo Arquiteto",
+      "description": "Descoberta, planejamento e criação assistida de interfaces e soluções"
+    },
+    {
+      "id": "mapa",
+      "name": "Mapa do projeto",
+      "description": "Análise visual das áreas, funcionalidades, arquivos e relações do projeto"
+    },
+    {
+      "id": "projetos",
+      "name": "Projetos",
+      "description": "Abertura, clonagem, navegação e acompanhamento de projetos Git"
+    },
+    {
+      "id": "controle-versao",
+      "name": "Controle de versão",
+      "description": "Revisão, organização, salvamento e recuperação de alterações Git"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Publicação de repositórios e gerenciamento de pull requests"
+    },
+    {
+      "id": "editor",
+      "name": "Editor",
+      "description": "Navegação, criação, edição e visualização de arquivos do projeto"
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "description": "Terminais locais ou remotos e gerenciamento de conexões SSH"
+    },
+    {
+      "id": "servicos",
+      "name": "Serviços",
+      "description": "Execução, observação e compartilhamento de serviços locais do projeto"
+    },
+    {
+      "id": "aws",
+      "name": "AWS",
+      "description": "Configuração de ferramentas, perfis SSO e sessões da AWS"
+    },
+    {
+      "id": "tarefas",
+      "name": "Tarefas",
+      "description": "Integração de tarefas, entregas e evidências com o Ovseer"
+    },
+    {
+      "id": "configuracoes",
+      "name": "Configurações",
+      "description": "Preferências de aparência, agentes, modelos, terminal e projetos"
+    },
+    {
+      "id": "audio",
+      "name": "Áudio e voz",
+      "description": "Gravação, transcrição local e ditado de mensagens"
+    },
+    {
+      "id": "sistema",
+      "name": "Aplicativo",
+      "description": "Atualização e manutenção do aplicativo"
+    }
+  ],
+  "features": [
+    {
+      "id": "c0-0",
+      "name": "Conversar e acompanhar agentes de IA",
+      "area": "agentes",
+      "description": "Abre agentes Codex ou Claude, acompanha execuções e retoma conversas anteriores.",
+      "kind": "screen",
+      "files": [
+        "electron.vite.config.ts",
+        "src/main/agentChat.ts",
+        "src/main/agentHistory.ts",
+        "src/main/agentWatch.ts",
+        "src/main/auth.ts",
+        "src/main/index.ts",
+        "src/renderer/agent.html",
+        "src/renderer/src/agent.ts",
+        "src/renderer/src/agentPrefs.ts",
+        "src/renderer/src/AgentWindow.vue",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/components/MiniComposer.vue",
+        "src/renderer/src/components/ModelPicker.vue",
+        "src/renderer/src/components/NewAgentDialog.vue",
+        "src/renderer/src/components/RepoMenu.vue",
+        "src/renderer/src/components/PaneSwitch.vue",
+        "src/renderer/src/components/AgentCard.vue",
+        "src/renderer/src/components/AgentsView.vue",
+        "src/renderer/src/components/AgentWindowMenu.vue",
+        "src/renderer/src/components/AskCard.vue",
+        "src/shared/activity.ts",
+        "src/shared/agentChecks.ts",
+        "src/shared/summary.ts"
+      ]
+    },
+    {
+      "id": "c0-1",
+      "name": "Acessar agentes pelo mascote",
+      "area": "agentes",
+      "description": "Exibe agentes no topo da tela e inicia conversas com arquivos colados.",
+      "kind": "screen",
+      "files": [
+        "electron.vite.config.ts",
+        "src/main/buddy.ts",
+        "src/renderer/buddy.html",
+        "src/renderer/src/buddy.ts",
+        "src/renderer/src/Buddy.vue"
+      ]
+    },
+    {
+      "id": "c3-0",
+      "name": "Conectar contas de agentes de IA",
+      "area": "agentes",
+      "description": "Autentica, verifica e desconecta contas do Claude Code, Codex e Antigravity.",
+      "kind": "integration",
+      "files": [
+        "src/renderer/src/components/AccountPanel.vue"
+      ]
+    },
+    {
+      "id": "c3-2",
+      "name": "Gerenciar conversas anteriores dos agentes",
+      "area": "agentes",
+      "description": "Busca, fixa, reabre ou esquece conversas anteriores em um ou vários projetos.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/AgentHistoryMenu.vue"
+      ]
+    },
+    {
+      "id": "c7-3",
+      "name": "Abrir arquivos gerados pelos agentes",
+      "area": "agentes",
+      "description": "Identifica relatórios, planilhas e imagens gerados e oferece acesso rápido.",
+      "kind": "action",
+      "files": [
+        "src/shared/artifacts.ts"
+      ]
+    },
+    {
+      "id": "c7-4",
+      "name": "Retomar tarefas após falhas temporárias",
+      "area": "agentes",
+      "description": "Tenta continuar automaticamente tarefas interrompidas por erros passageiros.",
+      "kind": "job",
+      "files": [
+        "src/shared/autoRetry.ts"
+      ]
+    },
+    {
+      "id": "c5-7",
+      "name": "Acompanhar consumo e ferramentas das IAs",
+      "area": "agentes",
+      "description": "Exibe limites de uso das assinaturas e permite instalar ou atualizar seus CLIs.",
+      "kind": "report",
+      "files": [
+        "src/renderer/src/components/UsageChip.vue",
+        "src/main/usage.ts"
+      ]
+    },
+    {
+      "id": "c5-8",
+      "name": "Organizar janelas de agentes em grade",
+      "area": "agentes",
+      "description": "Posiciona uma ou várias janelas de agentes em regiões da tela.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/WindowGrid.vue"
+      ]
+    },
+    {
+      "id": "c1-0",
+      "name": "Planejar e executar com o Modo Arquiteto",
+      "area": "arquiteto",
+      "description": "Identifica estrutura, tecnologias, módulos, telas e identidade visual do projeto.",
+      "kind": "action",
+      "files": [
+        "src/main/projectMap.ts",
+        "src/renderer/src/design.ts",
+        "src/renderer/src/DesignWindow.vue",
+        "src/shared/architect.ts",
+        "src/shared/checklist.ts"
+      ]
+    },
+    {
+      "id": "c0-6",
+      "name": "Gerar e explorar o mapa funcional do projeto",
+      "area": "mapa",
+      "description": "Analisa o código com IA e organiza funcionalidades, áreas e relações do sistema.",
+      "kind": "report",
+      "files": [
+        "electron.vite.config.ts",
+        "src/main/codeMap.ts",
+        "src/renderer/src/components/MapView.vue",
+        "src/renderer/src/components/PaneSwitch.vue",
+        "src/shared/codeGraph.ts"
+      ]
+    },
+    {
+      "id": "c2-0",
+      "name": "Abrir e acompanhar projetos Git",
+      "area": "projetos",
+      "description": "Abre projetos, consulta alterações, diffs, histórico e arquivos do repositório",
+      "kind": "screen",
+      "files": [
+        "src/preload/index.ts",
+        "src/renderer/index.html",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/store.ts",
+        "src/renderer/src/components/TopBar.vue"
+      ]
+    },
+    {
+      "id": "c0-5",
+      "name": "Clonar e publicar projetos no GitHub",
+      "area": "github",
+      "description": "Lista repositórios, clona projetos e publica novos repositórios públicos ou privados.",
+      "kind": "integration",
+      "files": [
+        "src/main/clone.ts",
+        "src/main/github.ts",
+        "src/main/git.ts",
+        "src/main/index.ts",
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/components/CloneDialog.vue",
+        "src/renderer/src/components/Welcome.vue"
+      ]
+    },
+    {
+      "id": "c4-8",
+      "name": "Sincronizar e publicar repositórios",
+      "area": "controle-versao",
+      "description": "Publica projetos no GitHub ou remoto e baixa mudanças preservando alterações locais.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/PublishDialog.vue",
+        "src/renderer/src/components/PullDialog.vue",
+        "src/renderer/src/components/ResultDialog.vue"
+      ]
+    },
+    {
+      "id": "c0-2",
+      "name": "Planejar commits com IA",
+      "area": "controle-versao",
+      "description": "Agrupa mudanças, resume o trabalho e sugere mensagens para salvar versões.",
+      "kind": "action",
+      "files": [
+        "src/main/ai.ts",
+        "src/main/analysisStore.ts",
+        "src/main/git.ts",
+        "src/renderer/src/components/PlanDialog.vue",
+        "src/renderer/src/components/ReviewDialog.vue",
+        "src/renderer/src/components/ResultDialog.vue",
+        "src/renderer/src/store.ts"
+      ]
+    },
+    {
+      "id": "c0-3",
+      "name": "Revisar código e alterações com IA",
+      "area": "controle-versao",
+      "description": "Detecta segredos e depuração, explica versões e propõe resolução de conflitos.",
+      "kind": "action",
+      "files": [
+        "src/main/assist.ts",
+        "src/main/git.ts",
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue"
+      ]
+    },
+    {
+      "id": "c3-8",
+      "name": "Visualizar e selecionar alterações de arquivos",
+      "area": "controle-versao",
+      "description": "Filtra, compara, seleciona trechos, resolve conflitos e descarta mudanças antes do commit.",
+      "kind": "screen",
+      "files": [
+        "src/renderer/src/components/DiffView.vue",
+        "src/renderer/src/components/FileList.vue",
+        "src/renderer/src/store.ts"
+      ]
+    },
+    {
+      "id": "c4-3",
+      "name": "Resolver conflitos do Git",
+      "area": "controle-versao",
+      "description": "Resolve conflitos manualmente ou com IA e continua ou aborta operações Git.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/MergeBanner.vue",
+        "src/renderer/src/components/ResolveDialog.vue"
+      ]
+    },
+    {
+      "id": "c3-7",
+      "name": "Salvar e enviar alterações",
+      "area": "controle-versao",
+      "description": "Gera mensagens, revisa com IA, cria commits, recebe atualizações e publica alterações.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/CommitBar.vue"
+      ]
+    },
+    {
+      "id": "c2-3",
+      "name": "Desfazer, recuperar e ajustar alterações",
+      "area": "controle-versao",
+      "description": "Descarta alterações, restaura versões salvas e ajusta o último commit",
+      "kind": "action",
+      "files": [
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue",
+        "src/main/safety.ts"
+      ]
+    },
+    {
+      "id": "c2-4",
+      "name": "Gerenciar branches e versões",
+      "area": "controle-versao",
+      "description": "Cria, troca, limpa e exclui branches do projeto",
+      "kind": "action",
+      "files": [
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/components/BranchSwitcher.vue",
+        "src/renderer/src/components/CleanupDialog.vue",
+        "src/renderer/src/components/FeatureDialog.vue",
+        "src/main/branches.ts",
+        "src/main/git.ts",
+        "src/main/partial.ts"
+      ]
+    },
+    {
+      "id": "c1-1",
+      "name": "Criar, acompanhar e integrar pull requests",
+      "area": "github",
+      "description": "Cria, acompanha e integra pull requests pelo GitHub CLI.",
+      "kind": "integration",
+      "files": [
+        "src/main/pullRequest.ts",
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/components/PrDialog.vue",
+        "src/renderer/src/components/PrStatus.vue",
+        "src/renderer/src/components/ResultDialog.vue"
+      ]
+    },
+    {
+      "id": "c3-9",
+      "name": "Consultar histórico e preparar entregas",
+      "area": "controle-versao",
+      "description": "Restaura mudanças, desfaz versões, resume o dia e registra evidências da entrega.",
+      "kind": "screen",
+      "files": [
+        "src/renderer/src/components/HistoryView.vue",
+        "src/renderer/src/components/DaySummaryCard.vue",
+        "src/renderer/src/components/DeliveryDialog.vue",
+        "src/shared/parse.ts",
+        "src/shared/gitErrors.ts",
+        "src/shared/types.ts"
+      ]
+    },
+    {
+      "id": "c1-5",
+      "name": "Navegar e editar arquivos do projeto",
+      "area": "editor",
+      "description": "Lista, cria, abre e salva arquivos de código, imagens e ambientes.",
+      "kind": "action",
+      "files": [
+        "src/main/sourceFiles.ts",
+        "src/preload/index.ts",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/store.ts",
+        "src/renderer/src/components/SourceEditor.vue",
+        "src/renderer/src/components/SourceTree.vue",
+        "src/renderer/src/components/NewFileMenu.vue",
+        "src/renderer/src/components/PaneSwitch.vue",
+        "src/renderer/src/components/ProjectSwitcher.vue",
+        "src/renderer/src/components/QuickOpen.vue"
+      ]
+    },
+    {
+      "id": "c1-6",
+      "name": "Usar terminais locais ou remotos",
+      "area": "terminal",
+      "description": "Abre terminais locais ou remotos e importa conexões SSH existentes.",
+      "kind": "screen",
+      "files": [
+        "src/main/terminal.ts",
+        "src/main/sshImport.ts",
+        "src/renderer/src/components/TerminalPanel.vue",
+        "src/renderer/src/terminal.ts",
+        "src/renderer/src/TerminalWindow.vue"
+      ]
+    },
+    {
+      "id": "c5-3",
+      "name": "Gerenciar conexões SSH",
+      "area": "terminal",
+      "description": "Cria, edita, remove, importa e abre conexões SSH salvas.",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/components/SshDialog.vue",
+        "src/renderer/src/components/SshImportDialog.vue",
+        "src/renderer/src/components/TerminalPanel.vue"
+      ]
+    },
+    {
+      "id": "c1-3",
+      "name": "Monitorar e controlar serviços",
+      "area": "servicos",
+      "description": "Inicia, interrompe, acompanha e compartilha comandos de serviços do projeto.",
+      "kind": "action",
+      "files": [
+        "src/main/services.ts",
+        "src/main/servicesShare.ts",
+        "src/renderer/src/service.ts",
+        "src/renderer/src/ServiceWindow.vue",
+        "src/renderer/terminal.html",
+        "src/shared/logs.ts"
+      ]
+    },
+    {
+      "id": "c4-0",
+      "name": "Acompanhar e pesquisar logs",
+      "area": "servicos",
+      "description": "Exibe, busca, filtra e copia registros, níveis, campos e reinicializações.",
+      "kind": "screen",
+      "files": [
+        "src/renderer/src/components/LogView.vue"
+      ]
+    },
+    {
+      "id": "c4-9",
+      "name": "Configurar e transportar serviços locais",
+      "area": "servicos",
+      "description": "Configura, importa, exporta, inicia e para serviços, portas, terminais e sessão AWS.",
+      "kind": "integration",
+      "files": [
+        "src/renderer/src/components/ServicesDialog.vue",
+        "src/renderer/src/components/ServicesMenu.vue",
+        "src/shared/servicesShare.ts"
+      ]
+    },
+    {
+      "id": "c0-7",
+      "name": "Configurar e gerenciar acesso à AWS",
+      "area": "aws",
+      "description": "Instala ferramentas, autentica via SSO e avisa sobre expiração da sessão.",
+      "kind": "integration",
+      "files": [
+        "src/main/aws.ts",
+        "src/renderer/src/components/AwsPanel.vue"
+      ]
+    },
+    {
+      "id": "c0-8",
+      "name": "Gerenciar tarefas e entregas do Ovseer",
+      "area": "tarefas",
+      "description": "Consulta tarefas, envia anexos, comentários e entregas, vinculando commits ao trabalho.",
+      "kind": "integration",
+      "files": [
+        "src/main/ovseer.ts",
+        "src/main/index.ts",
+        "src/renderer/src/components/NewTaskDialog.vue",
+        "src/renderer/src/components/OvseerPanel.vue",
+        "src/renderer/src/components/TaskDetailDialog.vue",
+        "src/renderer/src/components/TaskPicker.vue",
+        "src/renderer/src/components/TasksPanel.vue",
+        "src/renderer/src/components/TopBar.vue"
+      ]
+    },
+    {
+      "id": "c1-4",
+      "name": "Configurar aplicativo, agentes e aparência",
+      "area": "configuracoes",
+      "description": "Salva tema, agentes, modelos, terminal, conexões e projetos recentes.",
+      "kind": "config",
+      "files": [
+        "src/main/settings.ts",
+        "src/renderer/src/components/SettingsDialog.vue",
+        "src/shared/models.ts",
+        "src/shared/themes.ts",
+        "src/shared/grid.ts",
+        "src/renderer/src/theme.ts"
+      ]
+    },
+    {
+      "id": "c0-9",
+      "name": "Transcrever arquivos de áudio localmente",
+      "area": "audio",
+      "description": "Transforma arquivos de áudio em texto no Mac sem enviar o conteúdo.",
+      "kind": "action",
+      "files": [
+        "native/macos/Transcribe/Package.swift",
+        "native/macos/Transcribe/Sources/ovseer-transcribe/main.swift",
+        "src/main/transcribe.ts"
+      ]
+    },
+    {
+      "id": "c6-1",
+      "name": "Gravar e ditar mensagens para agentes",
+      "area": "audio",
+      "description": "Grava o microfone e insere localmente o texto transcrito no compositor",
+      "kind": "action",
+      "files": [
+        "src/renderer/src/dictation.ts",
+        "src/renderer/src/components/AudioRecorder.vue",
+        "src/shared/questions.ts",
+        "src/shared/transcribe.ts"
+      ]
+    },
+    {
+      "id": "c1-8",
+      "name": "Atualizar o aplicativo",
+      "area": "sistema",
+      "description": "Verifica, baixa e instala automaticamente novas versões publicadas.",
+      "kind": "job",
+      "files": [
+        "src/main/updater.ts",
+        "src/renderer/src/App.vue",
+        "src/renderer/src/components/SettingsDialog.vue"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from": "c0-1",
+      "to": "c0-0",
+      "why": "inicia e acompanha conversas"
+    },
+    {
+      "from": "c0-0",
+      "to": "c3-0",
+      "why": "usa contas autenticadas"
+    },
+    {
+      "from": "c0-0",
+      "to": "c3-2",
+      "why": "retoma conversas anteriores"
+    },
+    {
+      "from": "c0-0",
+      "to": "c7-3",
+      "why": "expõe arquivos produzidos"
+    },
+    {
+      "from": "c7-4",
+      "to": "c0-0",
+      "why": "continua tarefas interrompidas"
+    },
+    {
+      "from": "c5-7",
+      "to": "c3-0",
+      "why": "consulta provedores conectados"
+    },
+    {
+      "from": "c5-8",
+      "to": "c0-0",
+      "why": "organiza janelas dos agentes"
+    },
+    {
+      "from": "c6-1",
+      "to": "c0-0",
+      "why": "insere mensagens ditadas"
+    },
+    {
+      "from": "c1-0",
+      "to": "c0-0",
+      "why": "executa o plano por agentes"
+    },
+    {
+      "from": "c1-0",
+      "to": "c1-5",
+      "why": "analisa e altera arquivos"
+    },
+    {
+      "from": "c1-0",
+      "to": "c2-0",
+      "why": "atua sobre o projeto aberto"
+    },
+    {
+      "from": "c0-6",
+      "to": "c0-0",
+      "why": "usa IA para analisar o código"
+    },
+    {
+      "from": "c0-6",
+      "to": "c1-5",
+      "why": "relaciona funcionalidades a arquivos"
+    },
+    {
+      "from": "c0-6",
+      "to": "c2-0",
+      "why": "mapeia o projeto selecionado"
+    },
+    {
+      "from": "c0-5",
+      "to": "c2-0",
+      "why": "abre o repositório clonado"
+    },
+    {
+      "from": "c2-0",
+      "to": "c1-5",
+      "why": "fornece os arquivos do projeto"
+    },
+    {
+      "from": "c2-0",
+      "to": "c3-8",
+      "why": "exibe alterações do repositório"
+    },
+    {
+      "from": "c2-0",
+      "to": "c3-9",
+      "why": "fornece histórico do repositório"
+    },
+    {
+      "from": "c3-8",
+      "to": "c0-2",
+      "why": "fornece alterações para agrupar"
+    },
+    {
+      "from": "c3-8",
+      "to": "c0-3",
+      "why": "fornece o diff para revisão"
+    },
+    {
+      "from": "c3-8",
+      "to": "c2-3",
+      "why": "permite descartar trechos"
+    },
+    {
+      "from": "c3-8",
+      "to": "c4-3",
+      "why": "identifica arquivos conflitantes"
+    },
+    {
+      "from": "c0-2",
+      "to": "c3-7",
+      "why": "define grupos e mensagens de commit"
+    },
+    {
+      "from": "c0-2",
+      "to": "c2-4",
+      "why": "sugere o nome da branch"
+    },
+    {
+      "from": "c0-3",
+      "to": "c3-7",
+      "why": "valida alterações antes do commit"
+    },
+    {
+      "from": "c0-3",
+      "to": "c4-3",
+      "why": "propõe resolução de conflitos"
+    },
+    {
+      "from": "c4-3",
+      "to": "c3-7",
+      "why": "libera a operação Git interrompida"
+    },
+    {
+      "from": "c2-4",
+      "to": "c3-7",
+      "why": "define a branch do commit"
+    },
+    {
+      "from": "c3-7",
+      "to": "c4-8",
+      "why": "publica os commits criados"
+    },
+    {
+      "from": "c3-7",
+      "to": "c3-9",
+      "why": "registra versões no histórico"
+    },
+    {
+      "from": "c2-3",
+      "to": "c3-9",
+      "why": "usa versões anteriores para recuperação"
+    },
+    {
+      "from": "c4-8",
+      "to": "c4-3",
+      "why": "pode detectar conflitos ao sincronizar"
+    },
+    {
+      "from": "c4-8",
+      "to": "c1-1",
+      "why": "publica a branch usada pelo pull request"
+    },
+    {
+      "from": "c3-7",
+      "to": "c1-1",
+      "why": "fornece commits para o pull request"
+    },
+    {
+      "from": "c1-1",
+      "to": "c2-4",
+      "why": "integra e limpa branches"
+    },
+    {
+      "from": "c3-9",
+      "to": "c0-8",
+      "why": "anexa commits e evidências à entrega"
+    },
+    {
+      "from": "c0-8",
+      "to": "c3-7",
+      "why": "vincula commits ao trabalho"
+    },
+    {
+      "from": "c1-6",
+      "to": "c5-3",
+      "why": "abre sessões SSH salvas"
+    },
+    {
+      "from": "c1-3",
+      "to": "c1-6",
+      "why": "executa comandos em terminais"
+    },
+    {
+      "from": "c1-3",
+      "to": "c4-0",
+      "why": "produz registros dos serviços"
+    },
+    {
+      "from": "c4-9",
+      "to": "c1-3",
+      "why": "fornece configurações de execução"
+    },
+    {
+      "from": "c4-9",
+      "to": "c2-0",
+      "why": "resolve os projetos dos serviços"
+    },
+    {
+      "from": "c4-9",
+      "to": "c0-7",
+      "why": "usa a sessão AWS configurada"
+    },
+    {
+      "from": "c0-7",
+      "to": "c1-6",
+      "why": "executa ferramentas e autenticação"
+    },
+    {
+      "from": "c1-4",
+      "to": "c0-0",
+      "why": "define provedores e modelos"
+    },
+    {
+      "from": "c1-4",
+      "to": "c1-6",
+      "why": "define preferências do terminal"
+    },
+    {
+      "from": "c1-4",
+      "to": "c5-8",
+      "why": "define a organização das janelas"
+    },
+    {
+      "from": "c0-9",
+      "to": "c0-0",
+      "why": "fornece texto transcrito ao agente"
+    }
+  ],
+  "provider": "codex",
+  "model": "",
+  "at": 1791825853773
+}
