@@ -6,6 +6,8 @@ import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell,
 import { api, ask, openNewAgent, saveSettings, setPane, state, toast } from '../store'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
+import { ago as agoSince } from '../ago'
+import AgentCard from './AgentCard.vue'
 import AskCard from './AskCard.vue'
 import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
@@ -71,14 +73,7 @@ const now = ref(Date.now())
 let tick: ReturnType<typeof setInterval>
 onMounted(() => (tick = setInterval(() => (now.value = Date.now()), 5_000)))
 onUnmounted(() => clearInterval(tick))
-function ago(ms: number) {
-  const s = Math.max(0, Math.round((now.value - ms) / 1000))
-  if (s < 60) return `${s} s`
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  return h < 24 ? `${h} h` : `${Math.floor(h / 24)} d`
-}
+const ago = (ms: number) => agoSince(now.value, ms)
 
 /** Rodando sem nenhum sinal do agente há este tempo: fica âmbar e ganha o "Cutucar" */
 const STALL_MS = 6 * 60_000
@@ -149,12 +144,6 @@ function onCardClick(e: MouseEvent) {
   selUid.value = null
 }
 function clickDone(a: AgentSnapshot) {
-  // no modo orquestrador a conversa inteira está ao lado: o cartão não precisa abrir
-  if (orch.value) {
-    select(a)
-    show(a)
-    return
-  }
   if (selUid.value === a.uid) selUid.value = null
   else select(a)
 }
@@ -347,11 +336,13 @@ onUnmounted(() => {
   cancelAnimationFrame(areaRaf)
   api.orchestratorArea(null)
 })
-/** Clique no cartão (fora de botões, campos e texto selecionável): a conversa vai para a área */
-function onPick(e: MouseEvent, a: AgentSnapshot) {
-  if (!orch.value) return
-  const t = e.target as HTMLElement
-  if (t.closest('button, input, textarea, a, select, .ask-in') || window.getSelection()?.toString()) return
+/** Número do atalho do cartão (⌘1–9), pela posição na lista */
+function numberOf(a: AgentSnapshot): number | null {
+  const i = order.value.indexOf(a)
+  return i >= 0 && i < 9 ? i + 1 : null
+}
+/** Clique no cartão: a conversa vai para a área ao lado */
+function pick(a: AgentSnapshot) {
   select(a)
   show(a)
 }
@@ -376,6 +367,10 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         <span v-if="running.length" class="count"><span class="dot live" />{{ running.length }} rodando</span>
         <span v-if="done.length" class="count"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</span>
         <span class="gap" />
+        <template v-if="orch">
+          <button v-if="withChanges.length" class="ghost link accent" title="Abre a aba Alterações" @click="goToChanges">Enviar alterações →</button>
+          <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
+        </template>
         <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
           <span class="bars"><span v-for="a in order.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
@@ -416,11 +411,44 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       </div>
 
+      <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa) -->
+      <section v-if="orch && order.length" class="orch-list">
+        <div class="list">
+          <AgentCard
+            v-for="a in order"
+            :key="a.uid"
+            :a="a"
+            :n="numberOf(a)"
+            :now="now"
+            :selected="selUid === a.uid || !!a.docked"
+            :fresh="isNew(a)"
+            :stalled="stalled(a)"
+            :class="{ wide: !!a.ask }"
+            @pick="pick(a)"
+            @act="(action) => act(a, action)"
+          >
+            <AskCard
+              v-if="a.ask"
+              class="ask-in"
+              :ask="a.ask"
+              :agent="PROVIDER_LABEL[a.provider]"
+              :current="a.ask.kind === 'question' ? a.ask.current : null"
+              @decide="(choice) => act(a, { type: 'decide', choice })"
+              @plan="(mode) => act(a, { type: 'plan', mode })"
+              @adjust="(text) => act(a, { type: 'reply', text })"
+              @see-plan="planUid = a.uid"
+              @close="act(a, { type: 'dismiss' })"
+              @nav="(index) => act(a, { type: 'nav', index })"
+            />
+          </AgentCard>
+        </div>
+      </section>
+
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
-      <section v-if="needYou.length">
+      <section v-if="!orch && needYou.length">
         <h3 class="sec waiting">Precisa de você</h3>
         <div class="list">
-        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid || a.docked }]" @click="onPick($event, a)">
+        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
           <div class="row">
             <span class="dot" :class="a.status" />
             <span class="text">
@@ -457,10 +485,10 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="running.length">
+      <section v-if="!orch && running.length">
         <h3 class="sec live">Rodando</h3>
         <div class="list">
-        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid || a.docked, 'has-cl': a.checklist?.length }" @click="select(a), show(a)">
+        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
           <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
             <span class="line">
@@ -490,7 +518,7 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="done.length">
+      <section v-if="!orch && done.length">
         <h3 class="sec done">
           Concluídos
           <span class="sec-actions">
@@ -500,7 +528,7 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         </h3>
         <div class="list">
         <template v-for="a in done" :key="a.uid">
-          <article v-if="selUid === a.uid && !orch" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
+          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
             <div class="row">
               <span class="dot done" />
               <strong class="ellipsis grow">{{ a.title }}</strong>
@@ -524,7 +552,7 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
             </div>
             <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts, attachments) => act(a, { type: 'reply', text, ...opts, attachments })" />
           </article>
-          <div v-else :data-uid="a.uid" class="item" :class="{ sel: orch && (selUid === a.uid || a.docked) }" @click="clickDone(a)">
+          <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
             <span class="dot done" :class="{ seen: !isNew(a) }" />
             <span class="text">
               <span class="line">
@@ -546,10 +574,10 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="idle.length">
+      <section v-if="!orch && idle.length">
         <h3 class="sec">Sem conversa</h3>
         <div class="list">
-        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid || a.docked }" @click="select(a), show(a)">
+        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
           <span class="dot" />
           <span class="text">
             <strong class="ellipsis">{{ a.title }}</strong>
@@ -633,20 +661,15 @@ function onPick(e: MouseEvent, a: AgentSnapshot) {
 .dock-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: var(--faint); text-align: center; }
 .dock-empty p { margin: 0; font-size: 13px; color: var(--muted); max-width: 280px; }
 .dock-empty button { gap: 6px; }
-/* cartões: quantas colunas couberem na largura da lista */
-.orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
-.orch .list > .card { grid-column: 1 / -1; margin-bottom: 0; cursor: pointer; }
-.orch .item { flex-wrap: wrap; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
-.orch .item.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.orch .item > .dot { margin-top: 6px; }
-/* primeira linha: ponto e texto; o resto (hora, contadores, botões) desce para o rodapé do cartão */
-.orch .item > .text { flex: 1 1 calc(100% - 20px); min-width: 0; }
-.orch .item > .when { margin-right: auto; min-width: 0; text-align: left; }
-.orch .item > .pin { margin-left: auto; }
-.orch .item > .when ~ .pin { margin-left: 0; }
-.orch .item.has-cl > .cl-pill, .orch .item.has-cl > .ring, .orch .item.has-cl > .when, .orch .item.has-cl > .go, .orch .item.has-cl > .pin, .orch .item.has-cl > .nudge { margin-top: 0; }
-.orch .item.has-cl > .dot { margin-top: 6px; }
-.orch .item.has-cl > .win-menu { margin-top: 0; }
+/* cartões: quantas colunas couberem na largura da lista; os que esperam resposta ocupam a linha inteira */
+.orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; align-items: start; }
+.orch .list > .wide { grid-column: 1 / -1; }
+.orch-list { margin-top: 14px; }
+/* fixadas sem janela: cartão simples, no mesmo espírito */
+.orch .item.closed { flex-wrap: wrap; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
+.orch .item.closed > .dot { margin-top: 6px; }
+.orch .item.closed > .text { flex: 1 1 calc(100% - 20px); min-width: 0; }
+.orch .item.closed > .when { margin-right: auto; min-width: 0; text-align: left; }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }

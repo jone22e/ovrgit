@@ -611,7 +611,8 @@ export function agentSnapshots(): AgentSnapshot[] {
   // a situação da janela (oculta, segundo plano) é do processo principal: entra aqui, por cima do resumo da janela
   return [...wins.values()]
     .filter((w) => w.snap && !w.win.isDestroyed())
-    .map((w) => ({ ...w.snap!, hidden: !w.win.isVisible() && w.info.uid !== dockedUid, background: !!w.background, docked: w.info.uid === dockedUid }))
+    // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
+    .map((w) => ({ ...w.snap!, hidden: !orchestratorOn() && !w.win.isVisible(), background: !!w.background, docked: w.info.uid === dockedUid }))
 }
 
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
