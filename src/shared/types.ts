@@ -314,8 +314,11 @@ export interface Settings {
   /** Modo orquestrador: na aba Agentes, os agentes viram cartões e a conversa do selecionado aparece ao lado,
    * dentro da janela principal, em vez de cada um numa janela solta */
   orchestrator: boolean
-  /** Fila de tarefas: ao terminar uma tarefa, o agente em espera abre uma conversa nova e pega a próxima */
+  /** Fila de tarefas: agentes em espera que já terminaram uma tarefa continuam disponíveis (continuam a conversa
+   * quando a tarefa nova é do mesmo assunto; senão, começam uma nova) */
   queueReuse: boolean
+  /** Fila de tarefas: uma IA rápida decide qual conversa continuar quando a relação não é óbvia */
+  queueSmart: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
@@ -427,6 +430,10 @@ export interface QueueTask {
   agentTitle?: string
   startedAt?: number
   finishedAt?: number
+  /** Como o agente foi escolhido: continuou uma conversa relacionada, ou começou do zero */
+  via?: 'related' | 'fresh'
+  /** Explicação curta da escolha (ex.: o título da conversa continuada) */
+  reason?: string
 }
 
 export interface AgentWindowInfo extends AgentChatOpen {

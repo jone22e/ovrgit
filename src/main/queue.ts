@@ -2,20 +2,24 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { AgentStatus, QueueTask } from '../shared/types'
-import { assign, move as moveTask } from '../shared/queue'
+import { assign, clearlyRelated, move as moveTask, parsePick, pickPrompt, rankRelated, type AgentContext } from '../shared/queue'
 import * as agentChat from './agentChat'
 import { getSettings } from './settings'
+import { quickAsk } from './quickAi'
 
 /**
- * Fila de tarefas para os agentes em espera. Uma tarefa entra na fila; o próximo agente em espera livre (do mesmo
- * repositório, se a tarefa tiver um) a recebe como mensagem. Quando ele termina, a tarefa fica concluída com a
- * conversa guardada e, se a configuração manda reaproveitar, o agente abre uma conversa nova e volta à espera.
- * A fila sobrevive ao fechar do app (as que estavam rodando voltam para a fila).
+ * Fila de tarefas para os agentes em espera. Uma tarefa entra na fila e vai para um agente em espera livre, como
+ * mensagem. A escolha olha o contexto: um agente que já terminou uma tarefa do mesmo assunto continua a mesma
+ * conversa (aproveita o que já leu e decidiu); quando a relação não é óbvia, uma IA rápida decide; sem relação, a
+ * tarefa vai para um agente zerado (ou um terminado abre uma conversa nova). A fila sobrevive ao fechar do app
+ * (as que estavam rodando voltam para a fila).
  */
 
 let tasks: QueueTask[] = []
 /** Agentes que já receberam uma tarefa e ainda não avisaram que estão rodando */
 const busy = new Set<string>()
+/** Agentes mandados abrir uma conversa nova, esperando ficarem zerados */
+const resetting = new Set<string>()
 /** Entregue e sem sinal de vida: passado o prazo, a tarefa volta para a fila */
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
 const START_TIMEOUT = 30_000
@@ -52,8 +56,8 @@ export function add(task: { text: string; cwd?: string }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
   tasks.push({ id: crypto.randomUUID(), text, cwd: task.cwd || undefined, status: 'queued', createdAt: Date.now() })
-  dispatch()
   save()
+  void dispatch()
   return tasks
 }
 
@@ -77,9 +81,11 @@ export function retry(id: string): QueueTask[] {
     t.uid = undefined
     t.startedAt = undefined
     t.finishedAt = undefined
-    dispatch()
+    t.via = undefined
+    t.reason = undefined
+    save()
+    void dispatch()
   }
-  save()
   return tasks
 }
 
@@ -89,44 +95,131 @@ export function clearFinished(): QueueTask[] {
   return tasks
 }
 
-/** Entrega as tarefas da fila aos agentes em espera livres */
-function dispatch() {
-  const pairs = assign(tasks, agentChat.standbyAgents(), busy)
-  for (const { task, agent } of pairs) {
-    try {
-      agentChat.actOnAgent(agent.uid, { type: 'reply', text: task.text })
-    } catch (e) {
-      console.error('Fila: não consegui entregar a tarefa:', (e as Error).message)
-      continue
-    }
-    busy.add(agent.uid)
-    task.status = 'running'
-    task.uid = agent.uid
-    task.agentTitle = agent.title
-    task.startedAt = Date.now()
-    // o agente não começou (a tela perdeu a mensagem): a tarefa volta para a fila e outro a pega
-    clearTimeout(pending.get(agent.uid))
-    pending.set(
-      agent.uid,
-      setTimeout(() => {
-        pending.delete(agent.uid)
-        if (task.status !== 'running' || task.uid !== agent.uid || !busy.has(agent.uid)) return
-        console.warn(`Fila: agente ${agent.uid.slice(0, 8)} não começou a tarefa; ela volta para a fila`)
-        busy.delete(agent.uid)
-        task.status = 'queued'
-        task.uid = undefined
-        task.startedAt = undefined
-        dispatch()
-        save()
-      }, START_TIMEOUT)
-    )
+/** O que a conversa de um agente já tratou (para medir a afinidade com a tarefa nova) */
+function contextOf(a: agentChat.AvailableAgent): AgentContext {
+  const done = tasks.filter((t) => t.status === 'done' && t.uid === a.uid).map((t) => t.text)
+  const parts = [a.title, a.summary, a.lastUser ? `Último pedido: ${a.lastUser}` : '', done.length ? `Tarefas feitas: ${done.join(' | ')}` : '', a.paths.length ? `Arquivos: ${a.paths.slice(0, 12).join(' ')}` : '']
+  return { uid: a.uid, cwd: a.cwd, title: a.title, fresh: a.fresh, context: parts.filter(Boolean).join('. ') }
+}
+
+let dispatching = false
+let again = false
+
+/** Entrega as tarefas da fila aos agentes em espera, escolhendo pelo contexto */
+async function dispatch() {
+  if (dispatching) {
+    again = true
+    return
   }
-  if (pairs.length) save()
+  dispatching = true
+  try {
+    for (const task of [...tasks]) {
+      if (task.status !== 'queued') continue
+      const reuse = getSettings().queueReuse
+      const all = agentChat
+        .availableStandby()
+        .filter((a) => !busy.has(a.uid) && !resetting.has(a.uid) && (!task.cwd || a.cwd === task.cwd) && (reuse || a.fresh))
+      if (!all.length) continue
+      const contexts = all.map(contextOf)
+      // 1. uma conversa do mesmo assunto continua (clara pelas palavras; na dúvida, a IA decide)
+      let chosen: AgentContext | null = null
+      let reason = ''
+      const related = reuse ? rankRelated(task.text, contexts) : []
+      if (related.length && clearlyRelated(related[0])) {
+        chosen = related[0].agent
+        reason = `continua "${chosen.title}"`
+      } else if (related.length && getSettings().queueSmart) {
+        const candidates = related.slice(0, 5).map((r) => r.agent)
+        try {
+          const answer = await quickAsk(all[0].provider, pickPrompt(task.text, candidates))
+          const n = parsePick(answer, candidates.length)
+          // resposta inválida: fica com a relação mais forte só se for bem forte
+          if (n === null) {
+            if (related[0].shared >= 3) chosen = related[0].agent
+          } else if (n > 0) chosen = candidates[n - 1]
+          if (chosen) reason = `continua "${chosen.title}" (escolha da IA)`
+        } catch (e) {
+          console.error('Fila: a IA não escolheu o agente:', (e as Error).message)
+          if (related[0].shared >= 3) {
+            chosen = related[0].agent
+            reason = `continua "${chosen.title}"`
+          }
+        }
+        // a IA levou um tempo: a tarefa pode ter saído da fila, e o agente pode ter sido tomado
+        if (task.status !== 'queued') continue
+        if (chosen && (busy.has(chosen.uid) || !agentChat.availableStandby().some((a) => a.uid === chosen!.uid))) chosen = null
+      }
+      // 2. sem relação: um agente zerado; se só há terminados, um deles abre uma conversa nova e a tarefa espera
+      if (!chosen) {
+        const fresh = contexts.find((c) => c.fresh)
+        if (fresh) {
+          chosen = fresh
+          reason = ''
+        } else {
+          const spare = contexts.find((c) => !c.fresh)
+          if (spare) {
+            resetting.add(spare.uid)
+            try {
+              agentChat.actOnAgent(spare.uid, { type: 'newChat' })
+            } catch {
+              resetting.delete(spare.uid)
+            }
+          }
+          continue
+        }
+      }
+      start(task, chosen, chosen.fresh ? 'fresh' : 'related', reason)
+    }
+  } finally {
+    dispatching = false
+    if (again) {
+      again = false
+      void dispatch()
+    }
+  }
+}
+
+/** Entrega a tarefa ao agente escolhido */
+function start(task: QueueTask, agent: AgentContext, via: 'fresh' | 'related', reason: string) {
+  try {
+    agentChat.actOnAgent(agent.uid, { type: 'reply', text: task.text })
+  } catch (e) {
+    console.error('Fila: não consegui entregar a tarefa:', (e as Error).message)
+    return
+  }
+  busy.add(agent.uid)
+  task.status = 'running'
+  task.uid = agent.uid
+  task.agentTitle = agent.title
+  task.startedAt = Date.now()
+  task.via = via
+  task.reason = reason || undefined
+  console.log(`Fila: tarefa ${task.id.slice(0, 8)} → agente ${agent.uid.slice(0, 8)} (${via}${reason ? `: ${reason}` : ''})`)
+  // o agente não começou (a tela perdeu a mensagem): a tarefa volta para a fila e outro a pega
+  clearTimeout(pending.get(agent.uid))
+  pending.set(
+    agent.uid,
+    setTimeout(() => {
+      pending.delete(agent.uid)
+      if (task.status !== 'running' || task.uid !== agent.uid || !busy.has(agent.uid)) return
+      console.warn(`Fila: agente ${agent.uid.slice(0, 8)} não começou a tarefa; ela volta para a fila`)
+      busy.delete(agent.uid)
+      task.status = 'queued'
+      task.uid = undefined
+      task.startedAt = undefined
+      task.via = undefined
+      task.reason = undefined
+      save()
+      void dispatch()
+    }, START_TIMEOUT)
+  )
+  save()
 }
 
 function onStatus(uid: string, status: AgentStatus) {
   const task = tasks.find((t) => t.status === 'running' && t.uid === uid)
   console.log(`Fila: agente ${uid.slice(0, 8)} → ${status}${task ? ` (tarefa ${task.id.slice(0, 8)})` : ''}`)
+  if (status === 'idle') resetting.delete(uid)
   if (task) {
     if (status === 'live') {
       busy.delete(uid)
@@ -142,34 +235,29 @@ function onStatus(uid: string, status: AgentStatus) {
       task.sessionId = info?.sessionId ?? undefined
       task.agentTitle = info?.title || task.agentTitle
       save()
-      // terminou bem: o agente volta à espera numa conversa nova (a desta tarefa fica em Conversas) e pega a próxima
-      if (status === 'done' && getSettings().queueReuse) {
-        try {
-          agentChat.actOnAgent(uid, { type: 'newChat' })
-        } catch (e) {
-          console.error('Fila: conversa nova falhou:', (e as Error).message)
-        }
-      }
-      return
+      // o agente fica disponível com o contexto: a próxima tarefa do mesmo assunto continua esta conversa
     }
   }
-  if (status === 'idle') dispatch()
+  if (status === 'idle' || status === 'done') void dispatch()
 }
 
 /** O agente fechou no meio: a tarefa volta para a fila */
 function onGone(uid: string) {
   busy.delete(uid)
+  resetting.delete(uid)
   let changed = false
   for (const t of tasks) {
     if (t.status === 'running' && t.uid === uid) {
       t.status = 'queued'
       t.uid = undefined
       t.startedAt = undefined
+      t.via = undefined
+      t.reason = undefined
       changed = true
     }
   }
   if (changed) {
-    dispatch()
     save()
+    void dispatch()
   }
 }

@@ -50,6 +50,10 @@ const reuse = computed({
   get: () => state.settings?.queueReuse !== false,
   set: (v: boolean) => void saveSettings({ queueReuse: v })
 })
+const smart = computed({
+  get: () => state.settings?.queueSmart !== false,
+  set: (v: boolean) => void saveSettings({ queueSmart: v })
+})
 </script>
 
 <template>
@@ -57,8 +61,11 @@ const reuse = computed({
     <header class="q-head">
       <strong><Icon name="listTodo" :size="14" /> Fila de tarefas</strong>
       <span class="gap" />
-      <label class="reuse" title="Ao terminar uma tarefa, o agente abre uma conversa nova (a da tarefa fica em Conversas) e pega a próxima"><input v-model="reuse" type="checkbox" class="switch" /><span>Reaproveitar</span></label>
     </header>
+    <div class="opts">
+      <label class="reuse" title="Um agente que terminou uma tarefa continua disponível: continua a conversa quando a tarefa nova é do mesmo assunto; senão, começa uma nova"><input v-model="reuse" type="checkbox" class="switch" /><span>Reaproveitar pelo contexto</span></label>
+      <label class="reuse" :class="{ off: !reuse }" title="Quando a relação entre a tarefa e as conversas não é óbvia, uma IA rápida (Haiku ou o modelo mini) decide qual continuar"><input v-model="smart" type="checkbox" class="switch" :disabled="!reuse" /><span>IA decide na dúvida</span></label>
+    </div>
 
     <!-- os números da fila -->
     <div class="stats">
@@ -113,7 +120,8 @@ const reuse = computed({
           <span class="spinner tiny" />
           <div class="q-body">
             <p class="q-text">{{ t.text }}</p>
-            <small class="faint who"><Icon name="bot" :size="11" /> {{ agentOf(t)?.title ?? t.agentTitle ?? 'agente' }}<template v-if="t.startedAt"> · {{ ago(now, t.startedAt) }}</template></small>
+            <small class="faint who" :title="t.reason"><Icon name="bot" :size="11" /> {{ agentOf(t)?.title ?? t.agentTitle ?? 'agente' }}<template v-if="t.startedAt"> · {{ ago(now, t.startedAt) }}</template></small>
+            <small v-if="t.via === 'related'" class="via">↳ continua uma conversa do mesmo assunto</small>
           </div>
         </li>
       </ol>
@@ -126,7 +134,7 @@ const reuse = computed({
           <Icon :name="t.status === 'done' ? 'check' : 'x'" :size="12" class="st" />
           <div class="q-body">
             <p class="q-text">{{ t.text }}</p>
-            <small class="faint who">{{ t.agentTitle ?? '' }}<template v-if="t.finishedAt"> · há {{ ago(now, t.finishedAt) }}</template></small>
+            <small class="faint who" :title="t.reason">{{ t.agentTitle ?? '' }}<template v-if="t.finishedAt"> · há {{ ago(now, t.finishedAt) }}</template><template v-if="t.via === 'related'"> · continuou a conversa</template></small>
             <button v-if="t.status === 'failed'" class="ghost link retry" @click.stop="retry(t)">Tentar de novo</button>
           </div>
           <button class="ghost icon small rm q-x" title="Tirar da lista" @click.stop="remove(t)"><Icon name="x" :size="12" /></button>
@@ -141,7 +149,10 @@ const reuse = computed({
 .q-head { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
 .q-head strong { display: inline-flex; align-items: center; gap: 7px; }
 .gap { flex: 1; }
-.reuse { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.opts { display: flex; flex-direction: column; gap: 6px; margin-top: -4px; }
+.reuse { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.reuse.off { opacity: 0.5; }
+.via { font-size: 11px; color: var(--hunk); }
 .switch { appearance: none; width: 28px; height: 16px; margin: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); position: relative; cursor: pointer; flex: none; }
 .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform 0.12s, background 0.12s; }
 .switch:checked { background: var(--accent); border-color: var(--accent); }

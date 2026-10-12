@@ -980,11 +980,30 @@ const goneListeners = new Set<(uid: string) => void>()
 export const onAgentStatus = (fn: (uid: string, status: AgentStatus) => void) => void statusListeners.add(fn)
 export const onAgentGone = (fn: (uid: string) => void) => void goneListeners.add(fn)
 
-/** Agentes em espera sem conversa: os que podem pegar uma tarefa da fila */
-export function standbyAgents(): { uid: string; cwd: string; title: string }[] {
+/** Agente em espera disponível para a fila: zerado (sem conversa) ou com uma conversa terminada, que pode continuar */
+export interface AvailableAgent {
+  uid: string
+  cwd: string
+  provider: CliProvider
+  title: string
+  fresh: boolean
+  summary: string
+  lastUser: string
+  paths: string[]
+}
+export function availableStandby(): AvailableAgent[] {
   return [...wins.values()]
-    .filter((w) => w.info.standby && w.status === 'idle' && !w.win.isDestroyed())
-    .map((w) => ({ uid: w.info.uid, cwd: w.info.cwd, title: w.snap?.title ?? w.info.title ?? w.info.project }))
+    .filter((w) => w.info.standby && (w.status === 'idle' || w.status === 'done') && !w.win.isDestroyed())
+    .map((w) => ({
+      uid: w.info.uid,
+      cwd: w.info.cwd,
+      provider: w.info.provider,
+      title: w.snap?.title ?? w.info.title ?? w.info.project,
+      fresh: w.status === 'idle',
+      summary: w.snap?.summary ?? '',
+      lastUser: w.snap?.lastUser ?? '',
+      paths: w.snap?.paths ?? []
+    }))
 }
 
 function emit(w: AgentWin, ev: AgentChatEvent) {
