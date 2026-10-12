@@ -4,7 +4,7 @@ import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
   Analysis, ChangeGroup, CommitInfo, FileChange, OperationResult, OvseerNewTask, OvseerStatus, OvseerTask, RepoStatus,
-  AgentSession, AgentSnapshot, AgentStatus, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState
+  AgentSession, AgentSnapshot, AgentStatus, CheckFinding, PullRequestInfo, SavedChanges, Settings, SshConnection, TerminalSpec, UpdateState, QueueTask
 } from '@shared/types'
 
 const api = window.ovseer
@@ -38,6 +38,10 @@ export const state = reactive({
   tab: 'agents' as 'changes' | 'history' | 'agents' | 'map',
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
   agentPick: null as { n: number; at: number } | null,
+  /** Fila de tarefas dos agentes em espera, e se o painel dela está aberto; diálogo "Agente em espera" */
+  queue: [] as QueueTask[],
+  showQueue: false,
+  showStandby: false,
   message: '',
   messageEdited: false,
   busy: null as Busy,
@@ -1005,6 +1009,8 @@ function listenAgents() {
   api.onAgentSnapshots((s) => (state.agentSnaps = s))
   // configurações mudadas pelo processo principal (ex.: modo orquestrador pelo menu Exibir)
   api.onSettingsChanged((s) => (state.settings = s))
+  api.queueList().then((q) => (state.queue = q)).catch(() => undefined)
+  api.onQueueChange((q) => (state.queue = q))
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`

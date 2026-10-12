@@ -643,7 +643,9 @@ onUnmounted(() => {
 })
 watch(running, (r) => r && markSeen())
 // a lista de conversas da janela principal mostra esta situação
-watch(statusKind, (k) => api.agentReportStatus(uid, k), { immediate: true })
+/** A tela já carregou a conversa e está pronta para receber ações (a fila de tarefas só despacha depois disso) */
+const ready = ref(false)
+watch([statusKind, ready], ([k, r]) => r && api.agentReportStatus(uid, k), { immediate: true })
 
 function notifyDone(t: Turn) {
   unseen.value = true
@@ -1215,8 +1217,8 @@ async function hurry(t: Turn) {
 }
 
 /** Conversa nova nesta janela, com o mesmo agente: o processo reinicia a página sem sessão e sem transcrição local */
-async function newChat() {
-  if (running.value && !confirm('O agente ainda está trabalhando. Interromper e começar uma conversa nova?')) return
+async function newChat(force = false) {
+  if (!force && running.value && !confirm('O agente ainda está trabalhando. Interromper e começar uma conversa nova?')) return
   try {
     await api.agentNewChat(uid)
   } catch (e) {
@@ -1730,6 +1732,7 @@ function onAct(a: AgentAction) {
   else if (a.type === 'nav') qi.value = Math.max(0, Math.min(questions.value.length - 1, a.index))
   else if (a.type === 'retry') retryLast()
   else if (a.type === 'pin') togglePin()
+  else if (a.type === 'newChat') newChat(true)
   else if (a.type === 'nudge') {
     const cur = current()
     if (cur) hurry(cur)
@@ -1842,6 +1845,7 @@ onMounted(async () => {
       }
     }
   }
+  ready.value = true
   if ((i.firstMessage || firstFiles) && !turns.length) send(i.firstMessage ?? '')
 })
 onUnmounted(() => offs.forEach((f) => f()))
@@ -1897,7 +1901,7 @@ onUnmounted(() => offs.forEach((f) => f()))
       <button v-if="canGoBack" type="button" class="ghost icon head-btn back" title="Voltar à conversa anterior" @click="backToPrevious">
         <Icon name="undo" :size="14" />
       </button>
-      <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa com este agente (a atual fica no histórico)" @click="newChat">
+      <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa com este agente (a atual fica no histórico)" @click="newChat()">
         <Icon name="compose" :size="14" />
       </button>
       <span class="status" :class="[statusKind, { blink: unseen && statusKind !== 'live' }]" :title="statusTitle">
@@ -2327,8 +2331,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 /* presa à janela principal (modo orquestrador): sem os botões do sistema, o cabeçalho começa na borda */
 :root[data-platform='darwin'] .agent.docked .bar { padding-left: 14px; }
 .agent.docked .bar { -webkit-app-region: no-drag; }
-/* presa: sem o brilho colorido, para o cabeçalho ter exatamente a cor do fundo da área (o canto arredondado some) */
-.agent.docked .bar.mode-plan, .agent.docked .bar.mode-checklist, .agent.docked .bar.mode-architect, .agent.docked .bar.mode-full { background: var(--panel); }
+/* embutida no orquestrador: sem o cabeçalho (título, modelo, repositório e situação estão no cartão ao lado) */
+.agent.docked .bar { display: none; }
 :global(body.docked) { background: var(--panel); }
 :root[data-platform='win32'] .bar, :root[data-platform='linux'] .bar { padding-right: 146px; }
 .head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; -webkit-app-region: no-drag; line-height: 1.25; user-select: none; cursor: default; }

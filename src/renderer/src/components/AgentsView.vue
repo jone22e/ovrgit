@@ -8,6 +8,7 @@ import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { ago as agoSince } from '../ago'
 import AgentCard from './AgentCard.vue'
+import QueuePanel from './QueuePanel.vue'
 import AskCard from './AskCard.vue'
 import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
@@ -281,6 +282,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
  * a janela presa não ficar por cima do diálogo).
  */
 const orch = computed(() => !!state.settings?.orchestrator)
+/** Tarefas esperando na fila (selo no botão) */
+const queuedCount = computed(() => state.queue.filter((t) => t.status === 'queued' || t.status === 'running').length)
 async function toggleOrchestrator() {
   state.settings = await api.setOrchestrator(!orch.value)
 }
@@ -368,7 +371,11 @@ function pick(a: AgentSnapshot) {
   <div ref="root" class="agents" :class="{ orch }">
     <div class="toolbar">
       <!-- no orquestrador o botão de novo agente fica aqui, no começo da barra -->
-      <button v-if="orch" class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
+      <button v-if="orch" class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="plus" :size="14" /> Novo agente</button>
+      <button class="ghost tool" :disabled="!state.repo" title="Agente em espera: nasce pronto, sem conversa, e pega tarefas da fila" @click="state.showStandby = true"><Icon name="hourglass" :size="14" /><span class="lbl">Em espera</span></button>
+      <button class="ghost tool" :class="{ on: state.showQueue }" title="Fila de tarefas para os agentes em espera" @click="state.showQueue = !state.showQueue">
+        <Icon name="listTodo" :size="14" /><span class="lbl">Fila</span><span v-if="queuedCount" class="cnt">{{ queuedCount }}</span>
+      </button>
       <span class="gap" />
       <button class="ghost orch-btn" :class="{ on: orch }" :title="orch ? 'Sair do modo orquestrador: cada agente volta à sua janela' : 'Modo orquestrador: agentes em cartões e a conversa do escolhido ao lado, nesta janela'" @click="toggleOrchestrator">
         <Icon name="columns" :size="14" /><span class="lbl">Orquestrador</span>
@@ -422,6 +429,8 @@ function pick(a: AgentSnapshot) {
           </div>
         </span>
       </header>
+
+      <QueuePanel v-if="state.showQueue" @standby="state.showStandby = true" />
 
       <div v-if="!snaps.length" class="empty" :class="{ slim: closedPinned.length }">
         <p class="faint">Nenhum agente aberto.</p>
@@ -642,6 +651,9 @@ function pick(a: AgentSnapshot) {
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
 .new-agent { height: 28px; gap: 6px; font-size: 12.5px; }
+.tool { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
+.tool.on { color: var(--accent); background: var(--accent-soft); }
+.tool .cnt { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .orch-btn.on { color: var(--accent); background: var(--accent-soft); }
 /* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
 .dock { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); }

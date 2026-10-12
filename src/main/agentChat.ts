@@ -371,11 +371,12 @@ function loadHost(win: BrowserWindow, uid: string) {
  * Liga os eventos do hospedeiro à conversa `uid`. `onReady`: o que fazer quando a página estiver pronta
  * (mostrar a janela, embutir na área, ou nada). Um hospedeiro antigo (trocado) não mexe mais na conversa.
  */
-function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'dock' | 'none') {
+function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInactive' | 'dock' | 'none') {
   const current = () => wins.get(uid)?.win === win
   const embedded = isEmbedded(win)
   const ready = () => {
     if (!current() || onReady === 'none') return
+    if (onReady === 'showInactive') return void (!embedded && win.showInactive())
     if (onReady === 'dock' || (orchestratorOn() && !embedded)) {
       if (dockAgent(uid)) return
     }
@@ -423,6 +424,7 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'dock' | 'n
     closeDesignWindow(uid)
     wins.delete(uid)
     broadcastWindows()
+    for (const fn of goneListeners) fn(uid)
     // cópias de imagens coladas/arrastadas desta conversa
     rmSync(blobDir(uid), { recursive: true, force: true })
   })
@@ -594,7 +596,8 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   // escondida já nasce em segundo plano: fechar pelo X, depois de mostrada, só a esconde de novo
   wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded })
   lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
-  wireHost(uid, win, opts.hidden ? 'none' : embedded ? 'dock' : 'show')
+  // em espera (ou "quieto"): no orquestrador nasce embutido sem tomar a área; fora dele, aparece sem roubar o foco
+  wireHost(uid, win, opts.hidden ? 'none' : opts.quiet ? (embedded ? 'none' : 'showInactive') : embedded ? 'dock' : 'show')
   loadHost(win, uid)
   broadcastWindows()
   return info
@@ -768,7 +771,7 @@ export function agentSnapshots(): AgentSnapshot[] {
   return [...wins.values()]
     .filter((w) => w.snap && !w.win.isDestroyed())
     // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
-    .map((w) => ({ ...w.snap!, hidden: !orchestratorOn() && !w.win.isVisible(), background: !!w.background, docked: w.info.uid === dockedUid }))
+    .map((w) => ({ ...w.snap!, hidden: !orchestratorOn() && !w.win.isVisible(), background: !!w.background, docked: w.info.uid === dockedUid, standby: !!w.info.standby }))
 }
 
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
@@ -968,6 +971,20 @@ export function reportStatus(uid: string, status: AgentStatus) {
   // "sem conversa" é o estado da janela antes de carregar a transcrição: não apaga o que estava gravado
   if (w.info.sessionId && status !== 'idle') setHistoryStatus(w.info.sessionId, status)
   broadcastStatuses()
+  for (const fn of statusListeners) fn(uid, status)
+}
+
+// ---------- quem quer saber da situação dos agentes (a fila de tarefas) ----------
+const statusListeners = new Set<(uid: string, status: AgentStatus) => void>()
+const goneListeners = new Set<(uid: string) => void>()
+export const onAgentStatus = (fn: (uid: string, status: AgentStatus) => void) => void statusListeners.add(fn)
+export const onAgentGone = (fn: (uid: string) => void) => void goneListeners.add(fn)
+
+/** Agentes em espera sem conversa: os que podem pegar uma tarefa da fila */
+export function standbyAgents(): { uid: string; cwd: string; title: string }[] {
+  return [...wins.values()]
+    .filter((w) => w.info.standby && w.status === 'idle' && !w.win.isDestroyed())
+    .map((w) => ({ uid: w.info.uid, cwd: w.info.cwd, title: w.snap?.title ?? w.info.title ?? w.info.project }))
 }
 
 function emit(w: AgentWin, ev: AgentChatEvent) {

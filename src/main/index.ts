@@ -25,6 +25,7 @@ import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
 import * as codeMap from './codeMap'
+import * as taskQueue from './queue'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
 import { livePtys, shutdownPtys } from './ptyRegistry'
@@ -626,7 +627,10 @@ function registerIpc() {
       cwd,
       extraDirs: Array.isArray(opts?.extraDirs) ? opts.extraDirs.map(String).filter((d) => d !== cwd && existsSync(d)).slice(0, 12) : undefined,
       firstMessage: typeof opts?.firstMessage === 'string' ? opts.firstMessage.slice(0, 50000) : undefined,
-      resumeId: typeof opts?.resumeId === 'string' && /^[\w-]{8,80}$/.test(opts.resumeId) ? opts.resumeId : undefined
+      resumeId: typeof opts?.resumeId === 'string' && /^[\w-]{8,80}$/.test(opts.resumeId) ? opts.resumeId : undefined,
+      // agente em espera (fila de tarefas) e nascimento quieto (sem tomar a área nem o foco)
+      standby: opts?.standby === true,
+      quiet: opts?.quiet === true
     })
   })
   ipcMain.handle('agent:info', (_e, uid: string) => agentChat.agentInfo(String(uid)))
@@ -719,6 +723,13 @@ function registerIpc() {
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('orchestrator:set', (_e, on: boolean) => setOrchestrator(!!on))
   ipcMain.handle('agent:docked', (_e, uid: string) => agentChat.isDocked(String(uid)))
+  // fila de tarefas para os agentes em espera
+  ipcMain.handle('queue:list', () => taskQueue.list())
+  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string }) => taskQueue.add({ text: String(task?.text ?? ''), cwd: task?.cwd ? String(task.cwd) : undefined }))
+  ipcMain.handle('queue:remove', (_e, id: string) => taskQueue.remove(String(id)))
+  ipcMain.handle('queue:move', (_e, id: string, dir: number) => taskQueue.move(String(id), dir < 0 ? -1 : 1))
+  ipcMain.handle('queue:retry', (_e, id: string) => taskQueue.retry(String(id)))
+  ipcMain.handle('queue:clearFinished', () => taskQueue.clearFinished())
   // mapa do projeto (aba Mapa)
   ipcMain.handle('map:get', (_e, root: string) => codeMap.loadMap(String(root)))
   ipcMain.handle('map:scan', (_e, root: string) => codeMap.scanProject(String(root)))
@@ -882,6 +893,7 @@ app.whenReady().then(() => {
   registerIpc()
   buildMenu()
   agentChat.setupAgentWindows({ icon, background: initialBackground, main: () => win })
+  taskQueue.setupQueue((tasks) => toMain('queue:changed', tasks))
   buddy.registerBuddyIpc()
   buddy.setupBuddy({
     showMain: () => {

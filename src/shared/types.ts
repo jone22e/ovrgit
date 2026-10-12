@@ -314,6 +314,8 @@ export interface Settings {
   /** Modo orquestrador: na aba Agentes, os agentes viram cartões e a conversa do selecionado aparece ao lado,
    * dentro da janela principal, em vez de cada um numa janela solta */
   orchestrator: boolean
+  /** Fila de tarefas: ao terminar uma tarefa, o agente em espera abre uma conversa nova e pega a próxima */
+  queueReuse: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
@@ -404,6 +406,27 @@ export interface AgentChatOpen {
   hidden?: boolean
   /** Continuar uma conversa já existente (id da sessão do CLI) */
   resumeId?: string
+  /** Agente em espera: nasce pronto, sem conversa, e pega tarefas da fila */
+  standby?: boolean
+  /** Nasce sem chamar atenção: no orquestrador não toma a área da conversa; fora dele, aparece sem roubar o foco */
+  quiet?: boolean
+}
+
+/** Tarefa da fila: o próximo agente em espera disponível (do mesmo repositório, se a tarefa tiver um) a pega */
+export interface QueueTask {
+  id: string
+  text: string
+  /** Repositório onde deve rodar (ausente: qualquer agente em espera serve) */
+  cwd?: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  createdAt: number
+  /** Agente que a pegou */
+  uid?: string
+  /** Conversa em que rodou (para reabrir depois) */
+  sessionId?: string
+  agentTitle?: string
+  startedAt?: number
+  finishedAt?: number
 }
 
 export interface AgentWindowInfo extends AgentChatOpen {
@@ -643,6 +666,8 @@ export interface AgentSnapshot {
   background?: boolean
   /** Modo orquestrador: é a conversa mostrada na área ao lado dos cartões */
   docked?: boolean
+  /** Agente em espera (pega tarefas da fila quando está sem conversa) */
+  standby?: boolean
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean
@@ -663,6 +688,8 @@ export type AgentAction =
   | { type: 'nudge' }
   /** Fixa/solta a conversa no topo da lista (o mesmo alfinete do cabeçalho da janela) */
   | { type: 'pin' }
+  /** Conversa nova na mesma janela, sem perguntar (a fila de tarefas devolve o agente à espera) */
+  | { type: 'newChat' }
 
 export interface AgentHistoryItem {
   sessionId: string
@@ -1126,6 +1153,16 @@ export interface OvseerApi {
   onAgentDocked(cb: (uid: string, docked: boolean) => void): () => void
   /** A janela está presa à principal agora (para a tela saber ao carregar) */
   agentDocked(uid: string): Promise<boolean>
+  /** Fila de tarefas para os agentes em espera */
+  queueList(): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string }): Promise<QueueTask[]>
+  queueRemove(id: string): Promise<QueueTask[]>
+  /** Sobe ou desce uma tarefa na fila */
+  queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>
+  /** Uma tarefa que falhou volta para a fila */
+  queueRetry(id: string): Promise<QueueTask[]>
+  queueClearFinished(): Promise<QueueTask[]>
+  onQueueChange(cb: (tasks: QueueTask[]) => void): () => void
   /** Mapa do projeto (aba Mapa): o gravado, a varredura dos imports, o mapeamento com IA e o andamento dele */
   mapGet(root: string): Promise<ProjectMap | null>
   mapScan(root: string): Promise<ProjectMap>

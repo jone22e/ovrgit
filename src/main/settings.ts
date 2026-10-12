@@ -33,7 +33,8 @@ const DEFAULTS: Settings = {
   recentProjects: [],
   lastProject: null,
   buddy: false,
-  orchestrator: false
+  orchestrator: false,
+  queueReuse: true
 }
 
 const file = () => path.join(app.getPath('userData'), 'settings.json')

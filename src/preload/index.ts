@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
-  AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, MapEvent, OvseerApi, ServiceState, Settings, TerminalSpec, UpdateState
+  AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, MapEvent, OvseerApi, QueueTask, ServiceState, Settings, TerminalSpec, UpdateState
 } from '../shared/types'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 
@@ -343,6 +343,17 @@ const api: OvseerApi = {
   },
   orchestratorArea: (area) => ipcRenderer.send('orchestrator:area', area),
   agentDocked: (uid) => ipcRenderer.invoke('agent:docked', uid),
+  queueList: () => ipcRenderer.invoke('queue:list'),
+  queueAdd: (task) => ipcRenderer.invoke('queue:add', task),
+  queueRemove: (id) => ipcRenderer.invoke('queue:remove', id),
+  queueMove: (id, dir) => ipcRenderer.invoke('queue:move', id, dir),
+  queueRetry: (id) => ipcRenderer.invoke('queue:retry', id),
+  queueClearFinished: () => ipcRenderer.invoke('queue:clearFinished'),
+  onQueueChange: (cb) => {
+    const h = (_e: unknown, tasks: QueueTask[]) => cb(tasks)
+    ipcRenderer.on('queue:changed', h)
+    return () => ipcRenderer.off('queue:changed', h)
+  },
   onAgentDocked: (cb) => {
     const h = (_e: unknown, uid: string, docked: boolean) => cb(uid, docked)
     ipcRenderer.on('agent:docked', h)

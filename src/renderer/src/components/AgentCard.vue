@@ -41,8 +41,8 @@ const CIRC = 2 * Math.PI * RADIUS
 const dashOffset = computed(() => CIRC * (1 - (fraction.value ?? 0.28)))
 const percent = computed(() => (fraction.value === null ? null : Math.round(fraction.value * 100)))
 
-const tone = computed(() => (props.a.status === 'live' && props.stalled ? 'stalled' : props.a.status))
-const LABEL: Record<string, string> = { live: 'Rodando', stalled: 'Parado', waiting: 'Aguardando você', done: 'Concluído', error: 'Falhou', idle: 'Sem conversa' }
+const tone = computed(() => (props.a.status === 'live' && props.stalled ? 'stalled' : props.a.standby && props.a.status === 'idle' ? 'standby' : props.a.status))
+const LABEL: Record<string, string> = { live: 'Rodando', stalled: 'Parado', waiting: 'Aguardando você', done: 'Concluído', error: 'Falhou', idle: 'Sem conversa', standby: 'Em espera' }
 const statusLabel = computed(() => LABEL[tone.value])
 const since = computed(() => {
   const a = props.a
@@ -60,6 +60,7 @@ const detail = computed(() => {
   }
   if (a.status === 'waiting') return a.ask?.kind === 'plan' ? (a.ask.title ?? 'Plano pronto: aprovar a implementação?') : (a.ask?.text ?? a.note ?? 'Esperando a sua resposta')
   if (a.status === 'error') return a.lastUser ? `Interrompido durante "${a.lastUser}"` : (a.error ?? 'Falhou')
+  if (tone.value === 'standby') return 'Pronto para a próxima tarefa da fila'
   // concluído e sem conversa: nada a dizer aqui (a conversa está ao lado)
   return ''
 })
@@ -236,6 +237,9 @@ function onClick(e: MouseEvent) {
 .pill.waiting, .pill.stalled { color: var(--mod); background: color-mix(in srgb, var(--mod) 14%, transparent); }
 .pill.done { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .pill.error { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
+.pill.standby { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); }
+.acard.standby .num { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hunk) 35%, transparent); }
+.detail.standby { color: var(--muted); }
 .status small { font-size: 11.5px; white-space: nowrap; }
 .clock { font-size: 11.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .new { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
