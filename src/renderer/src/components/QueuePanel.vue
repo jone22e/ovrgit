@@ -148,7 +148,8 @@ const reuse = computed({
 .switch:checked::after { transform: translateX(12px); background: var(--on-accent); }
 /* os três números */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.stat { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--faint); text-align: left; }
+/* os três iguais, mesmo sendo o terceiro um botão (zera o estilo padrão de botão) */
+.stat { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; height: auto; min-height: 54px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--faint); text-align: left; font: inherit; line-height: 1.1; }
 .stat b { font-size: 18px; line-height: 1.1; color: var(--muted); font-variant-numeric: tabular-nums; }
 .stat small { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
 .stat.on b { color: var(--text); }
