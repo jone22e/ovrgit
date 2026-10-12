@@ -91,6 +91,22 @@ function dragReset() {
 }
 const attachError = ref<string | null>(null)
 const draft = ref('')
+/** Começos de conversa do estado inicial: o clique preenche o campo e deixa o cursor no fim, para completar */
+const STARTS: { label: string; text: string; icon: 'search' | 'alert' | 'sparkles' | 'listChecks' }[] = [
+  { label: 'Explicar o projeto', text: 'Explique como este projeto está organizado e por onde começar a entendê-lo.', icon: 'search' },
+  { label: 'Corrigir um bug', text: 'Corrija este bug: ', icon: 'alert' },
+  { label: 'Criar uma funcionalidade', text: 'Crie esta funcionalidade: ', icon: 'sparkles' },
+  { label: 'Revisar as alterações', text: 'Revise as alterações pendentes no projeto e aponte problemas antes de eu commitar.', icon: 'listChecks' }
+]
+function useStart(text: string) {
+  draft.value = text
+  nextTick(() => {
+    const el = box.value
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  })
+}
 const running = ref(false)
 const sessionId = ref<string | null>(null)
 const known = ref<KnownModels | null>(null)
@@ -1909,17 +1925,19 @@ onUnmounted(() => offs.forEach((f) => f()))
     <main ref="thread" class="thread" @scroll="onScroll">
       <p v-if="fatal" class="fatal">{{ fatal }}</p>
       <div v-else-if="!turns.length" class="empty">
-        <AgentLogo v-if="info" :source="provider" :size="36" />
+        <AgentLogo v-if="info" :source="provider" :size="28" class="empty-logo" />
         <h2 class="ask">
-          O que você quer fazer em
+          <span>O que vamos fazer em</span>
           <span class="ask-repo">
             <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
             <template v-else>este projeto</template>?
           </span>
         </h2>
-        <p v-if="canSwitchRepo" class="faint hint-repo">Clique no repositório para trocar ou juntar outros.</p>
-        <p v-else-if="!info?.extraDirs?.length" class="faint hint-repo">Clique no repositório para juntar outros à conversa.</p>
-        <p class="faint">Enter envia · Shift+Enter quebra a linha</p>
+        <!-- começos de conversa: um clique preenche o campo, e você completa -->
+        <div class="starts">
+          <button v-for="st in STARTS" :key="st.text" type="button" class="ghost start" @click="useStart(st.text)"><Icon :name="st.icon" :size="13" />{{ st.label }}</button>
+        </div>
+        <p class="faint keys">Enter envia · Shift+Enter quebra a linha</p>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
 
@@ -2383,12 +2401,18 @@ onUnmounted(() => offs.forEach((f) => f()))
 @keyframes dm-in { from { opacity: 0; } }
 .thread { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px 22px 12px; display: flex; flex-direction: column; gap: 22px; }
 .fatal { color: var(--del); }
-.empty { margin: auto; max-width: 420px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.empty h2 { margin: 6px 0 0; font-size: 18px; font-weight: 700; }
+.empty { margin: auto; max-width: 520px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.empty-logo { opacity: 0.8; }
+.empty h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .empty .ask { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .empty .ask-repo { display: inline-flex; align-items: center; gap: 2px; }
-.hint-repo { font-size: 11.5px !important; margin-top: -4px !important; }
+/* começos de conversa */
+.starts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 460px; margin-top: 4px; }
+.start { height: 30px; padding: 0 12px; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; background: var(--panel); }
+.start:hover { color: var(--text); border-color: color-mix(in srgb, var(--text) 25%, var(--border)); background: var(--hover); }
+.start :deep(svg) { color: var(--faint); }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.keys { font-size: 11px !important; color: var(--faint); margin-top: 6px !important; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
