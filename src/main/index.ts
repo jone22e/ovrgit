@@ -822,7 +822,7 @@ function registerIpc() {
   ipcMain.handle('update:state', () => updater.updateState())
   ipcMain.handle('update:check', () => updater.checkForUpdates())
   ipcMain.handle('update:download', () => updater.downloadUpdate())
-  ipcMain.handle('update:install', () => updater.installUpdate())
+  ipcMain.handle('update:install', () => installUpdate())
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
   })
@@ -919,19 +919,39 @@ app.whenReady().then(() => {
 })
 
 /** Encerramento: 'no' rodando; 'waiting' esperando os terminais e serviços saírem; 'ready' pode sair de vez */
-let quitState: 'no' | 'waiting' | 'ready' = 'no'
-app.on('before-quit', (e) => {
-  if (quitState === 'no') {
-    cancelLogin()
-    ovseer.cancelLogin()
-    ovseer.stopStream()
-    agentWatch.stopAgentWatch()
-    updater.stopUpdater()
-    aws.stopAws()
-    agentChat.shutdownAgents()
-    killAllTerminals()
-    services.stopAllServices()
+let quitState: 'no' | 'cleaning' | 'waiting' | 'ready' = 'no'
+/** Para tudo o que roda em segundo plano, uma vez só: ao sair, e antes de reiniciar para atualizar */
+function prepareQuit() {
+  if (quitState !== 'no') return
+  quitState = 'cleaning'
+  cancelLogin()
+  ovseer.cancelLogin()
+  ovseer.stopStream()
+  agentWatch.stopAgentWatch()
+  updater.stopUpdater()
+  aws.stopAws()
+  agentChat.shutdownAgents()
+  killAllTerminals()
+  services.stopAllServices()
+}
+/**
+ * Reiniciar para atualizar. No Mac o Electron fecha todas as janelas e só reinicia quando a última fechar: tudo
+ * para antes (os terminais inclusive, para o before-quit não segurar a saída), e as conversas do orquestrador
+ * ficam sabendo que o app está saindo. Senão, fechar a principal as transformava em janelas soltas, a lista de
+ * janelas nunca esvaziava e o reinício ficava esperando o usuário fechar uma por uma.
+ */
+async function installUpdate() {
+  if (updater.updateState().status !== 'ready') return
+  prepareQuit()
+  if (livePtys()) {
+    quitState = 'waiting'
+    await shutdownPtys()
   }
+  quitState = 'ready'
+  updater.installUpdate()
+}
+app.on('before-quit', (e) => {
+  prepareQuit()
   if (quitState === 'ready' || !livePtys()) return
   // um terminal ou serviço que avisa a saída com o app já desmontando derruba o processo ("encerrou
   // inesperadamente"): segura a saída até todos avisarem (no máximo alguns segundos) e só então sai

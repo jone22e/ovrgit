@@ -243,11 +243,12 @@ export function layoutDocked() {
   w.win.place(b, main)
 }
 
-/** A janela principal mudou de tamanho ou zoom: a vista acompanha. Fechando a principal, as conversas viram janelas */
+/** A janela principal mudou de tamanho ou zoom: a vista acompanha. Fechando a principal, as conversas viram janelas
+ * (menos quando o app está saindo ou reiniciando para atualizar: aí elas fecham junto) */
 export function watchMainWindow(main: BrowserWindow) {
   main.on('resize', () => layoutDocked())
   main.webContents.on('zoom-changed', () => layoutDocked())
-  main.on('close', () => undockAll(true))
+  main.on('close', () => !quitting && undockAll(true))
 }
 
 /** Mostra a conversa `uid` na área do orquestrador (a que estava lá sai de cena). false: não dá (sem janela principal) */
