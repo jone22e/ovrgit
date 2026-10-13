@@ -276,6 +276,13 @@ function languageOf(p: string): { name: string; load: () => Promise<Extension> }
       return { name: 'Go', load: async () => (await import('@codemirror/lang-go')).go() }
     case 'sh': case 'bash': case 'zsh':
       return { name: 'Shell', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/shell')).shell) }
+    // Arduino (sketch .ino, o antigo .pde) é C++ com açúcar: o modo de C++ cobre cores e indentação
+    case 'ino': case 'pde':
+      return { name: 'Arduino', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/clike')).cpp) }
+    case 'c': case 'h':
+      return { name: 'C', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/clike')).c) }
+    case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hh': case 'hxx':
+      return { name: 'C++', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/clike')).cpp) }
     case 'toml':
       return { name: 'TOML', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/toml')).toml) }
     default:
