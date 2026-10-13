@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
 import { EFFORT_LABEL, MODES } from '@shared/models'
@@ -101,14 +101,123 @@ function onClick(e: MouseEvent) {
   if (t.closest('button, input, textarea, a, select, .ask-in') || window.getSelection()?.toString()) return
   emit('pick')
 }
+
+// ---------- menu do botão direito: mostrar, renomear, fixar, nova conversa, encerrar ----------
+const menu = ref<{ left: number; top: number } | null>(null)
+const menuEl = ref<HTMLElement>()
+function onMenu(e: MouseEvent) {
+  // campos de texto (responder ao agente) ficam com o menu do sistema: copiar e colar
+  if ((e.target as HTMLElement).closest('input, textarea, .ask-in') || renaming.value) return
+  e.preventDefault()
+  menu.value = { left: e.clientX, top: e.clientY }
+  nextTick(() => {
+    // não deixa o menu sair da janela
+    const r = menuEl.value?.getBoundingClientRect()
+    if (r) menu.value = { left: Math.min(e.clientX, window.innerWidth - r.width - 8), top: Math.min(e.clientY, window.innerHeight - r.height - 8) }
+  })
+}
+const closeMenu = () => (menu.value = null)
+const onDoc = (e: MouseEvent) => {
+  if (menu.value && !menuEl.value?.contains(e.target as Node)) closeMenu()
+}
+const onEsc = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && menu.value) closeMenu()
+}
+/** A lista rolou ou a janela mudou de tamanho: o menu (fixo na tela) fecha */
+const onMove = (e?: Event) => {
+  if (e && menuEl.value && e.target instanceof Node && menuEl.value.contains(e.target)) return
+  closeMenu()
+}
+watch(menu, (m, was) => {
+  if (m && !was) {
+    document.addEventListener('mousedown', onDoc, true)
+    document.addEventListener('keydown', onEsc, true)
+    window.addEventListener('resize', onMove)
+    window.addEventListener('scroll', onMove, true)
+  } else if (!m && was) unlisten()
+})
+function unlisten() {
+  document.removeEventListener('mousedown', onDoc, true)
+  document.removeEventListener('keydown', onEsc, true)
+  window.removeEventListener('resize', onMove)
+  window.removeEventListener('scroll', onMove, true)
+}
+onUnmounted(unlisten)
+function pickFromMenu() {
+  closeMenu()
+  emit('pick')
+}
+function pinFromMenu() {
+  closeMenu()
+  emit('act', { type: 'pin' })
+}
+/** Conversa nova com o mesmo agente (a atual fica em Conversas); trabalhando, confirma antes */
+async function newChat() {
+  closeMenu()
+  if (props.a.status === 'live') {
+    const ok = await ask({ title: 'Começar uma conversa nova?', message: 'O agente está trabalhando e será interrompido. A conversa atual fica em Conversas.', confirmLabel: 'Nova conversa', danger: true })
+    if (!ok) return
+  }
+  api.agentNewChat(props.a.uid).catch(() => undefined)
+}
+function closeFromMenu() {
+  closeMenu()
+  close()
+}
+
+// ---------- renomear em linha, no título do cartão ----------
+const renaming = ref(false)
+const draft = ref('')
+const renameInput = ref<HTMLInputElement>()
+/** Título recém-salvo, até o resumo da janela trazer o mesmo (evita o antigo piscar de volta) */
+const savedTitle = ref<string | null>(null)
+const shownTitle = computed(() => savedTitle.value ?? props.a.title)
+watch(() => props.a.title, (t) => t === savedTitle.value && (savedTitle.value = null))
+async function startRename() {
+  closeMenu()
+  draft.value = props.a.title
+  renaming.value = true
+  await nextTick()
+  renameInput.value?.focus()
+  renameInput.value?.select()
+}
+function cancelRename() {
+  renaming.value = false
+}
+async function saveRename() {
+  if (!renaming.value) return
+  renaming.value = false
+  const t = draft.value.replace(/\s+/g, ' ').trim()
+  // vazio ou igual: nada muda (o título não some)
+  if (!t || t === props.a.title) return
+  savedTitle.value = t
+  try {
+    await api.agentSetTitle(props.a.uid, t)
+  } catch {
+    savedTitle.value = null
+  }
+}
 </script>
 
 <template>
-  <article class="acard" :class="[tone, { sel: selected, fresh }]" :data-uid="a.uid" @click="onClick">
+  <article class="acard" :class="[tone, { sel: selected, fresh }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
     <div class="top">
       <span v-if="n !== null" class="num mono" :title="`⌘${n}: mostra esta conversa`">{{ n }}</span>
       <div class="ttl">
-        <strong class="title"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ a.title }}</strong>
+        <input
+          v-if="renaming"
+          ref="renameInput"
+          v-model="draft"
+          type="text"
+          class="rename"
+          maxlength="120"
+          placeholder="Título da conversa"
+          @keydown.stop
+          @keydown.enter.prevent="saveRename"
+          @keydown.esc.prevent="cancelRename"
+          @blur="saveRename"
+        />
+        <strong v-else class="title" title="Botão direito: renomear e mais"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ shownTitle }}</strong>
         <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
@@ -162,6 +271,18 @@ function onClick(e: MouseEvent) {
       </span>
       <span class="go" :class="{ on: selected }" :title="selected ? 'Conversa mostrada ao lado' : 'Mostrar a conversa ao lado'"><Icon name="columns" :size="13" /></span>
     </div>
+    <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
+    <Teleport to="body">
+      <div v-if="menu" ref="menuEl" class="ctx" role="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @click.stop @contextmenu.prevent>
+        <p class="where faint ellipsis">{{ shownTitle }}</p>
+        <button v-if="!selected" type="button" class="item" @click="pickFromMenu"><Icon name="columns" :size="14" /><span class="nm">Mostrar ao lado</span></button>
+        <button type="button" class="item" @click="startRename"><Icon name="pencil" :size="14" /><span class="nm">Renomear…</span></button>
+        <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar do topo da lista' : 'Fixar no topo da lista' }}</span></button>
+        <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
+        <div class="sep" />
+        <button type="button" class="item bad" @click="closeFromMenu"><Icon name="x" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Encerrar (interrompe o agente)' : 'Encerrar a conversa' }}</span></button>
+      </div>
+    </Teleport>
   </article>
 </template>
 
@@ -202,6 +323,8 @@ function onClick(e: MouseEvent) {
 .title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .logo { display: inline-block; vertical-align: -2px; margin-right: 6px; opacity: 0.9; }
 .ttl small { font-size: 11.5px; }
+/* renomear em linha: o campo toma o lugar do título */
+.rename { width: 100%; height: 26px; padding: 0 6px; font-size: 13px; font-weight: 600; }
 
 /* anel de progresso */
 .ring { position: relative; width: 28px; height: 28px; flex: none; }
@@ -280,4 +403,23 @@ function onClick(e: MouseEvent) {
 .close:hover { color: var(--del); }
 .go { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--faint); }
 .go.on { color: var(--accent); background: var(--accent-soft); }
+
+/* menu do botão direito (vive no body) */
+.ctx {
+  position: fixed; z-index: 60; min-width: 240px; max-width: 320px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: drop 0.12s ease-out;
+}
+@keyframes drop { from { opacity: 0; } }
+.ctx .where { margin: 0; padding: 5px 8px 6px; font-size: 11.5px; }
+.ctx .item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font-size: 12.5px; text-align: left; justify-content: flex-start;
+}
+.ctx .item:hover { background: var(--accent-soft); }
+.ctx .item.bad:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
+.ctx .item svg { color: var(--faint); flex: none; }
+.ctx .item.bad:hover svg { color: inherit; }
+.ctx .nm { white-space: nowrap; }
+.ctx .sep { height: 1px; margin: 4px 6px; background: var(--border); }
 </style>

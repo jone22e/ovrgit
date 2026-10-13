@@ -1931,6 +1931,12 @@ export function setTitle(uid: string, raw: string): string {
   w.info.renamed = !!t
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
   if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t || titleOf(loadTranscript(w.info.sessionId) ?? []) || 'Conversa', !!t)
+  // renomeada pelo cartão do orquestrador: a janela da conversa acompanha e republica o resumo (que leva o título ao cartão)
+  emit(w, { type: 'title', title: t })
+  if (w.snap && t) {
+    w.snap.title = t
+    broadcastSnapshots()
+  }
   return t
 }
 
