@@ -204,7 +204,7 @@ onUnmounted(() => {
       <div v-if="open" ref="popEl" class="pop" :class="{ big }" role="menu" :style="popStyle">
       <template v-if="groups.length && extensible">
         <h6>Grupos</h6>
-        <div class="list">
+        <div class="list groups">
           <button v-for="g in groups" :key="g.id" type="button" class="ghost opt grp-opt" :class="{ cur: isCur(g) }" :title="g.dirs.join('\n')" @click="apply(g)">
             <Icon name="layers" :size="14" :class="isCur(g) ? 'ok' : 'faint'" />
             <span class="opt-text">
@@ -299,6 +299,10 @@ onUnmounted(() => {
 @keyframes drop { from { opacity: 0; } }
 h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); flex: none; }
 .list { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+/* o menu não cabe na altura da janela: só a lista de repositórios encolhe e rola; os grupos (poucos) ficam inteiros */
+.list.groups { flex: none; max-height: 150px; }
+.list .opt { flex: none; }
+.hint { flex: none; }
 .opt { justify-content: flex-start; gap: 10px; height: auto; padding: 7px 10px; width: 100%; text-align: left; color: var(--text); }
 .opt.cur { background: var(--accent-soft); }
 .opt-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
