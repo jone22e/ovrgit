@@ -1,12 +1,17 @@
 import { app, powerMonitor } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
+import { isNewerVersion } from '../shared/version'
 import { getSettings } from './settings'
 
 /**
  * Atualização automática pelos releases do GitHub: checa ao abrir, de tempos em tempos, quando o app volta ao
  * primeiro plano e quando o computador acorda; baixa em segundo plano. Uma versão publicada aparece em
  * minutos, não só na próxima abertura do app.
+ *
+ * Com uma versão já baixada, as checagens continuam: se sair outra mais nova, ela é baixada por cima e é a que
+ * se instala no reinício, sem o usuário ter de instalar uma por uma. Nessas checagens a versão pronta fica na
+ * tela como está (sem "procurando…" nem erro passageiro); só um download novo muda o estado.
  */
 const FIRST_CHECK_MS = 10_000
 const INTERVAL_MS = 30 * 60 * 1000
@@ -41,12 +46,18 @@ export function setupUpdater(onChange: (s: UpdateState) => void) {
   if (!app.isPackaged) return void set({ status: 'unsupported' })
 
   autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.on('checking-for-update', () => set({ status: 'checking', error: undefined }))
-  autoUpdater.on('update-available', (info) => set({ status: 'available', version: info.version }))
-  autoUpdater.on('update-not-available', () => set({ status: 'idle', version: undefined, checkedAt: Date.now() }))
+  const ready = () => current.status === 'ready'
+  autoUpdater.on('checking-for-update', () => !ready() && set({ status: 'checking', error: undefined }))
+  autoUpdater.on('update-available', (info) => {
+    if (!ready()) return set({ status: 'available', version: info.version })
+    // já há uma versão pronta: só uma mais nova interessa (substitui a baixada); a mesma, ou uma mais velha, não muda nada
+    if (!current.version || !isNewerVersion(info.version, current.version)) return
+    set(autoUpdater.autoDownload ? { status: 'downloading', version: info.version, percent: 0 } : { status: 'available', version: info.version })
+  })
+  autoUpdater.on('update-not-available', () => !ready() && set({ status: 'idle', version: undefined, checkedAt: Date.now() }))
   autoUpdater.on('download-progress', (p) => set({ status: 'downloading', percent: Math.round(p.percent) }))
   autoUpdater.on('update-downloaded', (info) => set({ status: 'ready', version: info.version, percent: 100 }))
-  autoUpdater.on('error', (e) => set({ status: 'error', error: friendly(e) }))
+  autoUpdater.on('error', (e) => !ready() && set({ status: 'error', error: friendly(e) }))
 
   setTimeout(() => getSettings().autoUpdate && checkForUpdates(), FIRST_CHECK_MS)
   timer = setInterval(() => getSettings().autoUpdate && checkForUpdates(), INTERVAL_MS)
@@ -63,8 +74,8 @@ function checkIfStale() {
 
 export async function checkForUpdates(): Promise<UpdateState> {
   if (!app.isPackaged) return current
-  // não interrompe um download em andamento nem descarta uma versão já pronta
-  if (current.status === 'checking' || current.status === 'downloading' || current.status === 'ready') return current
+  // não interrompe um download em andamento (com uma versão pronta, checa mesmo assim: pode ter saído outra mais nova)
+  if (current.status === 'checking' || current.status === 'downloading') return current
   autoUpdater.autoDownload = getSettings().autoUpdate
   lastAttempt = Date.now()
   try {

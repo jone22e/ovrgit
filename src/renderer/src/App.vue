@@ -45,6 +45,8 @@ const showPull = ref(false)
 const showSwitcher = ref(false)
 const showPublish = ref(false)
 const updateDismissed = ref(false)
+// "Depois" valia para aquela versão: saiu outra mais nova (baixada por cima), a barra volta
+watch(() => state.update?.version, () => (updateDismissed.value = false))
 // Shift Shift (de qualquer lugar): buscador de arquivos. Duas batidas no Shift em menos de 400 ms, sem outra tecla no meio
 const showQuickOpen = ref(false)
 let lastShift = 0
