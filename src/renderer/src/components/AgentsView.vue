@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels, DisplayInfo } from '@shared/types'
 import { api, ask, openNewAgent, saveSettings, setPane, state, toast } from '../store'
+import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { ago as agoSince } from '../ago'
@@ -240,6 +241,9 @@ async function allWindows(action: 'show' | 'hide' | 'background' | 'foreground' 
 const gridOpen = ref(false)
 const gridRoot = ref<HTMLElement>()
 const gridSize = computed(() => normalizeGrid(state.settings?.agentGrid))
+/** Repositórios da conversa: o nome do grupo salvo, quando é um; senão o principal e quantos foram juntados */
+const workspaceLabel = (h: { cwd: string; project: string; extraDirs?: string[] }) =>
+  groupOf(state.settings?.repoGroups ?? [], h.cwd, h.extraDirs)?.name ?? `${h.project}${h.extraDirs?.length ? ` +${h.extraDirs.length}` : ''}`
 /** Monitores ligados e o escolhido para o grid (de início, o da janela principal) */
 const displays = ref<DisplayInfo[]>([])
 const displayId = ref<number | null>(null)
@@ -606,7 +610,7 @@ function pick(a: AgentSnapshot) {
           <span class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />
           <span class="text">
             <strong class="ellipsis light">{{ h.title }}</strong>
-            <small class="faint ellipsis">{{ h.project }}{{ h.extraDirs?.length ? ` +${h.extraDirs.length}` : '' }} · {{ h.model }}{{ CLOSED_LABEL[closedStatus(h)] ? ` · ${CLOSED_LABEL[closedStatus(h)]}` : '' }}</small>
+            <small class="faint ellipsis">{{ workspaceLabel(h) }} · {{ h.model }}{{ CLOSED_LABEL[closedStatus(h)] ? ` · ${CLOSED_LABEL[closedStatus(h)]}` : '' }}</small>
           </span>
           <span v-if="reopening === h.sessionId" class="spinner" />
           <small class="faint when">{{ ago(h.updatedAt) }}</small>

@@ -263,6 +263,14 @@ export interface AwsInstallProgress {
   percent: number | null
 }
 
+/** Grupo de repositórios salvo: um nome para pastas que costumam ir juntas numa conversa (seletor de repositório) */
+export interface RepoGroup {
+  id: string
+  name: string
+  /** Pastas do grupo; a primeira vira o principal quando a conversa ainda pode trocar de repositório */
+  dirs: string[]
+}
+
 export interface Settings {
   /** Id do tema (ver shared/themes.ts) */
   theme: string
@@ -319,6 +327,8 @@ export interface Settings {
   queueReuse: boolean
   /** Fila de tarefas: uma IA rápida decide qual conversa continuar quando a relação não é óbvia */
   queueSmart: boolean
+  /** Grupos de repositórios salvos pelo seletor da conversa: um nome para um conjunto de pastas */
+  repoGroups: RepoGroup[]
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */

@@ -5,7 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type {
   GridCell,
   AgentAction, AgentAsk, AgentSnapshot,
-  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings
+  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings, RepoGroup
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
@@ -26,6 +26,7 @@ import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
 import RepoMenu from './components/RepoMenu.vue'
+import { applyGroup } from '@shared/repoGroups'
 import WindowGrid from './components/WindowGrid.vue'
 import { applyTheme } from './theme'
 
@@ -1263,6 +1264,15 @@ async function pickExtraDir() {
   if (p && p !== info.value?.cwd) await addDir(p)
   box.value?.focus()
 }
+/** Um grupo salvo vira o espaço de trabalho: troca o principal (só antes da conversa começar) e junta o resto */
+async function applyRepoGroup(g: RepoGroup) {
+  if (!info.value) return
+  const next = applyGroup(g, info.value.cwd, canSwitchRepo.value)
+  if (next.cwd !== info.value.cwd) await switchRepo(next.cwd)
+  // a partir do principal que ficou (se a troca falhou, o grupo inteiro é juntado a ele)
+  await setExtraDirs(g.dirs.filter((d) => d !== info.value?.cwd))
+  box.value?.focus()
+}
 async function backToPrevious() {
   if (!(await api.agentBack(uid).catch(() => false))) return
   sessionStorage.removeItem(STORE)
@@ -1882,7 +1892,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
         <span class="sub ellipsis">
           {{ modelLabel(provider, model, catalogOf(known, provider)) }} ·
-          <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" :extra="info.extraDirs" extensible @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
+          <RepoMenu :cwd="info.cwd" :project="info.project" :switchable="false" :extra="info.extraDirs" extensible @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" @apply="applyRepoGroup" />
           <template v-if="info.branch"> · <Icon name="branch" :size="10" /> {{ info.branch }}</template>
         </span>
       </div>
@@ -1920,7 +1930,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <h2 class="ask">O que vamos fazer?</h2>
         <!-- o repositório da conversa (e os juntados a ela): o clique troca ou junta outros -->
         <div class="ask-repo">
-          <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" />
+          <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" @apply="applyRepoGroup" />
         </div>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
       </div>
