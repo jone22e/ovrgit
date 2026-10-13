@@ -329,6 +329,8 @@ export interface Settings {
   queueSmart: boolean
   /** Grupos de repositórios salvos pelo seletor da conversa: um nome para um conjunto de pastas */
   repoGroups: RepoGroup[]
+  /** Ao abrir o app, reabre os agentes que estavam abertos ao fechar (conversas retomadas, em espera, a da área do orquestrador) */
+  restoreAgents: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */

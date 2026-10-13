@@ -412,6 +412,15 @@ async function save() {
               </label>
             </div>
             <div class="block">
+              <label class="switch-row">
+                <div>
+                  <strong>Reabrir os agentes ao iniciar</strong>
+                  <p>Ao abrir o app, as conversas que estavam abertas voltam retomadas de onde pararam, com os agentes em espera e a conversa que ocupava a área do orquestrador. Uma resposta que estava no meio é interrompida ao fechar.</p>
+                </div>
+                <input type="checkbox" class="switch" :checked="state.settings?.restoreAgents !== false" @change="saveSettings({ restoreAgents: ($event.target as HTMLInputElement).checked })" />
+              </label>
+            </div>
+            <div class="block">
               <div class="row-head">
                 <div>
                   <strong>Contas</strong>

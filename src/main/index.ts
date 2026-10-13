@@ -907,6 +907,8 @@ app.whenReady().then(() => {
   })
   services.setupServices({ icon, background: initialBackground })
   createWindow()
+  // os agentes abertos da última vez voltam como estavam (conversas retomadas, em espera, a da área do orquestrador)
+  if (getSettings().restoreAgents !== false) agentChat.restoreOpenAgents().catch((e) => console.error('Não consegui reabrir os agentes:', e))
   if (getSettings().watchAgents) startAgents()
   updater.setupUpdater((s) => toMain('update:changed', s))
   aws.setupAws((s) => toMain('aws:changed', s))

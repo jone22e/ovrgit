@@ -14,6 +14,7 @@ import { getSettings } from './settings'
 import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
+import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -756,6 +757,7 @@ function broadcastWindows() {
   for (const wc of allWebContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('agents:windows', ids)
   broadcastStatuses()
   broadcastSnapshots()
+  scheduleOpenAgentsSave()
 }
 
 // ---------- gerenciador de agentes: cada janela publica um resumo; as ações voltam para ela ----------
@@ -781,6 +783,8 @@ function broadcastSnapshots() {
   for (const wc of allWebContents.getAllWebContents()) if (!wc.isDestroyed() && !agentWc.has(wc)) wc.send('agents:snapshots', all)
   // selo no ícone do app (Dock no Mac): quantos agentes precisam de você
   app.setBadgeCount(all.filter((a) => a.status === 'waiting' || a.status === 'error').length)
+  // sessão, encaixe ou visibilidade podem ter mudado: o retrato dos agentes abertos acompanha
+  scheduleOpenAgentsSave()
 }
 
 export function reportSnapshot(uid: string, snap: AgentSnapshot) {
@@ -2277,5 +2281,60 @@ let quitting = false
 
 export function shutdownAgents() {
   quitting = true
+  // o retrato fica como estava com tudo aberto: as janelas que vão fechar agora não saem dele
+  saveOpenAgents()
+  openAgentsFrozen = true
   for (const w of wins.values()) if (w.child) terminate(w.child, w.info.provider)
+}
+
+// ---------- agentes abertos: retrato em disco, para reabrir tudo como estava na próxima vez ----------
+
+/** Congelado: o app está fechando (as janelas somem uma a uma) ou ainda reabrindo os agentes da última vez */
+let openAgentsFrozen = false
+let openAgentsTimer: ReturnType<typeof setTimeout> | null = null
+/** Último retrato gravado: os resumos chegam o tempo todo durante uma resposta, e o arquivo só muda quando ele muda */
+let openAgentsLast = ''
+function saveOpenAgents() {
+  if (openAgentsFrozen) return
+  if (openAgentsTimer) clearTimeout(openAgentsTimer)
+  openAgentsTimer = null
+  const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing)
+  const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible() }))
+  const json = JSON.stringify(agents)
+  if (json === openAgentsLast) return
+  openAgentsLast = json
+  writeOpenAgents(agents)
+}
+/** Várias mudanças seguidas (abrir, carregar, encaixar) viram uma gravação só */
+function scheduleOpenAgentsSave() {
+  if (openAgentsFrozen || openAgentsTimer) return
+  openAgentsTimer = setTimeout(saveOpenAgents, 300)
+}
+/**
+ * Reabre os agentes gravados na última vez, na mesma ordem: cada conversa retomada pela sessão do CLI, os em
+ * espera prontos para a fila, e a que ocupava a área do orquestrador de volta a ela. Devolve quantos reabriu.
+ */
+export async function restoreOpenAgents(): Promise<number> {
+  const saved = readOpenAgents()
+  if (!saved.length) return 0
+  openAgentsFrozen = true
+  let n = 0
+  try {
+    const orch = orchestratorOn()
+    // no orquestrador alguma conversa ocupa a área: a que estava lá, ou a primeira
+    if (orch && !saved.some((a) => a.docked)) saved[0].docked = true
+    for (const a of saved) {
+      try {
+        const req = reopenRequest(a, orch)
+        await openAgentWindow({ ...req, mode: normalizeMode(req.mode) })
+        n++
+      } catch (e) {
+        console.error('Não consegui reabrir um agente:', (e as Error).message)
+      }
+    }
+  } finally {
+    openAgentsFrozen = false
+    saveOpenAgents()
+  }
+  return n
 }

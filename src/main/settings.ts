@@ -36,7 +36,8 @@ const DEFAULTS: Settings = {
   orchestrator: false,
   queueReuse: true,
   queueSmart: true,
-  repoGroups: []
+  repoGroups: [],
+  restoreAgents: true
 }
 
 const file = () => path.join(app.getPath('userData'), 'settings.json')
