@@ -423,6 +423,18 @@ async function save() {
             <div class="block">
               <div class="row-head">
                 <div>
+                  <strong>Indicador do agente trabalhando</strong>
+                  <p>O que aparece no canto do cartão, no orquestrador, enquanto o agente trabalha ou espera por você: o anel de progresso, ou o mascote em miniatura (olha em volta, pisca, e o balão diz o que ele está fazendo).</p>
+                </div>
+                <select class="pick" :value="state.settings?.cardIndicator ?? 'ring'" @change="saveSettings({ cardIndicator: ($event.target as HTMLSelectElement).value === 'mascot' ? 'mascot' : 'ring' })">
+                  <option value="ring">Anel</option>
+                  <option value="mascot">Mascote</option>
+                </select>
+              </div>
+            </div>
+            <div class="block">
+              <div class="row-head">
+                <div>
                   <strong>Contas</strong>
                   <p>Login dos CLIs usados pelos agentes: Claude Code, Codex e Antigravity.</p>
                 </div>
@@ -528,6 +540,7 @@ h2 { margin: 0; font-size: 16px; }
 .block { display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
 .block:last-child { border-bottom: 0; }
 .row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.row-head .pick { flex: none; width: 140px; }
 .row-head strong, .switch-row strong { display: block; font-size: 13.5px; }
 .row-head p, .switch-row p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; max-width: 560px; }
 .field { display: flex; flex-direction: column; gap: 6px; max-width: 560px; }

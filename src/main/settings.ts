@@ -37,7 +37,8 @@ const DEFAULTS: Settings = {
   queueReuse: true,
   queueSmart: true,
   repoGroups: [],
-  restoreAgents: true
+  restoreAgents: true,
+  cardIndicator: 'ring'
 }
 
 const file = () => path.join(app.getPath('userData'), 'settings.json')

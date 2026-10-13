@@ -3,7 +3,8 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
 import { EFFORT_LABEL, MODES } from '@shared/models'
-import { api, ask } from '../store'
+import { api, ask, state } from '../store'
+import AgentBuddy from './AgentBuddy.vue'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
@@ -25,6 +26,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ pick: []; act: [action: AgentAction] }>()
 
+/** Configurações: o canto do cartão mostra o mascote em miniatura no lugar do anel */
+const mascot = computed(() => state.settings?.cardIndicator === 'mascot')
 const checklist = computed(() => props.a.checklist ?? [])
 const doneCount = computed(() => checklist.value.filter((i) => i.done).length)
 /** Etapa em andamento: a primeira ainda não encerrada */
@@ -221,7 +224,16 @@ async function saveRename() {
         <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
-      <span v-if="a.status === 'live' || a.status === 'waiting'" class="ring" :class="[tone, { indet: fraction === null }]" :title="checklist.length ? `${doneCount} de ${checklist.length} etapas` : statusLabel">
+      <!-- mascote no lugar do anel (Configurações): trabalhando, esperando você ou cochilando (parado) -->
+      <AgentBuddy
+        v-if="mascot && (a.status === 'live' || a.status === 'waiting')"
+        :mood="a.status === 'waiting' ? 'waiting' : stalled ? 'stalled' : 'working'"
+        :uid="a.uid"
+        :size="28"
+        class="buddy"
+        :title="checklist.length ? `${doneCount} de ${checklist.length} etapas` : statusLabel"
+      />
+      <span v-else-if="a.status === 'live' || a.status === 'waiting'" class="ring" :class="[tone, { indet: fraction === null }]" :title="checklist.length ? `${doneCount} de ${checklist.length} etapas` : statusLabel">
         <svg viewBox="0 0 36 36">
           <circle class="track" cx="18" cy="18" :r="RADIUS" />
           <circle class="bar" cx="18" cy="18" :r="RADIUS" :stroke-dasharray="CIRC" :stroke-dashoffset="dashOffset" />
@@ -326,8 +338,9 @@ async function saveRename() {
 /* renomear em linha: o campo toma o lugar do título */
 .rename { width: 100%; height: 26px; padding: 0 6px; font-size: 13px; font-weight: 600; }
 
-/* anel de progresso */
+/* anel de progresso (ou o mascote, pelas Configurações) */
 .ring { position: relative; width: 28px; height: 28px; flex: none; }
+.buddy { margin: -1px -3px 0 0; }
 .ring > svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring circle { fill: none; stroke-width: 3.5; }
 .ring .track { stroke: color-mix(in srgb, var(--faint) 22%, transparent); }
