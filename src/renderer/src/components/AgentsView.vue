@@ -429,8 +429,6 @@ function pick(a: AgentSnapshot) {
         <button v-if="done.length" class="ghost count" :class="{ on: filter === 'done' }" :title="filter === 'done' ? 'Mostrar todos' : 'Só os concluídos'" @click="toggleFilter('done')"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</button>
         <span class="gap" />
         <template v-if="orch">
-          <button v-if="withChanges.length" class="ghost link accent" title="Abre a aba Alterações" @click="goToChanges">Enviar alterações →</button>
-          <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
         </template>
         <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
