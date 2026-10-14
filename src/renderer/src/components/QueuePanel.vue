@@ -219,6 +219,8 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 /* composer da tarefa */
 .q-add { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); transition: border-color 0.12s; }
 .q-add:focus-within, .q-add.ready { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+/* a caixa já marca o foco pela própria borda: o campo dentro dela não ganha o halo global */
+.q-add textarea:focus { box-shadow: none; outline: none; }
 .q-add textarea { width: 100%; box-sizing: border-box; resize: none; min-height: 72px; padding: 10px 12px 4px; border: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.45; font-family: inherit; outline: none; }
 .q-add-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; }
 .q-repo { max-width: 180px; }
