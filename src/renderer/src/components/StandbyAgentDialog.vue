@@ -22,6 +22,7 @@ const defaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]
 const known = ref<KnownModels | null>(null)
 const detected = ref<ProviderStatus | null>(null)
 const cwd = ref(state.repo?.root ?? '')
+const extraDirs = ref<string[]>([])
 const count = ref(1)
 const opening = ref(false)
 
@@ -37,7 +38,7 @@ async function open() {
   opening.value = true
   try {
     localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value } } satisfies AgentPrefs))
-    for (let i = 0; i < count.value; i++) await api.agentOpen({ provider: provider.value, model: model.value, effort: effort.value, mode: 'full', cwd: cwd.value, standby: true, quiet: true })
+    for (let i = 0; i < count.value; i++) await api.agentOpen({ provider: provider.value, model: model.value, effort: effort.value, mode: 'full', cwd: cwd.value, extraDirs: extraDirs.value.length ? [...extraDirs.value] : undefined, standby: true, quiet: true })
     toast(count.value === 1 ? 'Agente em espera pronto.' : `${count.value} agentes em espera prontos.`)
     emit('close')
   } catch (e) {
@@ -56,7 +57,7 @@ async function open() {
     <div class="row">
       <div class="field">
         <span class="lbl">Repositório</span>
-        <RepoSelect v-model="cwd" />
+        <RepoSelect v-model="cwd" v-model:extra="extraDirs" />
       </div>
       <label class="field qty">
         <span class="lbl">Quantos</span>

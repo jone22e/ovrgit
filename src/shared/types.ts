@@ -445,6 +445,8 @@ export interface QueueTask {
   text: string
   /** Repositório onde deve rodar (ausente: qualquer agente em espera serve) */
   cwd?: string
+  /** Outros repositórios do espaço de trabalho (um grupo): o agente que pegar a tarefa vê todos */
+  extraDirs?: string[]
   status: 'queued' | 'running' | 'done' | 'failed'
   /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
   stage?: 'reasoning'
@@ -1237,7 +1239,7 @@ export interface OvseerApi {
   agentDocked(uid: string): Promise<boolean>
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
-  queueAdd(task: { text: string; cwd?: string }): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[] }): Promise<QueueTask[]>
   queueRemove(id: string): Promise<QueueTask[]>
   /** Sobe ou desce uma tarefa na fila */
   queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>

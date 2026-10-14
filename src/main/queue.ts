@@ -58,10 +58,11 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
 export const list = (): QueueTask[] => tasks
 
 /** Tarefa nova: entra na fila de raciocínio, e a análise começa */
-export function add(task: { text: string; cwd?: string }): QueueTask[] {
+export function add(task: { text: string; cwd?: string; extraDirs?: string[] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, status: 'queued', stage: 'reasoning', createdAt: Date.now() }
+  const extraDirs = task.cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== task.cwd) : undefined
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', stage: 'reasoning', createdAt: Date.now() }
   tasks.push(t)
   save()
   analyze(t.id)
@@ -115,7 +116,7 @@ async function runAnalysis(id: string): Promise<void> {
   const notesBefore = t.notes?.length ?? 0
   t.analyzing = true
   try {
-    const text = (await reasonAbout({ cwd: t.cwd, prompt: reasoningPrompt(t) })).trim()
+    const text = (await reasonAbout({ cwd: t.cwd, extraDirs: t.extraDirs, prompt: reasoningPrompt(t) })).trim()
     const cur = tasks.find((x) => x.id === id)
     if (!cur) return
     if (text) {
@@ -259,6 +260,14 @@ async function dispatch() {
 /** Entrega a tarefa ao agente escolhido */
 function start(task: QueueTask, agent: AgentContext, via: 'fresh' | 'related', reason: string) {
   try {
+    // tarefa de um grupo: o agente recebe o mesmo espaço de trabalho (os outros repositórios) antes do pedido
+    if (task.extraDirs?.length) {
+      try {
+        agentChat.setExtraDirs(agent.uid, task.extraDirs)
+      } catch (e) {
+        console.error('Fila: não consegui juntar os repositórios do grupo:', (e as Error).message)
+      }
+    }
     // o pedido vai com o raciocínio formado antes (análise e observações), quando houve
     agentChat.actOnAgent(agent.uid, { type: 'reply', text: taskPrompt(task) })
   } catch (e) {

@@ -1,14 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, loadProjectIcon, projectIcons, state } from '../store'
+import { groupMembers, groupOf } from '@shared/repoGroups'
+import type { RepoGroup } from '@shared/types'
 import Icon from './Icon.vue'
 
 /**
- * Seletor de repositório: o ícone do projeto e o nome num botão; a lista (projeto aberto e recentes, com ícones)
- * abre embaixo. `any`: oferece "Qualquer repositório" (valor vazio).
+ * Seletor de repositório: o ícone do projeto e o nome num botão; a lista (grupos salvos, projeto aberto e recentes,
+ * com ícones) abre embaixo. `any`: oferece "Qualquer repositório" (valor vazio). Um grupo define o principal (o
+ * primeiro repositório dele) e os outros vão em `extra`; o botão mostra o nome do grupo.
  */
 const model = defineModel<string>({ required: true })
+const extra = defineModel<string[]>('extra', { default: () => [] })
 const props = defineProps<{ any?: boolean }>()
+const groups = computed(() => state.settings?.repoGroups ?? [])
+const group = computed(() => (model.value ? groupOf(groups.value, model.value, extra.value) : undefined))
+function chooseGroup(g: RepoGroup) {
+  model.value = g.dirs[0] ?? ''
+  extra.value = g.dirs.slice(1)
+  open.value = false
+}
 const open = ref(false)
 const root = ref<HTMLElement>()
 const popEl = ref<HTMLElement>()
@@ -42,6 +53,7 @@ onMounted(async () => {
 watch(options, (l) => l.forEach(loadProjectIcon))
 function choose(p: string) {
   model.value = p
+  extra.value = []
   open.value = false
 }
 const onDoc = (e: MouseEvent) => {
@@ -72,8 +84,12 @@ onUnmounted(() => {
 
 <template>
   <span ref="root" class="repo-select" :class="{ on: open }">
-    <button type="button" class="sel" :title="model || (props.any ? 'Qualquer repositório' : '')" @click="toggle">
-      <template v-if="model">
+    <button type="button" class="sel" :title="group ? [model, ...extra].join('\n') : model || (props.any ? 'Qualquer repositório' : '')" @click="toggle">
+      <template v-if="group">
+        <Icon name="layers" :size="14" class="grp" />
+        <span class="ellipsis">{{ group.name }}</span>
+      </template>
+      <template v-else-if="model">
         <img v-if="icon(model)" :src="icon(model)!" class="fav" alt="" />
         <Icon v-else name="folder" :size="14" class="faint" />
         <span class="ellipsis">{{ name(model) }}</span>
@@ -91,11 +107,21 @@ onUnmounted(() => {
         <span class="txt"><span class="nm ellipsis">Qualquer repositório</span><small class="faint ellipsis">o próximo agente em espera livre, de qualquer projeto</small></span>
         <Icon v-if="!model" name="check" :size="13" class="ok" />
       </button>
-      <button v-for="p in options" :key="p" type="button" class="ghost opt" :class="{ cur: p === model }" :title="p" @click="choose(p)">
+      <!-- grupos salvos: o principal mais os juntados, de uma vez -->
+      <template v-if="groups.length">
+        <h6>Grupos</h6>
+        <button v-for="g in groups" :key="g.id" type="button" class="ghost opt" :class="{ cur: group?.id === g.id }" :title="g.dirs.join('\n')" @click="chooseGroup(g)">
+          <Icon name="layers" :size="14" :class="group?.id === g.id ? 'ok' : 'faint'" />
+          <span class="txt"><span class="nm ellipsis">{{ g.name }}</span><small class="faint ellipsis">{{ groupMembers(g) }}</small></span>
+          <Icon v-if="group?.id === g.id" name="check" :size="13" class="ok" />
+        </button>
+        <h6>Repositórios</h6>
+      </template>
+      <button v-for="p in options" :key="p" type="button" class="ghost opt" :class="{ cur: p === model && !group }" :title="p" @click="choose(p)">
         <img v-if="icon(p)" :src="icon(p)!" class="fav" alt="" />
         <Icon v-else name="folder" :size="14" class="faint" />
         <span class="txt"><span class="nm ellipsis">{{ name(p) }}</span><small class="faint ellipsis">{{ dir(p) }}</small></span>
-        <Icon v-if="p === model" name="check" :size="13" class="ok" />
+        <Icon v-if="p === model && !group" name="check" :size="13" class="ok" />
       </button>
     </div>
     </Teleport>
@@ -118,4 +144,6 @@ onUnmounted(() => {
 .nm { font-size: 13px; font-weight: 500; }
 .txt small { font-size: 11px; }
 .ok { color: var(--accent); flex: none; }
+.grp { color: var(--accent); flex: none; }
+h6 { margin: 6px 10px 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 </style>

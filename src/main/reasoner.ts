@@ -13,16 +13,18 @@ import { agentBase } from './agentChat'
  */
 const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
 
-export async function reasonAbout(o: { cwd?: string; prompt: string; timeoutMs?: number }): Promise<string> {
+export async function reasonAbout(o: { cwd?: string; extraDirs?: string[]; prompt: string; timeoutMs?: number }): Promise<string> {
   const last = agentBase()
   const provider: CliProvider = last?.provider ?? 'claude'
   const model = last?.provider === provider ? last?.model ?? '' : ''
   const bin = await findBinary(BIN[provider])
   if (!bin) throw new Error(`${provider} não encontrado.`)
   const cwd = o.cwd && existsSync(o.cwd) ? o.cwd : os.homedir()
+  const extra = (o.extraDirs ?? []).filter((d) => d !== cwd && existsSync(d))
   const timeout = o.timeoutMs ?? 4 * 60_000
   if (provider === 'claude') {
     const args = ['-p', '--output-format', 'json', '--tools', 'Read,Glob,Grep', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--effort', 'medium']
+    for (const d of extra) args.push('--add-dir', d)
     if (model) args.push('--model', model)
     const r = await runCli(bin, args, o.prompt, cwd, timeout)
     const env = JSON.parse(r.stdout) as { is_error?: boolean; result?: string }
@@ -42,7 +44,7 @@ export async function reasonAbout(o: { cwd?: string; prompt: string; timeoutMs?:
       rm(dir, { recursive: true, force: true }).catch(() => undefined)
     }
   }
-  const r = await runCli(bin, ['--output-format', 'json', '--effort', 'medium', '--mode', 'plan', `--print=${o.prompt}`], '', cwd, timeout)
+  const r = await runCli(bin, ['--output-format', 'json', '--effort', 'medium', '--mode', 'plan', ...extra.flatMap((d) => ['--add-dir', d]), `--print=${o.prompt}`], '', cwd, timeout)
   try {
     const env = JSON.parse(r.stdout) as { response?: string; result?: { response?: string } }
     return String(env.response ?? env.result?.response ?? r.stdout)

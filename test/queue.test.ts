@@ -72,6 +72,8 @@ describe('fila de raciocínio', () => {
     expect(p1).toContain('Tarefa:\nTrocar o fuso do relatório')
     expect(p1).not.toContain('Análise anterior')
     expect(p1).toContain('não altere arquivos')
+    expect(p1).not.toContain('mais de um repositório')
+    expect(reasoningPrompt({ ...fresh, cwd: '/w/gateway', extraDirs: ['/w/receiver'] })).toContain('Principal: /w/gateway. Outros, também disponíveis para leitura: /w/receiver.')
     const reviewed = { ...fresh, analysis: '**Do que se trata**: o relatório usa UTC.', notes: [{ at: 1, text: 'Usar o fuso do usuário, não o do servidor' }] }
     const p2 = reasoningPrompt(reviewed)
     expect(p2).toContain('Análise anterior:\n**Do que se trata**: o relatório usa UTC.')

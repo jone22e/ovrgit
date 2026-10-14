@@ -58,6 +58,7 @@ export function reasoningPrompt(task: QueueTask): string {
       : '',
     '',
     `Tarefa:\n${task.text.trim()}`,
+    task.extraDirs?.length ? `\nA tarefa envolve mais de um repositório. Principal: ${task.cwd ?? '(a pasta atual)'}. Outros, também disponíveis para leitura: ${task.extraDirs.join(', ')}.` : '',
     task.analysis ? `\nAnálise anterior:\n${task.analysis.trim()}` : '',
     notes ? `\nObservações do usuário, em ordem:\n${notes}` : ''
   ]

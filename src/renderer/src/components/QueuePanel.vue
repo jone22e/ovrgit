@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { QueueTask } from '@shared/types'
 import { api, state, toast } from '../store'
+import { groupOf } from '@shared/repoGroups'
 import { ago } from '../ago'
 import Icon from './Icon.vue'
 import RepoSelect from './RepoSelect.vue'
@@ -18,7 +19,11 @@ import RepoSelect from './RepoSelect.vue'
 const emit = defineEmits<{ standby: [] }>()
 const text = ref('')
 const cwd = ref(state.repo?.root ?? '')
+const extraDirs = ref<string[]>([])
 const name = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+/** Onde a tarefa roda: o nome do grupo, quando é um; senão o repositório */
+const where = (t: QueueTask) => (t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : '')
+const showWhere = (t: QueueTask) => !!t.cwd && (!!t.extraDirs?.length || t.cwd !== state.repo?.root)
 
 const tasks = computed(() => state.queue)
 const reasoning = computed(() => tasks.value.filter((t) => t.status === 'queued' && t.stage === 'reasoning'))
@@ -34,7 +39,7 @@ onMounted(() => setInterval(() => (now.value = Date.now()), 5000))
 async function add() {
   const t = text.value.trim()
   if (!t) return
-  await api.queueAdd({ text: t, cwd: cwd.value || undefined }).catch((e) => (state.error = String((e as Error).message)))
+  await api.queueAdd({ text: t, cwd: cwd.value || undefined, extraDirs: cwd.value && extraDirs.value.length ? [...extraDirs.value] : undefined }).catch((e) => (state.error = String((e as Error).message)))
   text.value = ''
 }
 const remove = (t: QueueTask) => api.queueRemove(t.id).catch(() => undefined)
@@ -97,7 +102,7 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
     <div class="q-add" :class="{ ready: text.trim() }">
       <textarea v-model="text" rows="3" placeholder="O que precisa ser feito? Entra primeiro no raciocínio." spellcheck="false" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
       <div class="q-add-row">
-        <RepoSelect v-model="cwd" any class="q-repo" />
+        <RepoSelect v-model="cwd" v-model:extra="extraDirs" any class="q-repo" />
         <span class="gap" />
         <small class="faint kbd">⌘↵</small>
         <button class="primary icon q-send" :disabled="!text.trim()" title="Adicionar ao raciocínio (⌘Enter)" @click="add"><Icon name="plus" :size="15" /></button>
@@ -122,7 +127,7 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
           <Icon name="sparkles" :size="13" class="st think-ic" />
           <div class="q-body">
             <p class="q-text full">{{ t.text }}</p>
-            <small v-if="t.cwd && t.cwd !== state.repo?.root" class="chip">{{ name(t.cwd) }}</small>
+            <small v-if="showWhere(t)" class="chip">{{ where(t) }}</small>
             <small class="faint who" :class="{ bad: t.analysisError && !t.analyzing }"><span v-if="t.analyzing" class="spinner tiny" />{{ analysisLabel(t) }}</small>
             <div v-if="t.analysis" class="analysis-wrap">
               <div class="analysis" v-html="html(t.analysis)" />
@@ -152,7 +157,7 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
           <span class="n mono">{{ i + 1 }}</span>
           <div class="q-body">
             <p class="q-text">{{ t.text }}</p>
-            <small v-if="t.cwd && t.cwd !== state.repo?.root" class="chip">{{ name(t.cwd) }}</small>
+            <small v-if="showWhere(t)" class="chip">{{ where(t) }}</small>
           </div>
           <span class="q-acts">
             <button class="ghost icon small" :disabled="i === 0" title="Subir" @click="move(t, -1)"><Icon name="chevron" :size="12" class="up" /></button>
