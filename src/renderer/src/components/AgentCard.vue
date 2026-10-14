@@ -309,7 +309,6 @@ async function saveRename() {
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
         <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
       </span>
-      <span class="go" :class="{ on: selected }" :title="selected ? 'Conversa mostrada ao lado' : 'Mostrar a conversa ao lado'"><Icon name="columns" :size="13" /></span>
     </div>
     <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
     <Teleport to="body">
@@ -449,8 +448,6 @@ async function saveRename() {
 .pin, .close { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
 .close:hover { color: var(--del); }
-.go { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--faint); }
-.go.on { color: var(--accent); background: var(--accent-soft); }
 
 /* menu do botão direito (vive no body) */
 .ctx {
