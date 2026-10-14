@@ -287,11 +287,13 @@ aside.overlay {
 }
 .update-bar .msg { flex: 1; font-size: 12.5px; }
 .error-bar .msg { flex: 1; white-space: pre-wrap; user-select: text; font-size: 12.5px; }
+/* centralizado na faixa à esquerda da conversa encaixada do orquestrador (--dock-w, publicada pelo gerenciador):
+   se cobrisse a área da conversa, ela se esconderia enquanto o aviso estivesse na tela */
 .toast {
-  position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); text-align: center;
+  position: fixed; left: 16px; right: calc(var(--dock-w, 0px) + 16px); bottom: 150px; width: fit-content; margin: 0 auto; text-align: center;
   background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); z-index: 45; max-width: 80vw; font-weight: 500;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25); z-index: 45; max-width: min(80vw, calc(100vw - var(--dock-w, 0px) - 32px)); font-weight: 500;
 }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.18s, transform 0.18s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(-50%, 8px); }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 </style>

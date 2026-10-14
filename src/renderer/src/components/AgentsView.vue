@@ -366,6 +366,12 @@ watch(dockEl, (el) => {
   }
   reportArea()
 })
+// a largura da área encaixada vira uma variável CSS da página: os avisos (toast) se mantêm fora dela
+watch(
+  () => (orch.value && state.showDock ? dockWidth.value : 0),
+  (w) => document.documentElement.style.setProperty('--dock-w', `${w}px`),
+  { immediate: true }
+)
 onMounted(() => {
   window.addEventListener('resize', reportArea)
   // diálogos abrem e fecham, barras aparecem: a área muda de lugar ou precisa sumir
@@ -373,6 +379,7 @@ onMounted(() => {
   domObs.observe(document.body, { childList: true, subtree: true })
 })
 onUnmounted(() => {
+  document.documentElement.style.removeProperty('--dock-w')
   window.removeEventListener('resize', reportArea)
   domObs?.disconnect()
   sizeObs?.disconnect()
