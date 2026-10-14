@@ -516,8 +516,8 @@ export type AgentChatEvent =
   | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
-  /** Quanto da janela de contexto está ocupado (Claude Code: a cada mensagem do assistente) */
-  | { type: 'context'; context: AgentContext }
+  /** Quanto da janela de contexto está ocupado (Claude Code: a cada mensagem do assistente); null: tamanho da janela desconhecido */
+  | { type: 'context'; context: AgentContext | null }
   /** O resumo da IA para o contexto trazido de outra conversa chegou (ou falhou: vem o automático, sem `pending`) */
   | { type: 'handoff'; handoff: AgentHandoff }
   /** O agente gravou o plano num arquivo dele (Claude Code, em ~/.claude/plans): `text` é o conteúdo, para aparecer na conversa */
