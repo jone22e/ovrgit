@@ -211,6 +211,13 @@ function scheduleBroadcast() {
 }
 
 /** Para o serviço: pede para encerrar e, se não sair em 3 s, mata. */
+/** Últimas linhas da saída (da execução atual ou da última), sem códigos de cor: para a API dos agentes */
+export function serviceOutput(id: string, lines = 40): string[] {
+  const raw = running.get(id)?.buffer ?? lastBuffers.get(id) ?? ''
+  const clean = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '\n')
+  return clean.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim()).slice(-lines)
+}
+
 export function stopService(id: string): void {
   const r = running.get(id)
   if (!r) return

@@ -44,6 +44,7 @@ import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
+import * as agentApi from './agentApi'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
 import type { ServicesFile } from '../shared/servicesShare'
@@ -910,6 +911,10 @@ app.whenReady().then(() => {
     }
   })
   services.setupServices({ icon, background: initialBackground })
+  // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
+  agentApi
+    .startAgentApi({ services: () => getSettings().services, states: services.serviceStates, start: services.startService, stop: services.stopService, output: services.serviceOutput })
+    .catch((e) => console.error('API local dos agentes não subiu:', e))
   createWindow()
   // os agentes abertos da última vez voltam como estavam (conversas retomadas, em espera, a da área do orquestrador)
   if (getSettings().restoreAgents !== false) agentChat.restoreOpenAgents().catch((e) => console.error('Não consegui reabrir os agentes:', e))
@@ -937,6 +942,7 @@ function prepareQuit() {
   agentChat.shutdownAgents()
   killAllTerminals()
   services.stopAllServices()
+  agentApi.stopAgentApi()
 }
 /**
  * Reiniciar para atualizar. No Mac o Electron fecha todas as janelas e só reinicia quando a última fechar: tudo

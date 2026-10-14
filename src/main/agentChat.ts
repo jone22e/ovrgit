@@ -17,6 +17,7 @@ import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBoun
 import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
 import { quickAsk } from './quickAi'
 import { sessionContext } from './agentWatch'
+import { agentApiInfo } from './agentApi'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -1188,13 +1189,28 @@ export function servicesNote(): string {
   }
   const stopped = list.filter((s) => states.find((x) => x.id === s.id)?.status !== 'running').map((s) => s.name)
   if (!lines.length && !stopped.length) return ''
+  const api = agentApiInfo()
   return [
     '<running_services>',
-    'Serviços que o usuário mantém rodando neste computador pelo Ovseer (menu Serviços). Use as portas abaixo quando precisar deles (banco, túnel, servidor de desenvolvimento) e não os suba de novo; se precisar de um que está parado, peça ao usuário para iniciá-lo no Ovseer.',
+    `Serviços que o usuário mantém rodando neste computador pelo Ovseer (menu Serviços). Use as portas abaixo quando precisar deles (banco, túnel, servidor de desenvolvimento) e não os suba de novo; se precisar de um que está parado, ${api ? 'ligue-o pela API local abaixo, sem pedir ao usuário' : 'peça ao usuário para iniciá-lo no Ovseer'}.`,
     ...(lines.length ? ['Em execução:', ...lines] : ['Em execução: nenhum.']),
     ...(stopped.length ? [`Cadastrados mas parados: ${stopped.join(', ')}.`] : []),
+    ...(api ? apiHowTo(api) : []),
     '</running_services>'
   ].join('\n')
+}
+/** Como o agente usa a API local dos serviços (curl; só neste computador) */
+function apiHowTo(api: { port: number; token: string }): string[] {
+  const base = `http://127.0.0.1:${api.port}`
+  const h = `-H "Authorization: Bearer ${api.token}"`
+  return [
+    'API local do Ovseer para ligar e desligar serviços (só neste computador; use o nome do serviço codificado na URL):',
+    `- Listar, com estado e portas: curl -s ${h} ${base}/services`,
+    `- Ligar e esperar até 30 s por uma porta em escuta: curl -s -X POST ${h} "${base}/services/NOME/start?wait=30" (a resposta traz "ready": true quando há porta; senão confira "log")`,
+    `- Desligar: curl -s -X POST ${h} ${base}/services/NOME/stop`,
+    `- Últimas linhas da saída: curl -s ${h} "${base}/services/NOME/log?lines=40"`,
+    'Depois de ligar, use as portas da resposta. Não desligue serviços que você não ligou.'
+  ]
 }
 
 /** Orientação de formato do plano para o modo: título sempre; no Plano com Checklist, a seção de checklist no fim */
