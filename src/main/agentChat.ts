@@ -1309,14 +1309,40 @@ export interface ClaudeParseState {
   /** Texto já recebido em pedaços desde a última mensagem completa (evita duplicar) */
   streamed: number
   done: boolean
-  /** Janela de contexto: tokens do último pedido e o tamanho (do `context_usage` ou do `modelUsage` do resultado) */
+  /** Janela de contexto: tokens do último pedido e o tamanho, só quando o CLI disse (`context_usage` ou `modelUsage`) */
   used?: number
   window?: number
+  /** Modelo da conversa (da mensagem do assistente ou do init): para o tamanho da janela por modelo */
+  model?: string
   /** O CLI compactou a conversa nesta vez (vale até o fim dela) */
   compacted?: boolean
 }
-/** Tamanho da janela do Claude quando o CLI não diz (modelos atuais) */
-export const CLAUDE_WINDOW = 200_000
+/** Tamanhos de janela aprendidos do `modelUsage` dos resultados, por modelo: valem para as conversas seguintes */
+const learnedWindows = new Map<string, number>()
+/**
+ * Tamanho da janela de um modelo do Claude quando o CLI ainda não disse: os modelos 3 e 4 têm 200 mil (1 milhão com
+ * o sufixo [1m]); os demais só depois de aprendido. Sem saber, a bateria não aparece: um palpite errado mostraria
+ * uma bateria vazia numa conversa com folga (um modelo 5.x passou de 230 mil tokens sem compactar).
+ */
+export function claudeWindowFor(model: string | undefined): number | undefined {
+  if (!model) return undefined
+  const learned = learnedWindows.get(model)
+  if (learned) return learned
+  if (/\[1m\]/i.test(model)) return 1_000_000
+  if (/claude-(opus|sonnet|haiku)-[34](\b|[-.])/i.test(model) || /claude-3/i.test(model)) return 200_000
+  return undefined
+}
+/**
+ * A leitura da bateria: o uso sobre a janela informada pelo CLI ou, sem ela, a conhecida do modelo. Com um palpite
+ * que o uso já ultrapassou, o palpite estava errado: null, e a bateria some até o CLI dizer o tamanho.
+ */
+function contextOf(st: ClaudeParseState): AgentContext | null {
+  if (st.used === undefined) return null
+  const reliable = st.window !== undefined
+  const window = st.window ?? claudeWindowFor(st.model)
+  if (!window || (!reliable && st.used > window)) return null
+  return { used: st.used, window, compacted: st.compacted || undefined }
+}
 
 interface ClaudeBlock {
   type?: string
@@ -1409,8 +1435,9 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
   const out: AgentChatEvent[] = []
   // mensagens internas de subagentes não entram na conversa
   if (o.parent_tool_use_id) return out
-  const msg = (o.message ?? {}) as { content?: ClaudeBlock[]; usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }
+  const msg = (o.message ?? {}) as { content?: ClaudeBlock[]; model?: string; usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }
   if (o.type === 'system' && o.subtype === 'init') {
+    if (typeof o.model === 'string') st.model = o.model
     out.push({ type: 'session', sessionId: String(o.session_id ?? ''), model: typeof o.model === 'string' ? o.model : undefined })
   } else if (o.type === 'system' && o.subtype === 'compact_boundary') {
     // o CLI resumiu a conversa: a próxima mensagem traz o contexto já enxuto (a bateria "recarrega")
@@ -1425,6 +1452,7 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     }
   } else if (o.type === 'assistant') {
     // janela de contexto: o CLI recente manda `context_usage` pronto; os outros, o `usage` da API (entrada + cache)
+    if (typeof msg.model === 'string') st.model = msg.model
     const cu = o.context_usage as { total_tokens?: number; raw_max_tokens?: number } | undefined
     const u = msg.usage
     if (cu && Number(cu.total_tokens) >= 0 && Number(cu.raw_max_tokens) > 0) {
@@ -1433,7 +1461,7 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     } else if (u && (u.input_tokens !== undefined || u.cache_read_input_tokens !== undefined)) {
       st.used = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0)
     }
-    if (st.used !== undefined) out.push({ type: 'context', context: { used: st.used, window: st.window ?? CLAUDE_WINDOW, compacted: st.compacted || undefined } })
+    if (st.used !== undefined) out.push({ type: 'context', context: contextOf(st) })
     for (const b of msg.content ?? []) {
       if (b.type === 'text' && b.text) {
         // sem pedaços parciais (CLI antigo ou opção ignorada): entrega o texto inteiro de uma vez
@@ -1459,11 +1487,17 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     }
   } else if (o.type === 'result') {
     st.done = true
-    // o tamanho da janela vem no resultado, por modelo: fica guardado para as próximas vezes (e corrige o palpite)
-    const mu = Object.values((o.modelUsage ?? {}) as Record<string, { inputTokens?: number; contextWindow?: number }>).sort((a, b) => (Number(b.inputTokens) || 0) - (Number(a.inputTokens) || 0))[0]
-    if (mu && Number(mu.contextWindow) > 0 && mu.contextWindow !== st.window) {
-      st.window = Number(mu.contextWindow)
-      if (st.used !== undefined) out.push({ type: 'context', context: { used: st.used, window: st.window, compacted: st.compacted || undefined } })
+    // o tamanho da janela vem no resultado, por modelo: fica aprendido para as próximas vezes (e corrige o palpite)
+    const usage = (o.modelUsage ?? {}) as Record<string, { inputTokens?: number; contextWindow?: number }>
+    const top = Object.entries(usage).sort(([, a], [, b]) => (Number(b.inputTokens) || 0) - (Number(a.inputTokens) || 0))[0]
+    if (top && Number(top[1].contextWindow) > 0) {
+      const window = Number(top[1].contextWindow)
+      learnedWindows.set(top[0], window)
+      if (st.model) learnedWindows.set(st.model, window)
+      if (window !== st.window) {
+        st.window = window
+        if (st.used !== undefined) out.push({ type: 'context', context: contextOf(st) })
+      }
     }
     st.compacted = false
     const err = o.is_error ? friendlyClaudeError(String(o.result ?? o.subtype ?? 'erro')) : undefined
@@ -1817,7 +1851,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       if (ev.type === 'text' && answer.length < 3000) answer += ev.delta
       if (ev.type === 'context') {
         // a bateria do cartão: fica na janela e vai no resumo para o gerenciador (a conversa em si não mostra)
-        w.context = ev.context
+        w.context = ev.context ?? undefined
         broadcastSnapshots()
         continue
       }

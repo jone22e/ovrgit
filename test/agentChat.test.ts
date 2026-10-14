@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { CLAUDE_WINDOW, claudeArgs, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -433,15 +433,31 @@ describe('modo orquestrador: área da conversa dentro da janela principal', () =
 
 describe('janela de contexto do Claude Code', () => {
   const st = (): ClaudeParseState => ({ cwd: '/p', streamed: 0, done: false })
-  it('context_usage pronto do CLI; senão o usage da API com a janela padrão; o resultado corrige a janela', () => {
+  it('context_usage pronto do CLI; senão o usage da API com a janela conhecida do modelo; o resultado corrige e ensina a janela', () => {
     const a = parseClaudeLine(j({ type: 'assistant', context_usage: { total_tokens: 61_000, raw_max_tokens: 200_000 }, message: { content: [] } }), st())
     expect(a).toContainEqual({ type: 'context', context: { used: 61_000, window: 200_000 } })
+    expect(claudeWindowFor('claude-sonnet-4-5')).toBe(200_000)
+    expect(claudeWindowFor('claude-opus-4-1[1m]')).toBe(1_000_000)
+    expect(claudeWindowFor('claude-nova-9')).toBeUndefined()
     const s2 = st()
-    const b = parseClaudeLine(j({ type: 'assistant', message: { content: [], usage: { input_tokens: 10, cache_creation_input_tokens: 20_000, cache_read_input_tokens: 40_000, output_tokens: 300 } } }), s2)
-    expect(b).toContainEqual({ type: 'context', context: { used: 60_010, window: CLAUDE_WINDOW } })
-    const r = parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: { 'claude-x': { inputTokens: 5, contextWindow: 1_000_000 } } }), s2)
+    const b = parseClaudeLine(j({ type: 'assistant', message: { model: 'claude-sonnet-4-5', content: [], usage: { input_tokens: 10, cache_creation_input_tokens: 20_000, cache_read_input_tokens: 40_000, output_tokens: 300 } } }), s2)
+    expect(b).toContainEqual({ type: 'context', context: { used: 60_010, window: 200_000 } })
+    const r = parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: { 'claude-sonnet-4-5': { inputTokens: 5, contextWindow: 1_000_000 } } }), s2)
     expect(r[0]).toEqual({ type: 'context', context: { used: 60_010, window: 1_000_000 } })
     expect(r[1].type).toBe('done')
+    // aprendido: uma conversa nova com o mesmo modelo já conhece a janela
+    expect(claudeWindowFor('claude-sonnet-4-5')).toBe(1_000_000)
+  })
+  it('modelo de janela desconhecida: a bateria não aparece até o resultado dizer o tamanho; palpite ultrapassado some', () => {
+    const s = st()
+    const a = parseClaudeLine(j({ type: 'assistant', message: { model: 'claude-nova-9', content: [], usage: { input_tokens: 32, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 220_000 } } }), s)
+    expect(a).toContainEqual({ type: 'context', context: null })
+    const r = parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: { 'claude-nova-9': { inputTokens: 5, contextWindow: 1_000_000 } } }), s)
+    expect(r[0]).toEqual({ type: 'context', context: { used: 225_032, window: 1_000_000 } })
+    // palpite de 200 mil que o uso já passou: nada de bateria vazia
+    const s2 = st()
+    const b = parseClaudeLine(j({ type: 'assistant', message: { model: 'claude-opus-4-1', content: [], usage: { input_tokens: 32, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 220_000 } } }), s2)
+    expect(b).toContainEqual({ type: 'context', context: null })
   })
   it('compactação: as mensagens seguintes vêm marcadas até o fim da vez; subagentes não contam', () => {
     const s = st()
