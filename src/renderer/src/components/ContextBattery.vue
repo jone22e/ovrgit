@@ -22,21 +22,27 @@ const fill = computed(() => (left.value <= 0 ? 0 : Math.max(1, Math.round(12 * l
 </script>
 
 <template>
-  <svg class="bat" :class="tone" viewBox="0 0 20 12" width="20" height="12" role="img" :aria-label="title">
-    <title>{{ title }}</title>
-    <rect class="body" x="0.75" y="0.75" width="15.5" height="10.5" rx="2.5" />
-    <rect class="nub" x="17.25" y="3.5" width="2" height="5" rx="1" />
-    <rect class="charge" x="2.5" y="2.5" :width="fill" height="7" rx="1" />
-    <path v-if="tone === 'charged'" class="bolt" d="M9.5 1.5 6 7h2.4l-.9 3.5L11 5H8.6z" />
-  </svg>
+  <span class="bat-wrap" :class="tone" :title="title">
+    <svg class="bat" viewBox="0 0 20 12" width="20" height="12" role="img" :aria-label="title">
+      <title>{{ title }}</title>
+      <rect class="body" x="0.75" y="0.75" width="15.5" height="10.5" rx="2.5" />
+      <rect class="nub" x="17.25" y="3.5" width="2" height="5" rx="1" />
+      <rect class="charge" x="2.5" y="2.5" :width="fill" height="7" :rx="fill < 2 ? 0 : 1" />
+      <path v-if="tone === 'charged'" class="bolt" d="M9.5 1.5 6 7h2.4l-.9 3.5L11 5H8.6z" />
+    </svg>
+    <!-- restando pouco, a barrinha vira um fio que o olho lê como nada: o número diz quanto sobra -->
+    <small v-if="tone === 'low'" class="pct mono">{{ Math.round(left * 100) }}%</small>
+  </span>
 </template>
 
 <style scoped>
-.bat { display: block; flex: none; color: var(--faint); }
+.bat-wrap { display: inline-flex; align-items: center; gap: 3px; flex: none; color: var(--faint); }
+.bat { display: block; flex: none; }
 .body { fill: none; stroke: currentColor; stroke-width: 1.3; }
 .nub, .charge { fill: currentColor; opacity: 0.8; }
-.bat.low { color: var(--del); }
-.bat.charged { color: var(--accent); }
-.bat.charged .charge { opacity: 0.3; }
+.bat-wrap.low { color: var(--del); }
+.bat-wrap.charged { color: var(--accent); }
+.bat-wrap.charged .charge { opacity: 0.3; }
+.pct { font-size: 10px; font-weight: 700; line-height: 1; }
 .bolt { fill: var(--accent); stroke: var(--panel); stroke-width: 0.7; paint-order: stroke; }
 </style>
