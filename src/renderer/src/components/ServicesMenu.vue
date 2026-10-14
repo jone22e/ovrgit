@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { count } from '@shared/plural'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { keepOutOfDock } from '../popover'
 import type { AwsStatus, Service, ServiceState } from '@shared/types'
 import { api, openTerminalTab, state, toast } from '../store'
 import Icon from './Icon.vue'
@@ -95,11 +96,14 @@ function awsSettings() {
   state.showSettings = true
 }
 
+const menuEl = ref<HTMLElement>()
 function toggle() {
   open.value = !open.value
   if (!open.value) return
   loadAws()
   query.value = ''
+  // com a conversa encaixada ao lado, o menu abre à esquerda dela (senão ficaria por baixo da vista)
+  nextTick(() => keepOutOfDock(menuEl.value))
   setTimeout(() => searchEl.value?.focus(), 30)
 }
 
@@ -173,7 +177,7 @@ onUnmounted(() => {
       <Icon name="server" />
       <span v-if="running.length" class="count">{{ running.length }}</span>
     </button>
-    <div v-if="open" class="menu">
+    <div v-if="open" ref="menuEl" class="menu">
       <div class="head">
         <strong>Serviços</strong>
         <span class="head-right">

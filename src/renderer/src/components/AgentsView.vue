@@ -256,7 +256,7 @@ type Box = { x: number; y: number; width: number; height: number }
  * esquerda ou à direita do que cobre), e só some se sobrar pouco espaço.
  */
 function freeArea(el: HTMLElement, r: DOMRect): Box | null {
-  if (document.querySelector('.backdrop, .overlay-backdrop')) return null
+  // um fundo escurecido (diálogo, buscador) só conta se cobrir a área de fato: a amostragem o encontra
   const covers: DOMRect[] = []
   const step = 56
   for (let y = r.top + 6; y < r.bottom; y += step) {
