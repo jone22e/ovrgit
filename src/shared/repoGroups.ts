@@ -26,6 +26,18 @@ export function groupOf(groups: RepoGroup[], cwd: string, extra: string[] = []):
 /** "a + b + c": os nomes das pastas do grupo */
 export const groupMembers = (g: RepoGroup) => g.dirs.map(repoName).join(' + ')
 
+/** Minúsculas e sem acento: "configuracao" acha "Configuração" */
+const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+/** Palavras do campo de busca do seletor de repositórios */
+export const searchWords = (query: string) => fold(query).split(/\s+/).filter(Boolean)
+/** Todas as palavras aparecem em algum dos textos, em qualquer ordem (sem palavras, tudo passa) */
+export function hasWords(words: string[], ...texts: string[]): boolean {
+  const t = fold(texts.join(' '))
+  return words.every((w) => t.includes(w))
+}
+/** O grupo bate com a busca pelo nome ou pelas pastas que reúne */
+export const groupMatches = (words: string[], g: RepoGroup) => hasWords(words, g.name, ...g.dirs)
+
 /**
  * Espaço de trabalho ao aplicar um grupo. Com a conversa ainda sem começar (`switchable`) e o principal fora do
  * grupo, o primeiro repositório do grupo vira o principal; senão o principal fica e o resto do grupo é juntado.

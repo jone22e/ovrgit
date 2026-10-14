@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyGroup, groupMembers, groupOf, repoName, sameRepos, saveGroup } from '../src/shared/repoGroups'
+import { applyGroup, groupMatches, groupMembers, groupOf, hasWords, repoName, sameRepos, saveGroup, searchWords } from '../src/shared/repoGroups'
 
 const g = { id: '1', name: 'SmartConnect', dirs: ['/w/gateway', '/w/receiver', '/w/reader'] }
 
@@ -55,5 +55,21 @@ describe('nomes', () => {
   it('mostra os nomes das pastas', () => {
     expect(repoName('/w/gateway/')).toBe('gateway')
     expect(groupMembers(g)).toBe('gateway + receiver + reader')
+  })
+})
+
+describe('busca', () => {
+  it('todas as palavras, em qualquer ordem, sem acento nem maiúsculas', () => {
+    const words = searchWords('  Recéiver   w ')
+    expect(words).toEqual(['receiver', 'w'])
+    expect(hasWords(words, '/w/receiver')).toBe(true)
+    expect(hasWords(words, '/x/receiver')).toBe(false)
+    expect(hasWords(searchWords('configuracao'), '/w/Configuração')).toBe(true)
+    expect(hasWords([], '/qualquer')).toBe(true)
+  })
+  it('o grupo bate pelo nome ou pelas pastas', () => {
+    expect(groupMatches(searchWords('smart'), g)).toBe(true)
+    expect(groupMatches(searchWords('reader'), g)).toBe(true)
+    expect(groupMatches(searchWords('outro'), g)).toBe(false)
   })
 })

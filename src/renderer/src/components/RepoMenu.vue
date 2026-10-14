@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { RepoGroup } from '@shared/types'
-import { groupMembers, groupOf, repoName, saveGroup } from '@shared/repoGroups'
+import { groupMatches, groupMembers, groupOf, hasWords, repoName, saveGroup, searchWords } from '@shared/repoGroups'
 import Icon from './Icon.vue'
 
 /**
@@ -11,6 +11,8 @@ import Icon from './Icon.vue'
  *
  * Um conjunto que se repete pode ser salvo como grupo, com nome: quando o espaço de trabalho é exatamente um
  * grupo salvo, o chip mostra o nome do grupo no lugar dos chips, e a lista aplica qualquer grupo com um clique.
+ *
+ * Um campo de busca no topo filtra grupos e repositórios; Enter escolhe o primeiro da lista.
  */
 const props = defineProps<{
   /** Pasta atual */
@@ -49,6 +51,12 @@ function place() {
 }
 const projects = ref<string[]>([])
 const icons = reactive(new Map<string, string | null>())
+
+/* busca: filtra grupos (nome ou pastas) e repositórios (caminho); todas as palavras, em qualquer ordem */
+const query = ref('')
+const searchInput = ref<HTMLInputElement>()
+const words = computed(() => searchWords(query.value))
+const shownProjects = computed(() => projects.value.filter((p) => hasWords(words.value, p)))
 const base = repoName
 const dir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
 
@@ -64,6 +72,7 @@ async function loadGroups() {
   const s = await api.getSettings().catch(() => null)
   groups.value = s?.repoGroups ?? []
 }
+const shownGroups = computed(() => (props.extensible ? groups.value.filter((g) => groupMatches(words.value, g)) : []))
 const group = computed(() => groupOf(groups.value, props.cwd, extras.value))
 const isCur = (g: RepoGroup) => group.value?.id === g.id
 const chipTitle = computed(() => {
@@ -111,7 +120,9 @@ async function toggle() {
   open.value = !open.value
   naming.value = false
   if (!open.value) return
+  query.value = ''
   place()
+  nextTick(() => searchInput.value?.focus())
   loadGroups()
   projects.value = await api.agentProjects().catch(() => [])
   for (const p of projects.value) {
@@ -136,6 +147,19 @@ function toggleExtra(p: string) {
 function pickExtra() {
   open.value = false
   emit('pickExtra')
+}
+/** Esc na busca: limpa; já vazia, fecha a lista */
+function onSearchEsc() {
+  if (query.value) query.value = ''
+  else open.value = false
+}
+/** Enter na busca: o primeiro da lista (grupo ou repositório) */
+function chooseFirst() {
+  if (!query.value.trim()) return
+  const g = shownGroups.value[0]
+  if (g) return apply(g)
+  const p = shownProjects.value[0]
+  if (p) choose(p)
 }
 function pick() {
   open.value = false
@@ -202,10 +226,15 @@ onUnmounted(() => {
     <small v-if="group && big" class="members faint" :title="[cwd, ...extras].join('\n')">{{ groupMembers(group) }}</small>
     <Teleport to="body">
       <div v-if="open" ref="popEl" class="pop" :class="{ big }" role="menu" :style="popStyle">
-      <template v-if="groups.length && extensible">
+      <label class="search">
+        <Icon name="search" :size="13" />
+        <input ref="searchInput" v-model="query" type="text" :placeholder="groups.length && extensible ? 'Buscar repositório ou grupo' : 'Buscar repositório'" spellcheck="false" @keydown.esc.stop="onSearchEsc" @keydown.enter.prevent="chooseFirst" />
+        <button v-if="query" type="button" class="ghost clear" title="Limpar" @click="query = ''"><Icon name="x" :size="12" /></button>
+      </label>
+      <template v-if="shownGroups.length">
         <h6>Grupos</h6>
         <div class="list groups">
-          <button v-for="g in groups" :key="g.id" type="button" class="ghost opt grp-opt" :class="{ cur: isCur(g) }" :title="g.dirs.join('\n')" @click="apply(g)">
+          <button v-for="g in shownGroups" :key="g.id" type="button" class="ghost opt grp-opt" :class="{ cur: isCur(g) }" :title="g.dirs.join('\n')" @click="apply(g)">
             <Icon name="layers" :size="14" :class="isCur(g) ? 'ok' : 'faint'" />
             <span class="opt-text">
               <strong class="ellipsis">{{ g.name }}</strong>
@@ -219,7 +248,7 @@ onUnmounted(() => {
       </template>
       <h6>{{ switchable ? 'Repositório principal' : 'Repositórios da conversa' }}</h6>
       <div class="list">
-        <button v-for="p in projects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd, in: inExtra(p) }" :title="p" @click="choose(p)">
+        <button v-for="p in shownProjects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd, in: inExtra(p) }" :title="p" @click="choose(p)">
           <img v-if="icons.get(p)" :src="icons.get(p)!" class="fav" alt="" />
           <Icon v-else name="folder" :size="14" class="faint" />
           <span class="opt-text">
@@ -232,6 +261,7 @@ onUnmounted(() => {
           </span>
         </button>
         <p v-if="!projects.length" class="faint none">Nenhum repositório recente.</p>
+        <p v-else-if="!shownProjects.length" class="faint none">Nenhum repositório com “{{ query.trim() }}”.</p>
       </div>
       <hr class="sep" />
       <button v-if="switchable" type="button" class="ghost opt" @click="pick"><Icon name="folder" :size="14" class="faint" /><strong>Outra pasta como principal…</strong></button>
@@ -296,6 +326,14 @@ onUnmounted(() => {
 }
 @keyframes drop { from { opacity: 0; } }
 h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); flex: none; }
+/* a busca: campo discreto no topo, no mesmo estilo do filtro da árvore de arquivos */
+.search {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 2px 4px 4px; padding: 0 6px 0 9px;
+  border: 1px solid var(--border); border-radius: 7px; color: var(--faint); background: var(--bg);
+}
+.search:focus-within { border-color: var(--accent); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; box-shadow: none; background: transparent; padding: 0; height: 100%; border-radius: 0; font-size: 12.5px; color: var(--text); }
+.search .clear { width: 20px; height: 20px; padding: 0; flex: none; }
 .list { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 /* o menu não cabe na altura da janela: só a lista de repositórios encolhe e rola; os grupos (poucos) ficam inteiros */
 .list.groups { flex: none; max-height: 150px; }
