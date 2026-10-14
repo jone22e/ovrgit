@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, watch, type FSWatcher } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { AgentEffort, AgentSession, KnownModels, ModelInfo, ProviderUsage, UsageWindow } from '../shared/types'
+import type { AgentContext, AgentEffort, AgentSession, KnownModels, ModelInfo, ProviderUsage, UsageWindow } from '../shared/types'
 
 /**
  * Acompanha agentes de IA pelos registros locais que eles mesmos gravam. Nada sai do computador.
@@ -38,6 +38,8 @@ const debounce = new Map<string, ReturnType<typeof setTimeout>>()
 export interface AgentHandlers {
   onUpdate: (list: AgentSession[]) => void
   onFinished: (s: AgentSession) => void
+  /** O Codex informou a janela de contexto de uma sessão (ao vivo) */
+  onContext?: (sessionId: string, context: AgentContext) => void
   /**
    * Só as sessões para as quais isto devolve true entram na lista e nos avisos (as conversas abertas pelo
    * próprio app). As demais continuam sendo lidas, porque é delas que vêm o consumo e os modelos do Codex,
@@ -225,6 +227,21 @@ export function codexCatalog(): ModelInfo[] {
   }
 }
 
+/** Janela de contexto pelo `token_count` do Codex: o último pedido (entrada + saída, que vai junto no próximo) sobre a janela do modelo */
+export function codexContext(info: unknown): AgentContext | null {
+  const i = info as { last_token_usage?: { input_tokens?: number; output_tokens?: number }; model_context_window?: number } | undefined
+  const last = i?.last_token_usage
+  const window = Number(i?.model_context_window)
+  if (!last || !(window > 0)) return null
+  const used = (Number(last.input_tokens) || 0) + (Number(last.output_tokens) || 0)
+  return { used, window }
+}
+/** Janela de contexto de uma sessão do Codex já lida do disco (id da sessão), se houver */
+export function sessionContext(id: string): AgentContext | undefined {
+  for (const s of tracked.values()) if (s.id === id && s.context) return s.context
+  return undefined
+}
+
 function finished(s: Tracked, live: boolean) {
   if (live && s.completedAt && s.completedAt >= startedAt - 5000 && (handlers?.isOwn?.(s.id) ?? true)) handlers?.onFinished(publicView(s))
 }
@@ -257,6 +274,11 @@ function apply(s: Tracked, line: string, live: boolean) {
     }
   } else if (kind === 'event_msg/token_count') {
     sawCodexLimits(p.rate_limits, Date.parse(String((o as { timestamp?: string }).timestamp ?? '')) || s.updatedAt)
+    const ctx = codexContext(p.info)
+    if (ctx) {
+      s.context = ctx
+      if (live) handlers?.onContext?.(s.id, ctx)
+    }
   } else if (kind === 'event_msg/task_started') {
     s.running = true
     s.stale = false

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { CLAUDE_WINDOW, claudeArgs, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -428,5 +428,29 @@ describe('modo orquestrador: área da conversa dentro da janela principal', () =
     expect(b.x + b.width).toBe(content.x + content.width)
     expect(b.y + b.height).toBe(content.y + content.height)
     expect(dockedBounds(content, { x: 0, y: 0, width: 0, height: 0 }, 0)).toEqual({ x: 100, y: 50, width: 1, height: 1 })
+  })
+})
+
+describe('janela de contexto do Claude Code', () => {
+  const st = (): ClaudeParseState => ({ cwd: '/p', streamed: 0, done: false })
+  it('context_usage pronto do CLI; senão o usage da API com a janela padrão; o resultado corrige a janela', () => {
+    const a = parseClaudeLine(j({ type: 'assistant', context_usage: { total_tokens: 61_000, raw_max_tokens: 200_000 }, message: { content: [] } }), st())
+    expect(a).toContainEqual({ type: 'context', context: { used: 61_000, window: 200_000 } })
+    const s2 = st()
+    const b = parseClaudeLine(j({ type: 'assistant', message: { content: [], usage: { input_tokens: 10, cache_creation_input_tokens: 20_000, cache_read_input_tokens: 40_000, output_tokens: 300 } } }), s2)
+    expect(b).toContainEqual({ type: 'context', context: { used: 60_010, window: CLAUDE_WINDOW } })
+    const r = parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: { 'claude-x': { inputTokens: 5, contextWindow: 1_000_000 } } }), s2)
+    expect(r[0]).toEqual({ type: 'context', context: { used: 60_010, window: 1_000_000 } })
+    expect(r[1].type).toBe('done')
+  })
+  it('compactação: as mensagens seguintes vêm marcadas até o fim da vez; subagentes não contam', () => {
+    const s = st()
+    parseClaudeLine(j({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 180_000 } }), s)
+    const a = parseClaudeLine(j({ type: 'assistant', context_usage: { total_tokens: 30_000, raw_max_tokens: 200_000 }, message: { content: [] } }), s)
+    expect(a[0]).toEqual({ type: 'context', context: { used: 30_000, window: 200_000, compacted: true } })
+    expect(parseClaudeLine(j({ type: 'assistant', parent_tool_use_id: 't1', context_usage: { total_tokens: 5, raw_max_tokens: 200_000 }, message: { content: [] } }), s)).toEqual([])
+    parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: {} }), s)
+    const b = parseClaudeLine(j({ type: 'assistant', context_usage: { total_tokens: 31_000, raw_max_tokens: 200_000 }, message: { content: [] } }), s)
+    expect(b[0]).toEqual({ type: 'context', context: { used: 31_000, window: 200_000 } })
   })
 })

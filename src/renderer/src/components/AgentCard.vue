@@ -6,14 +6,16 @@ import { EFFORT_LABEL, MODES } from '@shared/models'
 import { api, ask, state } from '../store'
 import AgentBuddy from './AgentBuddy.vue'
 import AgentLogo from './AgentLogo.vue'
+import ContextBattery from './ContextBattery.vue'
 import Heartbeat from './Heartbeat.vue'
 import Icon from './Icon.vue'
 
 /**
  * Cartão de um agente no modo orquestrador: número do atalho em destaque, anel de progresso (o checklist do plano;
  * sem checklist, girando enquanto trabalha), selo de situação, o que o agente está fazendo e os controles da janela.
- * No rodapé, entre o modo e os controles, os sinais vitais: um traçado de eletrocardiograma cujo ritmo diz o
- * estado antes de ler qualquer texto. Clicar no cartão mostra a conversa na área ao lado.
+ * No rodapé, entre o modo e os controles, os sinais vitais: a bateria de contexto (quanto da janela ainda está
+ * livre) e um traçado de eletrocardiograma cujo ritmo diz o estado antes de ler qualquer texto. Clicar no cartão
+ * mostra a conversa na área ao lado.
  *
  * Todos os cartões têm a mesma altura: cada parte que varia (título, texto do que está fazendo ou etiquetas do
  * resultado, barrinhas das etapas) tem uma altura reservada, então o texto muda sem mexer no grid.
@@ -283,8 +285,11 @@ async function saveRename() {
       <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
       <button v-else-if="tone === 'stalled'" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="emit('act', { type: 'nudge' })">Cutucar</button>
       <small v-else-if="a.status === 'waiting'" class="meta hint ellipsis">Clique para responder</small>
-      <small v-else class="faint meta ellipsis">{{ modeLabel }}<template v-if="effortLabel"> · {{ effortLabel }}</template></small>
-      <span class="gap"><Heartbeat v-if="tone !== 'idle'" :tone="tone" /></span>
+      <small v-else class="faint meta ellipsis" :title="effortLabel ? `${modeLabel} · ${effortLabel}` : modeLabel">{{ modeLabel }}<template v-if="effortLabel"> · {{ effortLabel }}</template></small>
+      <span class="gap">
+        <ContextBattery v-if="a.context" :context="a.context" />
+        <Heartbeat v-if="tone !== 'idle'" :tone="tone" />
+      </span>
       <span class="ctl">
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
         <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
@@ -375,7 +380,7 @@ async function saveRename() {
 @media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
 
 .status { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gap { flex: 1; min-width: 0; display: flex; justify-content: center; padding: 0 6px; }
+.gap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 6px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); flex: none; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.live { color: var(--accent); background: var(--accent-soft); }

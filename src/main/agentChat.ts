@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, Notification, screen, shell, WebContentsView, webContents as allWebContents } from 'electron'
-import type { AgentAction, AgentAttachment, AgentChatEvent, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, AgentContext, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -16,6 +16,7 @@ import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
 import { quickAsk } from './quickAi'
+import { sessionContext } from './agentWatch'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -51,6 +52,8 @@ interface AgentWin {
   titleToken?: symbol
   /** Resumo da IA em andamento para o contexto trazido de outra conversa: descartar ou recomeçar invalida o resultado */
   handoffToken?: symbol
+  /** Janela de contexto, pelo CLI (Claude: a cada mensagem; Codex: pelo arquivo de sessão); a bateria do cartão */
+  context?: AgentContext
   /** Processo do conceito visual (Modo Arquiteto), separado da conversa e possivelmente de outra IA */
   designChild?: ChildProcessWithoutNullStreams | null
   /** Segundo plano: fechar a janela só a esconde, e o agente continua (o gerenciador é quem fecha de verdade) */
@@ -777,7 +780,23 @@ export function agentSnapshots(): AgentSnapshot[] {
   return [...wins.values()]
     .filter((w) => w.snap && !w.win.isDestroyed())
     // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
-    .map((w) => ({ ...w.snap!, hidden: !orchestratorOn() && !w.win.isVisible(), background: !!w.background, docked: w.info.uid === dockedUid, standby: !!w.info.standby }))
+    .map((w) => ({
+      ...w.snap!,
+      hidden: !orchestratorOn() && !w.win.isVisible(),
+      background: !!w.background,
+      docked: w.info.uid === dockedUid,
+      standby: !!w.info.standby,
+      // Codex não manda o contexto na saída do exec: vem do arquivo de sessão, que o observador lê
+      context: w.context ?? (w.info.sessionId ? sessionContext(w.info.sessionId) : undefined)
+    }))
+}
+
+/** O observador leu a janela de contexto de uma sessão (Codex): a janela dona dela atualiza o cartão */
+export function sessionContextChanged(sessionId: string, context: AgentContext) {
+  const w = [...wins.values()].find((x) => x.info.sessionId === sessionId && !x.win.isDestroyed())
+  if (!w) return
+  w.context = context
+  broadcastSnapshots()
 }
 
 /** Só as janelas que não são de agente recebem (é a janela principal que mostra o gerenciador) */
@@ -1274,7 +1293,14 @@ export interface ClaudeParseState {
   /** Texto já recebido em pedaços desde a última mensagem completa (evita duplicar) */
   streamed: number
   done: boolean
+  /** Janela de contexto: tokens do último pedido e o tamanho (do `context_usage` ou do `modelUsage` do resultado) */
+  used?: number
+  window?: number
+  /** O CLI compactou a conversa nesta vez (vale até o fim dela) */
+  compacted?: boolean
 }
+/** Tamanho da janela do Claude quando o CLI não diz (modelos atuais) */
+export const CLAUDE_WINDOW = 200_000
 
 interface ClaudeBlock {
   type?: string
@@ -1367,9 +1393,12 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
   const out: AgentChatEvent[] = []
   // mensagens internas de subagentes não entram na conversa
   if (o.parent_tool_use_id) return out
-  const msg = (o.message ?? {}) as { content?: ClaudeBlock[] }
+  const msg = (o.message ?? {}) as { content?: ClaudeBlock[]; usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }
   if (o.type === 'system' && o.subtype === 'init') {
     out.push({ type: 'session', sessionId: String(o.session_id ?? ''), model: typeof o.model === 'string' ? o.model : undefined })
+  } else if (o.type === 'system' && o.subtype === 'compact_boundary') {
+    // o CLI resumiu a conversa: a próxima mensagem traz o contexto já enxuto (a bateria "recarrega")
+    st.compacted = true
   } else if (o.type === 'stream_event') {
     const ev = (o.event ?? {}) as { type?: string; delta?: { type?: string; text?: string; thinking?: string } }
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -1379,6 +1408,16 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
       out.push({ type: 'thinking', delta: ev.delta.thinking })
     }
   } else if (o.type === 'assistant') {
+    // janela de contexto: o CLI recente manda `context_usage` pronto; os outros, o `usage` da API (entrada + cache)
+    const cu = o.context_usage as { total_tokens?: number; raw_max_tokens?: number } | undefined
+    const u = msg.usage
+    if (cu && Number(cu.total_tokens) >= 0 && Number(cu.raw_max_tokens) > 0) {
+      st.used = Number(cu.total_tokens)
+      st.window = Number(cu.raw_max_tokens)
+    } else if (u && (u.input_tokens !== undefined || u.cache_read_input_tokens !== undefined)) {
+      st.used = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0)
+    }
+    if (st.used !== undefined) out.push({ type: 'context', context: { used: st.used, window: st.window ?? CLAUDE_WINDOW, compacted: st.compacted || undefined } })
     for (const b of msg.content ?? []) {
       if (b.type === 'text' && b.text) {
         // sem pedaços parciais (CLI antigo ou opção ignorada): entrega o texto inteiro de uma vez
@@ -1404,6 +1443,13 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     }
   } else if (o.type === 'result') {
     st.done = true
+    // o tamanho da janela vem no resultado, por modelo: fica guardado para as próximas vezes (e corrige o palpite)
+    const mu = Object.values((o.modelUsage ?? {}) as Record<string, { inputTokens?: number; contextWindow?: number }>).sort((a, b) => (Number(b.inputTokens) || 0) - (Number(a.inputTokens) || 0))[0]
+    if (mu && Number(mu.contextWindow) > 0 && mu.contextWindow !== st.window) {
+      st.window = Number(mu.contextWindow)
+      if (st.used !== undefined) out.push({ type: 'context', context: { used: st.used, window: st.window, compacted: st.compacted || undefined } })
+    }
+    st.compacted = false
     const err = o.is_error ? friendlyClaudeError(String(o.result ?? o.subtype ?? 'erro')) : undefined
     out.push({
       type: 'done',
@@ -1753,6 +1799,12 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         }
       }
       if (ev.type === 'text' && answer.length < 3000) answer += ev.delta
+      if (ev.type === 'context') {
+        // a bateria do cartão: fica na janela e vai no resumo para o gerenciador (a conversa em si não mostra)
+        w.context = ev.context
+        broadcastSnapshots()
+        continue
+      }
       if (ev.type === 'done') {
         w.turnDone = true
         // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair
@@ -2206,6 +2258,7 @@ export async function newChat(uid: string) {
   w.titleToken = undefined // um título ainda a caminho era da conversa anterior
   w.info.handoff = null
   w.handoffToken = undefined
+  w.context = undefined
   // o conceito visual era da conversa anterior: encerra o desenho em curso e fecha a janela de design
   if (w.designChild) terminate(w.designChild, 'codex')
   closeDesignWindow(uid)

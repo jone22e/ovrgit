@@ -133,3 +133,12 @@ describe('consumo do Codex sem sessão recente', () => {
     expect([u?.fiveHour?.pct, u?.week?.pct, u?.plan]).toEqual([37, 12, 'plus'])
   })
 })
+
+describe('janela de contexto do Codex', () => {
+  it('último pedido (entrada + saída) sobre a janela do modelo; sem janela, nada', async () => {
+    const { codexContext } = await import('../src/main/agentWatch')
+    expect(codexContext({ last_token_usage: { input_tokens: 18905, cached_input_tokens: 12672, output_tokens: 335 }, model_context_window: 258400 })).toEqual({ used: 19240, window: 258400 })
+    expect(codexContext({ last_token_usage: { input_tokens: 1 } })).toBeNull()
+    expect(codexContext(undefined)).toBeNull()
+  })
+})

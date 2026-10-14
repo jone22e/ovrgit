@@ -132,6 +132,8 @@ export interface AgentSession {
   updatedAt: number
   /** Primeiro pedido do usuário (limpo), usado para achar o código da tarefa (ex.: ROAD-21) */
   request?: string
+  /** Codex: janela de contexto, do último `token_count` do arquivo de sessão */
+  context?: AgentContext
 }
 
 /** Alterações guardadas (stash): Lixeira do app, guardadas antes de baixar, etc. */
@@ -513,6 +515,8 @@ export type AgentChatEvent =
   | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
+  /** Quanto da janela de contexto está ocupado (Claude Code: a cada mensagem do assistente) */
+  | { type: 'context'; context: AgentContext }
   /** O resumo da IA para o contexto trazido de outra conversa chegou (ou falhou: vem o automático, sem `pending`) */
   | { type: 'handoff'; handoff: AgentHandoff }
   /** O agente gravou o plano num arquivo dele (Claude Code, em ~/.claude/plans): `text` é o conteúdo, para aparecer na conversa */
@@ -619,6 +623,13 @@ export interface WindowBounds {
 /** Situação de uma conversa de agente: sem conversa, trabalhando, aguardando resposta do usuário, concluída ou com falha */
 export type AgentStatus = 'idle' | 'live' | 'waiting' | 'done' | 'error'
 
+/** Janela de contexto do agente: tokens já ocupados e o tamanho total; `compacted`: o CLI resumiu a conversa nesta vez */
+export interface AgentContext {
+  used: number
+  window: number
+  compacted?: boolean
+}
+
 /** Pedido que espera o usuário numa janela de agente: uma pergunta do agente ou a aprovação do plano */
 export type AgentAsk =
   | { kind: 'question'; text: string; options: { label: string; detail?: string; recommended?: boolean }[]; index: number; total: number; /** Opção já escolhida nesta pergunta */ current?: string | null }
@@ -710,6 +721,8 @@ export interface AgentSnapshot {
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
   canPin?: boolean
   pinned?: boolean
+  /** Janela de contexto (bateria do cartão), preenchida pelo processo principal; ausente quando o CLI não informa */
+  context?: AgentContext
 }
 
 /** Ação feita no gerenciador de agentes e executada pela janela do agente */
