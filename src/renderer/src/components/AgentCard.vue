@@ -51,8 +51,14 @@ const CIRC = 2 * Math.PI * RADIUS
 const dashOffset = computed(() => CIRC * (1 - (fraction.value ?? 0.28)))
 const percent = computed(() => (fraction.value === null ? null : Math.round(fraction.value * 100)))
 
-const tone = computed(() => (props.a.status === 'live' && props.stalled ? 'stalled' : props.a.standby && props.a.status === 'idle' ? 'standby' : props.a.status))
-const LABEL: Record<string, string> = { live: 'Rodando', stalled: 'Parado', waiting: 'Aguardando você', done: 'Concluído', error: 'Falhou', idle: 'Sem conversa', standby: 'Em espera' }
+/** Escrevendo para o agente (rascunho no campo): vale sobre concluído, falhou e sem conversa; rodando e aguardando pesam mais */
+const writing = computed(() => !!props.a.draft && (props.a.status === 'done' || props.a.status === 'error' || props.a.status === 'idle'))
+const tone = computed(() =>
+  writing.value ? 'writing' : props.a.status === 'live' && props.stalled ? 'stalled' : props.a.standby && props.a.status === 'idle' ? 'standby' : props.a.status
+)
+/** Ritmo do batimento: pela situação de fato (escrevendo não é um ritmo) */
+const hbTone = computed(() => (tone.value === 'writing' ? props.a.status : tone.value))
+const LABEL: Record<string, string> = { live: 'Rodando', stalled: 'Parado', waiting: 'Aguardando você', done: 'Concluído', error: 'Falhou', idle: 'Sem conversa', standby: 'Em espera', writing: 'Escrevendo' }
 const statusLabel = computed(() => LABEL[tone.value])
 const since = computed(() => {
   const a = props.a
@@ -64,6 +70,7 @@ const since = computed(() => {
 /** O que mostrar sob o selo: atividade, pergunta, plano, resumo ou erro */
 const detail = computed(() => {
   const a = props.a
+  if (writing.value) return a.draft ?? ''
   if (a.status === 'live') {
     if (props.stalled) return `Sem saída há ${ago(props.now, a.lastEventAt!)}${a.lastTool ? ` · último: ${a.lastTool}` : ''}`
     return current.value?.text ?? a.activity ?? 'Trabalhando…'
@@ -279,10 +286,10 @@ async function saveRename() {
 
     <!-- o que o cartão tem a dizer, numa área de duas linhas: atividade, pergunta, erro ou, concluído, as etiquetas do resultado -->
     <div class="say">
-      <div v-if="chips.length" class="chips">
+      <div v-if="chips.length && !writing" class="chips">
         <span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
       </div>
-      <p v-else class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled }" :title="detail">{{ detail }}</p>
+      <p v-else class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled, writing }" :title="detail">{{ detail }}</p>
     </div>
     <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer); sem checklist, a faixa fica vazia -->
     <ol class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
@@ -296,7 +303,7 @@ async function saveRename() {
       <small v-else class="faint meta ellipsis" :title="effortLabel ? `${modeLabel} · ${effortLabel}` : modeLabel">{{ modeLabel }}<template v-if="effortLabel"> · {{ effortLabel }}</template></small>
       <span class="gap">
         <ContextBattery v-if="a.context" :context="a.context" />
-        <Heartbeat v-if="tone !== 'idle'" :tone="tone" />
+        <Heartbeat v-if="hbTone !== 'idle'" :tone="hbTone" />
       </span>
       <span class="ctl">
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
@@ -397,6 +404,10 @@ async function saveRename() {
 .pill.done { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .pill.error { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
 .pill.standby { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); }
+/* escrevendo para o agente: pílula e borda na cor do tema, e o rascunho no lugar do texto */
+.pill.writing { color: var(--accent); background: var(--accent-soft); }
+.acard.writing:not(.sel) { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.detail.writing { color: var(--text); font-style: italic; }
 .acard.standby .num { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hunk) 35%, transparent); }
 .detail.standby { color: var(--muted); }
 .status small { font-size: 11.5px; white-space: nowrap; }

@@ -1675,9 +1675,18 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     // Modo Arquiteto: o conceito visual espera aprovação na janela de design (não há cartão para o gerenciador mostrar)
     note: !ask && arch.value?.phase === 'concept' && arch.value.design?.approved === undefined && !designRunning.value ? 'Conceito visual aguardando a sua aprovação, na janela de design' : undefined,
     canPin: !!sessionId.value && turns.length > 0,
-    pinned: pinned.value
+    pinned: pinned.value,
+    // escrevendo para este agente: o cartão mostra, para você achar entre os outros a conversa em que estava
+    draft: canCompose.value ? draftLabel() : undefined
   }
 })
+/** O rascunho, resumido para o cartão: o texto, ou só a contagem de anexos */
+function draftLabel(): string {
+  const t = draft.value.replace(/\s+/g, ' ').trim()
+  if (t) return t.length > 160 ? `${t.slice(0, 157)}…` : t
+  const n = pending.length + pastes.length
+  return `${n} ${n === 1 ? 'anexo' : 'anexos'}`
+}
 let snapTimer: ReturnType<typeof setTimeout> | undefined
 watch(
   snapshot,

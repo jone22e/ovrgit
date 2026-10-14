@@ -723,6 +723,8 @@ export interface AgentSnapshot {
   pinned?: boolean
   /** Janela de contexto (bateria do cartão), preenchida pelo processo principal; ausente quando o CLI não informa */
   context?: AgentContext
+  /** O usuário está escrevendo para este agente: o rascunho do campo de mensagem (ou "N anexos", sem texto) */
+  draft?: string
 }
 
 /** Ação feita no gerenciador de agentes e executada pela janela do agente */
