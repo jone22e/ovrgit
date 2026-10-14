@@ -712,6 +712,9 @@ function pick(a: AgentSnapshot) {
 .orch .item.closed > .dot { margin-top: 6px; }
 .orch .item.closed > .text { flex: 1 1 calc(100% - 20px); min-width: 0; }
 .orch .item.closed > .when { margin-right: auto; min-width: 0; text-align: left; }
+/* a segunda linha (tempo, alfinete e abrir) se alinha pelo meio: o alinhamento pelo topo é só para a bolinha da primeira */
+.orch .item.closed > .when, .orch .item.closed > .pin, .orch .item.closed > .go, .orch .item.closed > .spinner { align-self: center; }
+.orch .item.closed > .go { display: block; margin: 0 5px; }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
