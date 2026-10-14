@@ -6,12 +6,14 @@ import { EFFORT_LABEL, MODES } from '@shared/models'
 import { api, ask, state } from '../store'
 import AgentBuddy from './AgentBuddy.vue'
 import AgentLogo from './AgentLogo.vue'
+import Heartbeat from './Heartbeat.vue'
 import Icon from './Icon.vue'
 
 /**
  * Cartão de um agente no modo orquestrador: número do atalho em destaque, anel de progresso (o checklist do plano;
  * sem checklist, girando enquanto trabalha), selo de situação, o que o agente está fazendo e os controles da janela.
- * Clicar no cartão mostra a conversa na área ao lado.
+ * No rodapé, entre o modo e os controles, os sinais vitais: um traçado de eletrocardiograma cujo ritmo diz o
+ * estado antes de ler qualquer texto. Clicar no cartão mostra a conversa na área ao lado.
  */
 const props = defineProps<{
   a: AgentSnapshot
@@ -276,7 +278,7 @@ async function saveRename() {
       <button v-else-if="tone === 'stalled'" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="emit('act', { type: 'nudge' })">Cutucar</button>
       <small v-else-if="a.status === 'waiting'" class="meta hint ellipsis">Clique para responder</small>
       <small v-else class="faint meta ellipsis">{{ modeLabel }}<template v-if="effortLabel"> · {{ effortLabel }}</template></small>
-      <span class="gap" />
+      <span class="gap"><Heartbeat v-if="tone !== 'idle'" :tone="tone" /></span>
       <span class="ctl">
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
         <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
@@ -365,7 +367,8 @@ async function saveRename() {
 @media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
 
 .status { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gap { flex: 1; }
+.gap { flex: 1; min-width: 0; display: flex; justify-content: center; padding: 0 8px; }
+.gap > svg { max-width: 110px; min-width: 28px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); flex: none; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.live { color: var(--accent); background: var(--accent-soft); }
