@@ -1,6 +1,6 @@
 /**
  * Sinais vitais do agente: o traçado de eletrocardiograma no rodapé do cartão diz o estado antes de ler qualquer
- * texto. Cada estado tem um ritmo: rodando, rápido e regular (~3 batidas por segundo); aguardando você, lento e
+ * texto. Cada estado tem um ritmo: rodando, firme e regular (pouco menos de 2 batidas por segundo); aguardando você, lento e
  * espaçado (uma a cada ~2,6 s); concluído, em repouso (batida pequena a cada ~5,5 s); parado (rodando sem saída),
  * fora de compasso; falhou, linha reta. O traçado é um caminho SVG que rola para a esquerda: `cell` é a largura de
  * um compasso e `seconds` quanto ele leva para passar.
@@ -38,7 +38,7 @@ export interface Rhythm {
   label: string
 }
 export const RHYTHMS: Record<HeartbeatTone, Rhythm> = {
-  live: { beats: [{ x: 4, amp: 6 }], cell: 32, seconds: 1 / 3, label: 'Rodando: rápido e regular' },
+  live: { beats: [{ x: 4, amp: 6 }], cell: 32, seconds: 0.6, label: 'Rodando: firme e regular' },
   waiting: { beats: [{ x: 48, amp: 6 }], cell: 120, seconds: 2.6, label: 'Aguardando você: lento e espaçado' },
   done: { beats: [{ x: 48, amp: 2.2 }], cell: 120, seconds: 5.5, label: 'Concluído: em repouso' },
   stalled: { beats: [{ x: 4, amp: 6 }, { x: 32, amp: 4 }, { x: 78, amp: 7 }], cell: 120, seconds: 1.6, label: 'Parado: fora de compasso, sem avançar' },
