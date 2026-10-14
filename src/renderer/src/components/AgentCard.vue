@@ -322,6 +322,8 @@ async function saveRename() {
 /* tema Terminal: cartão chapado, sem gradiente, sombra nem brilho; a conversa da vez se marca pela borda e pelo número invertido */
 :root[data-theme='terminal'] .acard, :root[data-theme='terminal'] .acard:hover, :root[data-theme='terminal'] .acard.sel { background: var(--panel); box-shadow: none; transform: none; }
 :root[data-theme='terminal'] .acard.waiting, :root[data-theme='terminal'] .acard.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); }
+/* o esmaecimento do batimento usa a cor do fundo: só o tema Terminal tem cartão chapado tingido (nos outros o rodapé já está sobre o painel) */
+:root[data-theme='terminal'] .acard.waiting, :root[data-theme='terminal'] .acard.stalled { --hb-bg: color-mix(in srgb, var(--mod) 7%, var(--panel)); }
 :root[data-theme='terminal'] .acard.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 :root[data-theme='terminal'] .acard.sel .num { box-shadow: none; }
 
@@ -367,8 +369,7 @@ async function saveRename() {
 @media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
 
 .status { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.gap { flex: 1; min-width: 0; display: flex; justify-content: center; padding: 0 8px; }
-.gap > svg { max-width: 110px; min-width: 28px; }
+.gap { flex: 1; min-width: 0; display: flex; justify-content: center; padding: 0 6px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); flex: none; }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.live { color: var(--accent); background: var(--accent-soft); }

@@ -4,11 +4,15 @@
  * espaçado (uma a cada ~2,6 s); concluído, em repouso (batida pequena a cada ~5,5 s); parado (rodando sem saída),
  * fora de compasso; falhou, linha reta. O traçado é um caminho SVG que rola para a esquerda: `cell` é a largura de
  * um compasso e `seconds` quanto ele leva para passar.
+ *
+ * Custo: o <svg> inteiro é que se move (transformação composta na GPU, sem repintar), dentro de um invólucro de
+ * largura fixa que o recorta; as bordas esmaecem com um degradê sobreposto, não com máscara (a máscara custava
+ * cerca de cinco vezes mais GPU). Com 16 cartões animados: ~0,5% de CPU no renderer e ~0,7% no processo de GPU.
  */
 export type HeartbeatTone = 'live' | 'waiting' | 'done' | 'stalled' | 'error' | 'idle' | 'standby'
 
-/** Janela visível do traçado (unidades do viewBox) e linha de base */
-export const HB_WIDTH = 120
+/** Largura fixa do traçado no cartão (px, igual para todos os estados) e linha de base */
+export const HB_WIDTH = 60
 export const HB_HEIGHT = 16
 const BASE = 8
 /** Largura de uma batida */
@@ -34,7 +38,7 @@ export interface Rhythm {
   label: string
 }
 export const RHYTHMS: Record<HeartbeatTone, Rhythm> = {
-  live: { beats: [{ x: 8, amp: 6 }], cell: 40, seconds: 1 / 3, label: 'Rodando: rápido e regular' },
+  live: { beats: [{ x: 4, amp: 6 }], cell: 32, seconds: 1 / 3, label: 'Rodando: rápido e regular' },
   waiting: { beats: [{ x: 48, amp: 6 }], cell: 120, seconds: 2.6, label: 'Aguardando você: lento e espaçado' },
   done: { beats: [{ x: 48, amp: 2.2 }], cell: 120, seconds: 5.5, label: 'Concluído: em repouso' },
   stalled: { beats: [{ x: 4, amp: 6 }, { x: 32, amp: 4 }, { x: 78, amp: 7 }], cell: 120, seconds: 1.6, label: 'Parado: fora de compasso, sem avançar' },
@@ -43,10 +47,15 @@ export const RHYTHMS: Record<HeartbeatTone, Rhythm> = {
   standby: { beats: [], cell: 120, seconds: 0, label: 'Em espera' }
 }
 
-/** Caminho do traçado: compassos repetidos até cobrir a janela mais um (o que sai pela esquerda já entrou pela direita) */
+/** Compassos necessários: cobrem a janela mais um (o que sai pela esquerda já entrou pela direita) */
+const cellsOf = (tone: HeartbeatTone) => Math.ceil(HB_WIDTH / RHYTHMS[tone].cell) + 1
+/** Largura total do caminho (o <svg> que rola) */
+export const heartbeatSpan = (tone: HeartbeatTone) => cellsOf(tone) * RHYTHMS[tone].cell
+
+/** Caminho do traçado: os compassos repetidos, de ponta a ponta */
 export function heartbeatPath(tone: HeartbeatTone): string {
   const r = RHYTHMS[tone]
-  const cells = Math.ceil(HB_WIDTH / r.cell) + 1
+  const cells = cellsOf(tone)
   let d = `M0,${BASE}`
   for (let c = 0; c < cells; c++) {
     let x = 0

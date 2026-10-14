@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BEAT_WIDTH, HB_WIDTH, RHYTHMS, heartbeatPath, type HeartbeatTone } from '../src/shared/heartbeat'
+import { BEAT_WIDTH, HB_WIDTH, RHYTHMS, heartbeatPath, heartbeatSpan, type HeartbeatTone } from '../src/shared/heartbeat'
 
 /** Percorre o caminho (M, h, l) e devolve onde termina */
 function walk(d: string) {
@@ -23,6 +23,8 @@ describe('heartbeatPath', () => {
       const r = RHYTHMS[tone]
       const end = walk(heartbeatPath(tone))
       expect(end.x, tone).toBeCloseTo((Math.ceil(HB_WIDTH / r.cell) + 1) * r.cell, 5)
+      expect(heartbeatSpan(tone), tone).toBe(end.x)
+      expect(heartbeatSpan(tone), tone).toBeGreaterThanOrEqual(HB_WIDTH + r.cell)
       expect(end.y, tone).toBeCloseTo(8, 5)
       for (const b of r.beats) expect(b.x + BEAT_WIDTH, tone).toBeLessThanOrEqual(r.cell)
     }
