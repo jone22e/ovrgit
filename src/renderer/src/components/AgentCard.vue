@@ -307,9 +307,10 @@ async function saveRename() {
       </span>
       <span class="ctl">
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-        <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
       </span>
     </div>
+    <!-- encerrar: no canto superior direito, só ao passar o mouse -->
+    <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
     <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
     <Teleport to="body">
       <div v-if="menu" ref="menuEl" class="ctx" role="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @click.stop @contextmenu.prevent>
@@ -352,7 +353,8 @@ async function saveRename() {
 :root[data-theme='terminal'] .acard.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 :root[data-theme='terminal'] .acard.sel .num { box-shadow: none; }
 
-.top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+/* à direita fica o lugar do × de encerrar (canto do cartão) */
+.top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-right: 26px; }
 /* número do atalho: uma tecla; na conversa da vez, cheia */
 .num {
   display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; flex: none; margin-top: 1px; border-radius: 6px;
@@ -445,9 +447,11 @@ async function saveRename() {
 .nudge { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); background: color-mix(in srgb, var(--mod) 10%, transparent); }
 .ctl { display: inline-flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
 .acard:hover .ctl, .ctl:has(.pinned) { opacity: 1; }
-.pin, .close { color: var(--faint); }
+.pin { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
-.close:hover { color: var(--del); }
+.close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); opacity: 0; transition: opacity 0.12s; }
+.acard:hover .close, .close:focus-visible { opacity: 1; }
+.close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 
 /* menu do botão direito (vive no body) */
 .ctx {
