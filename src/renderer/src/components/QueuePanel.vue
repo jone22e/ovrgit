@@ -202,8 +202,8 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 .gap { flex: 1; }
 .via { font-size: 11px; color: var(--hunk); }
 /* os quatro números: cabem lado a lado na coluna de 340 px com o rótulo mais compacto */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-.stat { padding: 8px 7px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.stat { padding: 8px 7px; min-width: 0; overflow: hidden; }
 .stat small { font-size: 9.5px; letter-spacing: 0.02em; white-space: nowrap; }
 .stat.think.on b { color: var(--hunk); }
 /* os três iguais, mesmo sendo o terceiro um botão (zera o estilo padrão de botão) */
