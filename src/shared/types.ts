@@ -211,6 +211,8 @@ export interface Service {
   command: string
   /** Pasta onde roda (vazio: a pasta do usuário) */
   cwd: string
+  /** Inicia sozinho ao abrir o app */
+  autostart?: boolean
 }
 export interface ServiceState {
   id: string

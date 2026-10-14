@@ -21,6 +21,7 @@ const editing = ref<Service | null>(null)
 const name = ref('')
 const command = ref('')
 const cwd = ref('')
+const autostart = ref(false)
 const nameEl = ref<HTMLInputElement>()
 const canSave = computed(() => !!name.value.trim() && !!command.value.trim())
 const plain = (list: Service[]): Service[] => JSON.parse(JSON.stringify(list))
@@ -31,6 +32,7 @@ function openNew() {
   name.value = ''
   command.value = ''
   cwd.value = state.repo?.root ?? ''
+  autostart.value = false
   setTimeout(() => nameEl.value?.focus(), 50)
 }
 function openEdit(s: Service) {
@@ -39,6 +41,7 @@ function openEdit(s: Service) {
   name.value = s.name
   command.value = s.command
   cwd.value = s.cwd
+  autostart.value = !!s.autostart
   setTimeout(() => nameEl.value?.focus(), 50)
 }
 async function pickFolder() {
@@ -47,12 +50,16 @@ async function pickFolder() {
 }
 async function save() {
   if (!editing.value || !canSave.value) return
-  const item: Service = { id: editing.value.id || crypto.randomUUID(), name: name.value.trim(), command: command.value.trim(), cwd: cwd.value.trim() }
+  const item: Service = { id: editing.value.id || crypto.randomUUID(), name: name.value.trim(), command: command.value.trim(), cwd: cwd.value.trim(), autostart: autostart.value || undefined }
   const list = services.value.some((s) => s.id === item.id) ? services.value.map((s) => (s.id === item.id ? item : s)) : [...services.value, item]
   // cópia simples: os itens vindos do estado são proxies reativos, que a IPC não consegue clonar
   await saveSettings({ services: plain(list) })
   editing.value = null
   await load()
+}
+/** Liga ou desliga o início automático direto na lista */
+async function toggleAuto(s: Service) {
+  await saveSettings({ services: plain(services.value.map((x) => (x.id === s.id ? { ...x, autostart: !x.autostart || undefined } : x))) })
 }
 async function remove(s: Service) {
   if (stateOf(s.id)?.status === 'running') await api.serviceStop(s.id)
@@ -223,6 +230,10 @@ onUnmounted(() => offs.forEach((f) => f()))
           <button type="button" @click="pickFolder">Escolher…</button>
         </div>
       </div>
+      <label class="check">
+        <input v-model="autostart" type="checkbox" />
+        <span>Iniciar sozinho ao abrir o app</span>
+      </label>
       <div class="form-acts">
         <button type="button" class="ghost" @click="editing = null">Cancelar</button>
         <button type="button" class="primary" :disabled="!canSave" @click="save">{{ editing.id ? 'Salvar' : 'Adicionar' }}</button>
@@ -288,6 +299,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <div class="text">
           <div class="line">
             <strong class="ellipsis">{{ s.name }}</strong>
+            <small v-if="s.autostart" class="auto" title="Inicia sozinho ao abrir o app">auto</small>
             <small v-if="stateOf(s.id)?.status === 'running'" class="ok">rodando há {{ since(stateOf(s.id)?.startedAt) }}</small>
             <small v-else-if="stateOf(s.id)?.status === 'exited'" :class="stateOf(s.id)?.exitCode ? 'bad' : 'faint'">
               {{ stateOf(s.id)?.exitCode ? `saiu com código ${stateOf(s.id)?.exitCode}` : 'encerrado' }}
@@ -306,6 +318,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <button v-if="stateOf(s.id)?.status === 'running'" type="button" class="ghost icon" title="Parar" :disabled="busy === s.id" @click="stop(s)"><Icon name="stop" :size="14" /></button>
           <button v-else type="button" class="ghost icon play" title="Iniciar" :disabled="busy === s.id" @click="start(s)"><Icon name="play" :size="14" /></button>
           <button type="button" class="ghost icon" title="Ver o terminal do serviço (aba no painel; dá para desacoplar lá)" @click="openTerminal(s)"><Icon name="terminal" :size="14" /></button>
+          <button type="button" class="ghost icon zap" :class="{ on: s.autostart }" :title="s.autostart ? 'Inicia sozinho ao abrir o app (clique para desligar)' : 'Iniciar sozinho ao abrir o app'" @click="toggleAuto(s)"><Icon name="zap" :size="13" /></button>
           <button type="button" class="ghost icon" title="Editar" @click="openEdit(s)"><Icon name="pencil" :size="13" /></button>
           <button type="button" class="ghost icon" title="Remover" @click="remove(s)"><Icon name="trash" :size="13" /></button>
         </span>
@@ -328,6 +341,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 .form { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); }
 .form h6 { margin: 0 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 .field { display: flex; flex-direction: column; gap: 5px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
+.auto { font-size: 10.5px; padding: 0 5px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.acts .zap.on { color: var(--accent); }
 .field label { font-size: 12px; color: var(--muted); }
 .field textarea { resize: vertical; min-height: 72px; font-size: 12.5px; }
 .hint { margin: 0; font-size: 11.5px; }

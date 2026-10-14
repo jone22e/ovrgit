@@ -889,6 +889,7 @@ app.whenReady().then(() => {
     }
   })
   services.setupServices({ icon, background: initialBackground })
+  services.startAutostart()
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
   agentApi
     .startAgentApi({ services: () => getSettings().services, states: services.serviceStates, start: services.startService, stop: services.stopService, output: services.serviceOutput })

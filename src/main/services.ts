@@ -42,6 +42,16 @@ export function setupServices(s: { icon: string; background: () => string }) {
 
 const find = (id: string): Service | undefined => getSettings().services.find((s) => s.id === id)
 
+/** Ao abrir o app: os serviços marcados para iniciar sozinhos sobem, um pouco depois do resto, sem segurar a abertura */
+export function startAutostart() {
+  setTimeout(() => {
+    for (const s of getSettings().services) {
+      if (!s.autostart) continue
+      startService(s.id).catch((e) => console.error(`Serviço "${s.name}" não iniciou sozinho:`, (e as Error).message))
+    }
+  }, 1500)
+}
+
 export function serviceStates(): ServiceState[] {
   return getSettings().services.map((s) => {
     const r = running.get(s.id)
