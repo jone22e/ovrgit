@@ -8,6 +8,7 @@ import Icon from './Icon.vue'
  * Menu do botão direito na árvore de arquivos: cria, na pasta clicada, os arquivos que costumam faltar
  * (.env, .env.prod, .env.example…) e só mostra os que ainda não existem nela. "Novo arquivo…" pede o nome.
  * Os .env nascem do .env.example da pasta, quando há um; o .env.example nasce do .env, sem os valores.
+ * Também revela o arquivo (ou a pasta) no Finder e copia o caminho.
  */
 const props = defineProps<{ x: number; y: number; dir: string; target?: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -97,6 +98,16 @@ function copyPath() {
   emit('close')
 }
 
+// ---------- "Mostrar no Finder": revela o arquivo (ou a pasta) no gerenciador de arquivos do sistema ----------
+const revealLabel = api.platform === 'darwin' ? 'Mostrar no Finder' : api.platform === 'win32' ? 'Mostrar no Explorer' : 'Mostrar na pasta'
+function reveal() {
+  const root = state.repo?.root
+  if (!root) return
+  const rel = props.target ?? props.dir
+  api.fileReveal(rel ? `${root}/${rel}` : root)
+  emit('close')
+}
+
 // ---------- posição e fechamento ----------
 const el = ref<HTMLElement>()
 const pos = ref({ left: props.x, top: props.y })
@@ -134,6 +145,7 @@ const onEsc = (e: KeyboardEvent) => {
       </button>
       <div v-if="available.length" class="sep" />
       <button class="item" @click="ask"><Icon name="plus" :size="14" /> <span class="nm">Novo arquivo…</span></button>
+      <button class="item" @click="reveal"><Icon name="folder" :size="14" /> <span class="nm">{{ revealLabel }}</span></button>
       <button v-if="target" class="item" @click="copyPath"><Icon name="clipboard" :size="14" /> <span class="nm">Copiar caminho</span></button>
     </template>
   </div>
