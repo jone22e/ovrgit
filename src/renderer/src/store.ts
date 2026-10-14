@@ -58,6 +58,8 @@ export const state = reactive({
   /** Janela estreita com o diff/editor aberto: a coluna de arquivos vira um painel flutuante, aberto por este sinal */
   listOverlay: false,
   showTerminal: readPref('ovseer.terminal') === '1',
+  /** Buscador (Shift Shift) aberto, com o texto inicial do campo ('' = vazio; 'tema ' = lista de temas); null: fechado */
+  quickOpen: null as string | null,
   /** Orquestrador: a conversa ao lado dos cartões está à mostra (escondida, os cartões ocupam a largura toda) */
   showDock: readPref('ovseer.dock.show') !== '0',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */

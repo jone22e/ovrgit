@@ -15,8 +15,10 @@ import Icon from './Icon.vue'
  * Também troca o tema: a linha "Tema" no estado vazio (ou digitar "tema") lista os temas; o nome de um tema
  * também acha. Passar pela lista mostra a prévia ao vivo; Enter aplica e salva; sair sem escolher volta ao salvo.
  */
+/** `start`: texto inicial do campo (ex.: "tema " abre direto na lista de temas) */
+const props = defineProps<{ start?: string }>()
 const emit = defineEmits<{ close: [] }>()
-const query = ref('')
+const query = ref(props.start ?? '')
 const index = ref(0)
 const input = ref<HTMLInputElement>()
 const listEl = ref<HTMLElement>()

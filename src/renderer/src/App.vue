@@ -48,7 +48,6 @@ const updateDismissed = ref(false)
 // "Depois" valia para aquela versão: saiu outra mais nova (baixada por cima), a barra volta
 watch(() => state.update?.version, () => (updateDismissed.value = false))
 // Shift Shift (de qualquer lugar): buscador de arquivos. Duas batidas no Shift em menos de 400 ms, sem outra tecla no meio
-const showQuickOpen = ref(false)
 let lastShift = 0
 function onShiftKey(e: KeyboardEvent) {
   if (e.key !== 'Shift') {
@@ -59,7 +58,7 @@ function onShiftKey(e: KeyboardEvent) {
   const now = Date.now()
   if (now - lastShift < 400) {
     lastShift = 0
-    showQuickOpen.value = !showQuickOpen.value
+    state.quickOpen = state.quickOpen === null ? '' : null
   } else lastShift = now
 }
 // terminal maximizado só vale com o painel aberto
@@ -218,7 +217,7 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <QuickOpen v-if="showQuickOpen" @close="showQuickOpen = false" />
+    <QuickOpen v-if="state.quickOpen !== null" :start="state.quickOpen" @close="state.quickOpen = null" />
     <SettingsDialog v-if="state.showSettings" @close="state.showSettings = false" />
     <ServicesDialog v-if="state.showServices" @close="state.showServices = false" />
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
