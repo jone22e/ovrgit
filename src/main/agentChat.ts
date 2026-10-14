@@ -65,6 +65,8 @@ interface AgentWin {
   docked?: boolean
   /** Onde a janela solta estava antes de ser embutida: volta para lá ao soltar */
   undocked?: WindowBounds
+  /** Em janela própria por escolha do usuário ("Abrir em janela" no cartão): mostrar não a traz de volta para a área */
+  floating?: boolean
 }
 
 const wins = new Map<string, AgentWin>()
@@ -214,7 +216,6 @@ let dockArea: WindowBounds | null = null
 /** Conversa mostrada na área agora */
 let dockedUid: string | null = null
 
-export const orchestratorOn = (): boolean => !!getSettings().orchestrator
 
 /** Posição da vista dentro do conteúdo da principal: a área da página, no fator de zoom dela */
 export function dockedBounds(content: WindowBounds, area: WindowBounds, zoom = 1): WindowBounds {
@@ -271,6 +272,7 @@ export function dockAgent(uid: string): boolean {
   }
   dockedUid = uid
   w.docked = true
+  w.floating = false
   layoutDocked()
   w.win.focus()
   w.win.webContents.send('agent:docked', uid, true)
@@ -299,26 +301,19 @@ export function undockAll(show: boolean) {
   dockedUid = null
 }
 
-/** Liga ou desliga o modo orquestrador para as conversas já abertas */
-export function setOrchestrator(on: boolean) {
-  if (!on) {
-    undockAll(true)
-    revealHiddenAgentWindows()
-    broadcastSnapshots()
-    return
+/** "Abrir em janela" no cartão: a conversa sai da área e vira uma janela do sistema; o cartão continua no orquestrador */
+export function popOutAgent(uid: string) {
+  const w = wins.get(uid)
+  if (!w || w.win.isDestroyed()) return
+  w.floating = true
+  if (w.docked) undock(w, true)
+  else if (isEmbedded(w.win)) rehost(w, false, true)
+  else {
+    if (w.win.isMinimized()) w.win.restore()
+    w.win.show()
+    w.win.focus()
   }
-  // as janelas soltas viram vistas embutidas, invisíveis; a que estava em foco (ou a primeira) vai para a área
-  const open = [...wins.values()].filter((w) => !w.win.isDestroyed())
-  const first = open.find((w) => w.win.isFocused?.() || w.win.webContents.isFocused()) ?? open.find((w) => w.win.isVisible()) ?? open[0]
-  for (const w of open) {
-    if (!isEmbedded(w.win)) {
-      w.undocked = w.win.getBounds()
-      rehost(w, true)
-    }
-    w.docked = true
-  }
-  if (first) dockAgent(first.info.uid)
-  else broadcastSnapshots()
+  broadcastSnapshots()
 }
 
 /** A conversa que está com o foco do teclado: janela solta em foco, ou a vista embutida com o foco na principal */
@@ -386,7 +381,8 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
   const ready = () => {
     if (!current() || onReady === 'none') return
     if (onReady === 'showInactive') return void (!embedded && win.showInactive())
-    if (onReady === 'dock' || (orchestratorOn() && !embedded)) {
+    // uma janela solta que não foi pedida como janela própria vai para a área assim que carrega
+    if (onReady === 'dock' || (!embedded && !wins.get(uid)?.floating)) {
       if (dockAgent(uid)) return
     }
     if (!embedded) win.show()
@@ -595,15 +591,15 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   const own = visibleBounds(prev?.bounds ?? null)
   const saved = own.x === undefined ? visibleBounds(historyBounds()) : own
   const slot = own.x === undefined ? freeGridSlot(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, getSettings().agentGrid, openAgentBounds()) : null
-  // modo orquestrador: a conversa nasce embutida na principal (sem janela); escondida (ex.: pelo mascote) nasce janela
+  // a conversa nasce embutida na principal (sem janela); escondida (ex.: pelo mascote) ou em janela própria nasce janela
   const main = setup?.main()
-  const embedded = orchestratorOn() && !opts.hidden && !!main && !main.isDestroyed()
+  const embedded = !opts.hidden && !opts.floating && !!main && !main.isDestroyed()
   const win = createHost(info, slot ?? saved, embedded)
   // conversa escondida (ex.: começada pelo mascote): a janela existe e trabalha, mas não aparece; sem a
   // desaceleração que o sistema aplica a janelas invisíveis, porque é ela que fala com o agente
   if (opts.hidden) win.webContents.setBackgroundThrottling(false)
   // escondida já nasce em segundo plano: fechar pelo X, depois de mostrada, só a esconde de novo
-  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded })
+  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded, floating: !!opts.floating })
   lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   // em espera (ou "quieto"): no orquestrador nasce embutido sem tomar a área; fora dele, aparece sem roubar o foco
   wireHost(uid, win, opts.hidden ? 'none' : opts.quiet ? (embedded ? 'none' : 'showInactive') : embedded ? 'dock' : 'show')
@@ -743,7 +739,7 @@ export function agentWindows(): string[] {
 export function focusAgentWindow(sessionId: string): boolean {
   const w = [...wins.values()].find((x) => x.info.sessionId === sessionId)
   if (!w) return false
-  if (orchestratorOn() && dockAgent(w.info.uid)) return true
+  if (!w.floating && dockAgent(w.info.uid)) return true
   if (isEmbedded(w.win)) {
     undock(w, true)
     return true
@@ -783,7 +779,8 @@ export function agentSnapshots(): AgentSnapshot[] {
     // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
     .map((w) => ({
       ...w.snap!,
-      hidden: !orchestratorOn() && !w.win.isVisible(),
+      hidden: !!w.floating && !w.win.isVisible(),
+      floating: !!w.floating,
       background: !!w.background,
       docked: w.info.uid === dockedUid,
       standby: !!w.info.standby,
@@ -857,6 +854,9 @@ function notifyWaiting(w: AgentWin, snap: AgentSnapshot) {
 }
 
 export function actOnAgent(uid: string, action: AgentAction) {
+  // janela própria ou de volta à área: é o processo principal quem hospeda a conversa
+  if (action.type === 'popOut') return popOutAgent(uid)
+  if (action.type === 'dock') return void dockAgent(uid)
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) throw new Error('Janela do agente não encontrada.')
   w.win.webContents.send('agent:act', uid, action)
@@ -865,8 +865,8 @@ export function actOnAgent(uid: string, action: AgentAction) {
 export function showAgentWindow(uid: string) {
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) return
-  if (orchestratorOn() && dockAgent(uid)) return
-  // o modo foi desligado com a conversa ainda embutida: vira janela antes de mostrar
+  if (!w.floating && dockAgent(uid)) return
+  // em janela própria mas ainda embutida (não deveria acontecer): vira janela antes de mostrar
   if (isEmbedded(w.win)) return undock(w, true)
   if (w.win.isMinimized()) w.win.restore()
   w.win.show()
@@ -908,8 +908,8 @@ export function actOnAllAgentWindows(action: 'show' | 'hide' | 'background' | 'f
   if (action === 'close') return closeAgentWindows(all.map((w) => w.info.uid))
   for (const w of all) {
     if (action === 'show') {
-      // no modo orquestrador, só uma conversa aparece por vez: "abrir todas" não tem o que abrir
-      if (orchestratorOn()) continue
+      // só as janelas próprias têm o que mostrar; as embutidas aparecem uma por vez, na área
+      if (!w.floating) continue
       if (w.win.isMinimized()) w.win.restore()
       if (!w.win.isVisible()) w.win.show()
     } else if (action === 'hide') hideAgentWindow(w.info.uid)
@@ -2426,7 +2426,7 @@ function saveOpenAgents() {
   if (openAgentsTimer) clearTimeout(openAgentsTimer)
   openAgentsTimer = null
   const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing)
-  const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible() }))
+  const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible(), floating: !!w.floating }))
   const json = JSON.stringify(agents)
   if (json === openAgentsLast) return
   openAgentsLast = json
@@ -2447,12 +2447,14 @@ export async function restoreOpenAgents(): Promise<number> {
   openAgentsFrozen = true
   let n = 0
   try {
-    const orch = orchestratorOn()
-    // no orquestrador alguma conversa ocupa a área: a que estava lá, ou a primeira
-    if (orch && !saved.some((a) => a.docked)) saved[0].docked = true
+    // alguma conversa ocupa a área: a que estava lá, ou a primeira que não está em janela própria nem escondida
+    if (!saved.some((a) => a.docked)) {
+      const first = saved.find((a) => !a.floating && !a.hidden)
+      if (first) first.docked = true
+    }
     for (const a of saved) {
       try {
-        const req = reopenRequest(a, orch)
+        const req = reopenRequest(a)
         await openAgentWindow({ ...req, mode: normalizeMode(req.mode) })
         n++
       } catch (e) {

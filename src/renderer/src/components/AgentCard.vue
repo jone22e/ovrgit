@@ -172,6 +172,11 @@ function pinFromMenu() {
   closeMenu()
   emit('act', { type: 'pin' })
 }
+/** Janela própria (como no modo antigo, mas o cartão continua aqui) ou de volta para a área ao lado */
+function hostFromMenu(type: 'popOut' | 'dock') {
+  closeMenu()
+  emit('act', { type })
+}
 /**
  * Conversa nova com o mesmo agente (a atual fica em Conversas); trabalhando, confirma antes. Vai como ação para a
  * janela da conversa, que reinicia a tela: pedir direto ao processo principal zerava a sessão e a janela continuava
@@ -275,6 +280,7 @@ async function saveRename() {
       <span v-if="a.status === 'live'" class="clock mono" :title="`Trabalhando há ${ago(now, a.startedAt ?? a.since)}`">{{ clock }}</span>
       <small v-else-if="since" class="faint">{{ since }}</small>
       <span v-if="fresh" class="new">novo</span>
+      <span v-if="a.floating" class="float" title="Em janela própria (clique no cartão para trazê-la à frente)"><Icon name="external" :size="11" /></span>
       <span class="gap" />
       <span v-if="checklist.length" class="steps mono" :title="`${doneCount} de ${checklist.length} etapas concluídas`"><Icon name="listChecks" :size="11" /> {{ doneCount }}/{{ checklist.length }}</span>
       <span v-if="a.files?.count" class="stats mono" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'}`">
@@ -315,7 +321,9 @@ async function saveRename() {
     <Teleport to="body">
       <div v-if="menu" ref="menuEl" class="ctx" role="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @click.stop @contextmenu.prevent>
         <p class="where faint ellipsis">{{ shownTitle }}</p>
-        <button v-if="!selected" type="button" class="item" @click="pickFromMenu"><Icon name="columns" :size="14" /><span class="nm">Mostrar ao lado</span></button>
+        <button v-if="!selected && !a.floating" type="button" class="item" @click="pickFromMenu"><Icon name="columns" :size="14" /><span class="nm">Mostrar ao lado</span></button>
+        <button v-if="a.floating" type="button" class="item" @click="hostFromMenu('dock')"><Icon name="columns" :size="14" /><span class="nm">Trazer de volta para a área ao lado</span></button>
+        <button v-else type="button" class="item" @click="hostFromMenu('popOut')"><Icon name="external" :size="14" /><span class="nm">Abrir em janela</span></button>
         <button type="button" class="item" @click="startRename"><Icon name="pencil" :size="14" /><span class="nm">Renomear…</span></button>
         <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar do topo da lista' : 'Fixar no topo da lista' }}</span></button>
         <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
@@ -416,6 +424,7 @@ async function saveRename() {
 .status small { font-size: 11.5px; white-space: nowrap; }
 .clock { font-size: 11.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .new { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.float { flex: none; display: inline-flex; color: var(--faint); }
 .steps { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--hunk); flex: none; }
 .stats { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); flex: none; }
 .stats .add { color: var(--add); }

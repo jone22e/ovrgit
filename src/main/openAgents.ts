@@ -23,6 +23,8 @@ export interface OpenAgent {
   hidden?: boolean
   /** Ocupava a área da conversa no orquestrador */
   docked?: boolean
+  /** Estava em janela própria ("Abrir em janela") */
+  floating?: boolean
 }
 
 const MAX_AGENTS = 24
@@ -32,21 +34,22 @@ const PROVIDERS = new Set<CliProvider>(['claude', 'codex', 'agy'])
 const file = () => path.join(app.getPath('userData'), 'open-agents.json')
 
 /** O retrato de um agente aberto, a partir do que o processo principal sabe dele */
-export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden: boolean }): OpenAgent {
+export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden: boolean; floating?: boolean }): OpenAgent {
   const a: OpenAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   if (info.extraDirs?.length) a.extraDirs = info.extraDirs
   if (info.sessionId) a.sessionId = info.sessionId
   if (info.standby) a.standby = true
   if (o.hidden) a.hidden = true
   if (o.docked) a.docked = true
+  if (o.floating) a.floating = true
   return a
 }
 
 /**
- * Pedido de abertura que recria o agente: retoma a sessão, em espera se era, escondido se estava. Nasce quieto
- * (sem tomar a área nem o foco), a não ser o que ocupava a área do orquestrador, que volta a ela.
+ * Pedido de abertura que recria o agente: retoma a sessão, em espera se era, escondido se estava, em janela própria
+ * se estava. Nasce quieto (sem tomar a área nem o foco), a não ser o que ocupava a área, que volta a ela.
  */
-export function reopenRequest(a: OpenAgent, orchestrator: boolean): AgentChatOpen {
+export function reopenRequest(a: OpenAgent): AgentChatOpen {
   return {
     provider: a.provider,
     model: a.model,
@@ -57,7 +60,8 @@ export function reopenRequest(a: OpenAgent, orchestrator: boolean): AgentChatOpe
     resumeId: a.sessionId,
     standby: !!a.standby,
     hidden: !!a.hidden,
-    quiet: !(orchestrator && a.docked)
+    floating: !!a.floating,
+    quiet: !a.docked
   }
 }
 
@@ -83,6 +87,7 @@ export function parseSnapshot(raw: string, exists: (p: string) => boolean = exis
     if (x.standby === true) a.standby = true
     if (x.hidden === true) a.hidden = true
     if (x.docked === true && !out.some((o) => o.docked)) a.docked = true
+    if (x.floating === true) a.floating = true
     out.push(a)
     if (out.length >= MAX_AGENTS) break
   }

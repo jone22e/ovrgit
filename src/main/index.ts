@@ -163,22 +163,6 @@ function createWindow() {
   else win.loadFile(path.join(__dirname, '../renderer/index.html'))
 }
 
-/**
- * Liga ou desliga o modo orquestrador (menu Exibir ou botão na aba Agentes): guarda nas configurações, avisa todas
- * as janelas e prende/solta as janelas de agente já abertas.
- */
-function setOrchestrator(on: boolean): Settings {
-  const next = saveSettings({ orchestrator: !!on })
-  const item = Menu.getApplicationMenu()?.getMenuItemById('orchestrator')
-  if (item) item.checked = next.orchestrator
-  for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('settings:changed', next)
-  agentChat.setOrchestrator(next.orchestrator)
-  if (next.orchestrator && win && !win.isDestroyed()) {
-    win.show()
-    toMain('menu', 'agents')
-  }
-  return next
-}
 
 function buildMenu() {
   const isMac = process.platform === 'darwin'
@@ -232,14 +216,6 @@ function buildMenu() {
         // ⌘1…⌘9: a conversa de cada cartão da aba Agentes (pelo menu, vale com o foco em qualquer lugar, inclusive
         // dentro da conversa embutida do orquestrador)
         { label: 'Agente', submenu: Array.from({ length: 9 }, (_, i) => ({ label: `Agente ${i + 1}`, accelerator: `CmdOrCtrl+${i + 1}`, click: send(`agent:${i + 1}`) })) },
-        {
-          id: 'orchestrator',
-          label: 'Modo orquestrador',
-          type: 'checkbox',
-          checked: getSettings().orchestrator,
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: (item) => setOrchestrator(item.checked)
-        },
         { type: 'separator' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
@@ -726,7 +702,6 @@ function registerIpc() {
   ipcMain.handle('agent:snapshots', () => agentChat.agentSnapshots())
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
-  ipcMain.handle('orchestrator:set', (_e, on: boolean) => setOrchestrator(!!on))
   ipcMain.handle('agent:docked', (_e, uid: string) => agentChat.isDocked(String(uid)))
   // fila de tarefas para os agentes em espera
   ipcMain.handle('queue:list', () => taskQueue.list())

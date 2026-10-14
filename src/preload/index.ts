@@ -331,7 +331,6 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('agent:design', h)
   },
   agentShow: (uid) => ipcRenderer.invoke('agent:show', uid),
-  setOrchestrator: (on) => ipcRenderer.invoke('orchestrator:set', on),
   mapGet: (root) => ipcRenderer.invoke('map:get', root),
   mapScan: (root) => ipcRenderer.invoke('map:scan', root),
   mapAi: (root, o) => ipcRenderer.invoke('map:ai', root, o),

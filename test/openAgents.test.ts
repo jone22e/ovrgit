@@ -18,14 +18,16 @@ describe('toOpenAgent', () => {
 })
 
 describe('reopenRequest', () => {
-  it('retoma a sessão e nasce quieto; só o encaixado toma a área, e só no orquestrador', () => {
+  it('retoma a sessão e nasce quieto; só o encaixado toma a área; janela própria volta como janela', () => {
     const a = toOpenAgent(info(), { docked: true, hidden: false })
-    expect(reopenRequest(a, true)).toMatchObject({ resumeId: 'thread-abc-123', standby: false, hidden: false, quiet: false })
-    expect(reopenRequest(a, false).quiet).toBe(true)
-    expect(reopenRequest({ ...a, docked: undefined }, true).quiet).toBe(true)
+    expect(reopenRequest(a)).toMatchObject({ resumeId: 'thread-abc-123', standby: false, hidden: false, floating: false, quiet: false })
+    expect(reopenRequest({ ...a, docked: undefined }).quiet).toBe(true)
+    const f = toOpenAgent(info(), { docked: false, hidden: false, floating: true })
+    expect(f.floating).toBe(true)
+    expect(reopenRequest(f)).toMatchObject({ floating: true, quiet: true })
   })
   it('agente em espera volta em espera, sem sessão', () => {
-    const r = reopenRequest(toOpenAgent(info({ sessionId: null, standby: true }), { docked: false, hidden: false }), true)
+    const r = reopenRequest(toOpenAgent(info({ sessionId: null, standby: true }), { docked: false, hidden: false }))
     expect(r.resumeId).toBeUndefined()
     expect(r.standby).toBe(true)
   })

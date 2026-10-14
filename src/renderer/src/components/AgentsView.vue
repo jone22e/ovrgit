@@ -2,11 +2,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels, DisplayInfo } from '@shared/types'
+import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
 import { api, ask, openNewAgent, saveSettings, setPane, setShowDock, state, toast } from '../store'
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
-import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { ago as agoSince } from '../ago'
 import AgentCard from './AgentCard.vue'
 import QueuePanel from './QueuePanel.vue'
@@ -15,11 +14,11 @@ import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import Modal from './Modal.vue'
-import WindowGrid from './WindowGrid.vue'
 
 /**
- * Gerenciador de agentes: todas as janelas de agente abertas (de qualquer projeto), agrupadas pelo que precisam.
- * Perguntas e a aprovação do plano são respondidas daqui mesmo; a ação vai para a janela do agente, que executa.
+ * Gerenciador de agentes (orquestrador): todas as conversas abertas, de qualquer projeto, em cartões à esquerda, e a
+ * conversa escolhida embutida à direita. Pelo botão direito do cartão uma conversa pode ir para uma janela própria,
+ * sem sair daqui. As ações vão para a janela do agente, que executa.
  */
 const snaps = computed(() => state.agentSnaps)
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
@@ -162,17 +161,6 @@ function select(a: AgentSnapshot | undefined) {
   markSeen(a)
   nextTick(() => root.value?.querySelector(`[data-uid="${a.uid}"]`)?.scrollIntoView({ block: 'nearest' }))
 }
-/** Clique num concluído: abre (ou fecha) o resumo; nos outros, traz a janela */
-/** Clique no cartão aberto do concluído, fora de botões, campos e texto selecionável: fecha o cartão */
-function onCardClick(e: MouseEvent) {
-  const t = e.target as HTMLElement
-  if (t.closest('button, input, textarea, a, select, .mini, .ask-in') || window.getSelection()?.toString()) return
-  selUid.value = null
-}
-function clickDone(a: AgentSnapshot) {
-  if (selUid.value === a.uid) selUid.value = null
-  else select(a)
-}
 function onKey(e: KeyboardEvent) {
   if (state.tab !== 'agents' || planUid.value) return
   const el = e.target as HTMLElement | null
@@ -230,79 +218,9 @@ function implement(mode: AgentMode) {
   if (p) act(p.a, { type: 'plan', mode })
 }
 
-const arranging = ref(false)
-async function arrange() {
-  arranging.value = true
-  await api.agentArrange().catch(() => undefined)
-  arranging.value = false
-  if (gridOpen.value) await refreshCells()
-}
-
-/** As janelas vão para as áreas escolhidas no grid, uma por área */
-async function arrangeInto(cells: { col: number; row: number; colSpan: number; rowSpan: number }[]) {
-  await api.agentArrangeInto({ ...shownGrid.value }, cells, display.value?.id).catch(() => undefined)
-  await refreshCells()
-}
-
-// ---------- todas as janelas de uma vez (no dropdown do Organizar) ----------
-const hiddenCount = computed(() => snaps.value.filter((a) => a.hidden).length)
-const allBackground = computed(() => snaps.value.length > 0 && snaps.value.every((a) => a.background))
-async function allWindows(action: 'show' | 'hide' | 'background' | 'foreground' | 'close') {
-  gridOpen.value = false
-  if (action === 'close' && running.value.length) {
-    const n = running.value.length
-    const ok = await ask({
-      title: `Fechar os ${snaps.value.length} agentes?`,
-      message: n === 1 ? 'Um agente está trabalhando e será interrompido. As conversas ficam em Conversas.' : `${n} agentes estão trabalhando e serão interrompidos. As conversas ficam em Conversas.`,
-      confirmLabel: 'Fechar todos',
-      danger: true
-    })
-    if (!ok) return
-  }
-  await api.agentAll(action).catch(() => undefined)
-}
-
-// ---------- grid das janelas (colunas × linhas), no dropdown do Organizar ----------
-const gridOpen = ref(false)
-const gridRoot = ref<HTMLElement>()
-const gridSize = computed(() => normalizeGrid(state.settings?.agentGrid))
 /** Repositórios da conversa: o nome do grupo salvo, quando é um; senão o principal e quantos foram juntados */
 const workspaceLabel = (h: { cwd: string; project: string; extraDirs?: string[] }) =>
   groupOf(state.settings?.repoGroups ?? [], h.cwd, h.extraDirs)?.name ?? `${h.project}${h.extraDirs?.length ? ` +${h.extraDirs.length}` : ''}`
-/** Monitores ligados e o escolhido para o grid (de início, o da janela principal) */
-const displays = ref<DisplayInfo[]>([])
-const displayId = ref<number | null>(null)
-const display = computed(() => displays.value.find((d) => d.id === displayId.value) ?? displays.value.find((d) => d.current))
-const screenArea = () => (display.value ? { width: display.value.width, height: display.value.height } : { width: window.screen.availWidth, height: window.screen.availHeight })
-const refreshCells = async (grid: GridSize = shownGrid.value) => (gridCells.value = await api.agentGridCells('', { ...grid }, display.value?.id).catch(() => []))
-async function pickDisplay(id: number) {
-  displayId.value = id
-  gridLimits.value = gridLimitsFor(screenArea())
-  await refreshCells()
-}
-const gridLimits = ref<GridSize>(gridLimitsFor(screenArea()))
-const shownGrid = computed(() => clampGrid(gridSize.value, gridLimits.value))
-const gridCells = ref<GridCell[]>([])
-watch(gridOpen, async (open) => {
-  if (!open) return
-  displays.value = await api.agentDisplays().catch(() => [])
-  gridLimits.value = gridLimitsFor(screenArea())
-  await refreshCells()
-})
-async function setGridSize(s: GridSize) {
-  const from = shownGrid.value
-  const to = fitGrid(s, screenArea())
-  if (to.cols === from.cols && to.rows === from.rows) return
-  await saveSettings({ agentGrid: to })
-  // as janelas desta tela acompanham o grid novo
-  await api.agentRegrid('', { ...from }, { ...to }, display.value?.id).catch(() => undefined)
-  await refreshCells(to)
-}
-const onDocGrid = (e: MouseEvent) => {
-  if (gridOpen.value && gridRoot.value && !gridRoot.value.contains(e.target as Node)) gridOpen.value = false
-}
-onMounted(() => document.addEventListener('mousedown', onDocGrid))
-onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
 
 // ---------- modo orquestrador: cartões à esquerda, a conversa do agente escolhido à direita ----------
 /**
@@ -310,12 +228,8 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocGrid))
  * só onde a área fica: a cada mudança de tamanho ou posição, e quando um diálogo cobre a tela (aí a área some, para
  * a janela presa não ficar por cima do diálogo).
  */
-const orch = computed(() => !!state.settings?.orchestrator)
 /** Tarefas esperando na fila (selo no botão) */
 const queuedCount = computed(() => state.queue.filter((t) => t.status === 'queued' || t.status === 'running').length)
-async function toggleOrchestrator() {
-  state.settings = await api.setOrchestrator(!orch.value)
-}
 /** Conversa mostrada na área agora */
 const docked = computed(() => snaps.value.find((a) => a.docked) ?? null)
 const dockEl = ref<HTMLElement>()
@@ -378,7 +292,7 @@ function reportArea() {
   cancelAnimationFrame(areaRaf)
   areaRaf = requestAnimationFrame(() => {
     const el = dockEl.value
-    if (!orch.value || !el) return api.orchestratorArea(null)
+    if (!el) return api.orchestratorArea(null)
     const free = freeArea(el, el.getBoundingClientRect())
     if (!free) return api.orchestratorArea(null)
     api.orchestratorArea({ x: Math.round(free.x), y: Math.round(free.y), width: Math.round(free.width), height: Math.round(free.height) })
@@ -397,7 +311,7 @@ watch(dockEl, (el) => {
 })
 // a largura da área encaixada vira uma variável CSS da página: os avisos (toast) se mantêm fora dela
 watch(
-  () => (orch.value && state.showDock ? dockWidth.value : 0),
+  () => (state.showDock ? dockWidth.value : 0),
   (w) => document.documentElement.style.setProperty('--dock-w', `${w}px`),
   { immediate: true }
 )
@@ -423,24 +337,20 @@ function numberOf(a: AgentSnapshot): number | null {
 /** Clique no cartão: a conversa vai para a área ao lado (escondida, volta a aparecer) */
 function pick(a: AgentSnapshot) {
   select(a)
-  if (orch.value && !state.showDock) setShowDock(true)
+  if (!state.showDock) setShowDock(true)
   show(a)
 }
 </script>
 
 <template>
-  <div ref="root" class="agents" :class="{ orch }">
+  <div ref="root" class="agents orch">
     <div class="toolbar">
-      <!-- no orquestrador o botão de novo agente fica aqui, no começo da barra -->
-      <button v-if="orch" class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="plus" :size="14" /> Novo agente</button>
+      <button class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="plus" :size="14" /> Novo agente</button>
       <button class="ghost tool" :disabled="!state.repo" title="Agente em espera: nasce pronto, sem conversa, e pega tarefas da fila" @click="state.showStandby = true"><Icon name="hourglass" :size="14" /><span class="lbl">Em espera</span></button>
       <button class="ghost tool" :class="{ on: state.showQueue }" title="Fila de tarefas para os agentes em espera" @click="state.showQueue = !state.showQueue">
         <Icon name="listTodo" :size="14" /><span class="lbl">Fila</span><span v-if="queuedCount" class="cnt">{{ queuedCount }}</span>
       </button>
       <span class="gap" />
-      <button class="ghost orch-btn" :class="{ on: orch }" :title="orch ? 'Sair do modo orquestrador: cada agente volta à sua janela' : 'Modo orquestrador: agentes em cartões e a conversa do escolhido ao lado, nesta janela'" @click="toggleOrchestrator">
-        <Icon name="columns" :size="14" /><span class="lbl">Orquestrador</span>
-      </button>
     </div>
 
     <div class="body">
@@ -457,40 +367,9 @@ function pick(a: AgentSnapshot) {
         <button v-if="running.length" class="ghost count" :class="{ on: filter === 'live' }" :title="filter === 'live' ? 'Mostrar todos' : 'Só os que estão rodando'" @click="toggleFilter('live')"><span class="dot live" />{{ running.length }} rodando</button>
         <button v-if="done.length" class="ghost count" :class="{ on: filter === 'done' }" :title="filter === 'done' ? 'Mostrar todos' : 'Só os concluídos'" @click="toggleFilter('done')"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</button>
         <span class="gap" />
-        <template v-if="orch">
-        </template>
         <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
           <span class="bars"><span v-for="a in allOrder.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
-        </span>
-        <span v-if="!orch" ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
-          <button class="arrange-main" :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
-            <span v-if="arranging" class="spinner" />
-            <Icon v-else name="grid" :size="13" />
-            Organizar
-          </button>
-          <button class="arrange-more" title="Colunas × linhas do grid" @click="gridOpen = !gridOpen"><Icon name="chevron" :size="11" class="chev" /></button>
-          <div v-if="gridOpen" class="pop">
-            <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" :area="screenArea()" manage :pick="snaps.length" @update:model-value="setGridSize" @arrange="arrangeInto">
-              <template v-if="displays.length > 1" #where>
-                <select class="where" :value="display?.id" title="Monitor onde as janelas são organizadas" @change="pickDisplay(Number(($event.target as HTMLSelectElement).value))">
-                  <option v-for="d in displays" :key="d.id" :value="d.id">{{ d.label }}{{ d.current ? ' (esta)' : '' }}</option>
-                </select>
-              </template>
-            </WindowGrid>
-            <!-- todas as janelas de uma vez -->
-            <div class="all">
-              <h6>Todas as janelas</h6>
-              <div class="all-row">
-                <button class="ghost" :disabled="!hiddenCount" :title="hiddenCount ? `Mostra as ${hiddenCount} janelas escondidas` : 'Nenhuma janela escondida'" @click="allWindows('show')"><Icon name="monitor" :size="12" /> Abrir todas</button>
-                <button class="ghost" :disabled="hiddenCount === snaps.length" title="Esconde todas as janelas; as conversas e os agentes continuam, acompanhados por aqui" @click="allWindows('hide')"><Icon name="minimize" :size="12" /> Esconder todas</button>
-              </div>
-              <div class="all-row">
-                <button class="ghost" :class="{ cur: allBackground }" title="Fechar qualquer janela só a esconde; os agentes não param" @click="allWindows(allBackground ? 'foreground' : 'background')"><Icon name="layers" :size="12" /> Todas em segundo plano <Icon v-if="allBackground" name="check" :size="12" class="ok" /></button>
-                <button class="ghost bad" :title="`Fecha as ${snaps.length} janelas (interrompe os agentes que estiverem trabalhando)`" @click="allWindows('close')"><Icon name="x" :size="12" /> Fechar todas</button>
-              </div>
-            </div>
-          </div>
         </span>
       </header>
 
@@ -501,159 +380,12 @@ function pick(a: AgentSnapshot) {
 
       <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa).
            Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
-      <section v-if="orch && order.length" class="orch-list">
+      <section v-if="order.length" class="orch-list">
         <div class="list">
           <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" />
         </div>
       </section>
 
-      <!-- precisa de você: perguntas, aprovação do plano, falhas -->
-      <section v-if="!orch && needYouShown.length">
-        <h3 class="sec waiting">Precisa de você</h3>
-        <div class="list">
-        <article v-for="a in needYouShown" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
-          <div class="row">
-            <span class="dot" :class="a.status" />
-            <span class="text">
-              <span class="line">
-                <strong class="ellipsis">{{ a.title }}</strong>
-                <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
-              </span>
-              <small v-if="a.note && !a.ask" class="warn ellipsis">{{ a.note }}</small>
-              <small v-if="a.status === 'error'" class="err ellipsis" :title="a.error">
-                {{ a.lastUser ? `Interrompido durante "${a.lastUser}"` : (a.error ?? 'Falhou') }}
-              </small>
-            </span>
-            <small v-if="a.status === 'waiting'" class="wait">esperando há {{ ago(a.since) }}</small>
-            <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click="act(a, { type: 'retry' })">Retomar</button>
-            <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-            <AgentWindowMenu :a="a" />
-            <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
-          </div>
-
-          <AskCard
-            v-if="a.ask"
-            class="ask-in"
-            :ask="a.ask"
-            :agent="PROVIDER_LABEL[a.provider]"
-            :current="a.ask.kind === 'question' ? a.ask.current : null"
-            @decide="(choice) => act(a, { type: 'decide', choice })"
-            @plan="(mode) => act(a, { type: 'plan', mode })"
-            @adjust="(text) => act(a, { type: 'reply', text })"
-            @see-plan="planUid = a.uid"
-            @close="act(a, { type: 'dismiss' })"
-            @nav="(index) => act(a, { type: 'nav', index })"
-          />
-        </article>
-        </div>
-      </section>
-
-      <section v-if="!orch && runningShown.length">
-        <h3 class="sec live">Rodando</h3>
-        <div class="list">
-        <div v-for="(a, i) in runningShown" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
-          <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
-          <span class="text">
-            <span class="line">
-              <strong class="ellipsis">{{ a.title }}</strong>
-              <small v-if="stalled(a)" class="warn ellipsis">sem saída há {{ ago(a.lastEventAt!) }}{{ a.lastTool ? ` · último: ${a.lastTool}` : '' }}</small>
-              <small v-else class="faint ellipsis">{{ a.activity || 'Trabalhando…' }}</small>
-            </span>
-            <!-- checklist do plano: feito (verde), em andamento (girando) e a fazer -->
-            <ol v-if="a.checklist?.length" class="cl" @click.stop>
-              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', now: !it.done && a.checklist.slice(0, n).every((x) => x.done) }" :title="it.note ? `${it.text} — ${it.note}` : it.text">
-                <span v-if="!it.done && a.checklist.slice(0, n).every((x) => x.done) && !stalled(a)" class="cl-spin" />
-                <span v-else class="cl-box"><Icon v-if="it.done && !it.state" name="check" :size="9" /></span>
-                <span class="ellipsis">{{ it.text }}</span>
-              </li>
-            </ol>
-          </span>
-          <span v-if="a.checklist?.length" class="cl-pill" :title="`Checklist: ${a.checklist.filter((i) => i.done).length} de ${a.checklist.length} itens concluídos`">
-            <Icon name="listChecks" :size="11" /> {{ a.checklist.filter((i) => i.done).length }}/{{ a.checklist.length }}
-          </span>
-          <span class="ring" :class="{ stalled: stalled(a) }" :title="elapsedTitle(a)" />
-          <small class="faint when">{{ ago(a.startedAt ?? a.since) }}</small>
-          <button v-if="stalled(a)" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="act(a, { type: 'nudge' })">Cutucar</button>
-          <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-            <AgentWindowMenu :a="a" />
-          <Icon name="external" :size="13" class="go" />
-        </div>
-        </div>
-      </section>
-
-      <section v-if="!orch && doneShown.length">
-        <h3 class="sec done">
-          Concluídos
-          <span class="sec-actions">
-            <button v-if="withChanges.length" class="ghost link accent" title="Abre a aba Alterações" @click="goToChanges">Enviar alterações →</button>
-            <button v-if="reviewed.length" class="ghost link" title="Fecha as janelas dos concluídos que você já viu (a conversa fica em Conversas)" @click="archiveReviewed">Arquivar revisados</button>
-          </span>
-        </h3>
-        <div class="list">
-        <template v-for="a in doneShown" :key="a.uid">
-          <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
-            <div class="row">
-              <span class="dot done" />
-              <strong class="ellipsis grow">{{ a.title }}</strong>
-              <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
-                <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
-                <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
-              </span>
-              <small class="faint when">{{ ago(a.since) }}</small>
-              <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-            <AgentWindowMenu :a="a" />
-              <button class="ghost icon small" title="Abrir a janela" @click="show(a)"><Icon name="external" :size="13" /></button>
-            </div>
-            <p v-if="a.summary" class="result">{{ a.summary }}</p>
-            <ol v-if="a.checklist?.length" class="cl card-cl">
-              <li v-for="(it, n) in a.checklist" :key="n" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', open: !it.done }" :title="it.note">
-                <span class="cl-box"><Icon v-if="it.done && !it.state" name="check" :size="10" /></span><span>{{ it.text }}{{ it.state === 'skipped' ? ' · dispensada' : it.state === 'failed' ? ' · falhou' : '' }}</span>
-              </li>
-            </ol>
-            <div v-if="chips(a).length" class="chips">
-              <span v-for="c in chips(a)" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
-            </div>
-            <MiniComposer :agent="a" :known="known" class="next" @send="(text, opts, attachments) => act(a, { type: 'reply', text, ...opts, attachments })" />
-          </article>
-          <div v-else :data-uid="a.uid" class="item" @click="clickDone(a)">
-            <span class="dot done" :class="{ seen: !isNew(a) }" />
-            <span class="text">
-              <span class="line">
-                <strong class="ellipsis" :class="{ light: !isNew(a) }">{{ a.title }}</strong>
-                <span v-if="isNew(a)" class="new">novo</span>
-              </span>
-              <small class="faint ellipsis">{{ a.summary || a.project }}{{ isNew(a) ? '' : ' · revisado' }}</small>
-            </span>
-            <span v-if="a.files && (a.files.add || a.files.del)" class="stats mono">
-              <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
-              <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
-            </span>
-            <small class="faint when">{{ ago(a.since) }}</small>
-            <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-            <AgentWindowMenu :a="a" />
-            <button class="ghost icon small go-btn" title="Abrir a janela" @click.stop="show(a)"><Icon name="external" :size="13" /></button>
-          </div>
-        </template>
-        </div>
-      </section>
-
-      <section v-if="!orch && idleShown.length">
-        <h3 class="sec">Sem conversa</h3>
-        <div class="list">
-        <div v-for="a in idleShown" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
-          <span class="dot" />
-          <span class="text">
-            <strong class="ellipsis">{{ a.title }}</strong>
-            <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
-          </span>
-          <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="act(a, { type: 'pin' })"><Icon name="pin" :size="13" /></button>
-            <AgentWindowMenu :a="a" />
-          <Icon name="external" :size="13" class="go" />
-        </div>
-        </div>
-      </section>
-
-      <!-- fixadas sem janela aberta (por exemplo, depois de fechar e abrir o app): o clique reabre a conversa -->
       <section v-if="closedPinned.length">
         <h3 class="sec">
           <span class="sec-title"><Icon name="pin" :size="11" /> Fixadas</span>
@@ -677,9 +409,9 @@ function pick(a: AgentSnapshot) {
       </section>
     </div>
 
-    <!-- modo orquestrador: a área da conversa. A janela do agente escolhido fica presa por cima dela (processo principal).
+    <!-- a área da conversa: a janela do agente escolhido fica presa por cima dela (processo principal).
          Escondida (botão do painel na barra do topo), os cartões ocupam a largura toda -->
-    <template v-if="orch && state.showDock">
+    <template v-if="state.showDock">
       <div class="dock-resizer" @mousedown.prevent="startDockResize" />
       <div class="dock" :style="{ width: `${dockWidth}px` }">
         <!-- a janela presa cobre exatamente esta área -->

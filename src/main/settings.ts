@@ -33,7 +33,6 @@ const DEFAULTS: Settings = {
   recentProjects: [],
   lastProject: null,
   buddy: false,
-  orchestrator: false,
   queueReuse: true,
   queueSmart: true,
   repoGroups: [],

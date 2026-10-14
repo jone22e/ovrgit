@@ -128,8 +128,8 @@ onMounted(() => {
     else if (action === 'newAgent') openNewAgent()
     else if (action === 'agents') state.tab = 'agents'
     else if (action.startsWith('agent:')) {
-      // no orquestrador a conversa aparece na aba Agentes: vai para lá; fora dele, só traz a janela para a frente
-      if (state.settings?.orchestrator) state.tab = 'agents'
+      // a conversa aparece na aba Agentes: vai para lá
+      state.tab = 'agents'
       state.agentPick = { n: Number(action.slice(6)), at: Date.now() }
     }
     else if (action === 'switch') state.repo ? (showSwitcher.value = true) : openProject()

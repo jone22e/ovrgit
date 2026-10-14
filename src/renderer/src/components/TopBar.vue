@@ -42,9 +42,9 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
     <template v-if="state.repo">
       <span class="layout">
-        <!-- no orquestrador o painel lateral é a conversa ao lado dos cartões; nas outras abas, o diff -->
+        <!-- na aba Agentes o painel lateral é a conversa ao lado dos cartões; nas outras abas, o diff -->
         <button
-          v-if="state.tab === 'agents' && state.settings?.orchestrator"
+          v-if="state.tab === 'agents'"
           class="ghost icon"
           :class="{ on: state.showDock }"
           :title="state.showDock ? 'Esconder a conversa ao lado dos cartões' : 'Mostrar a conversa ao lado dos cartões'"

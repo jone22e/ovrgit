@@ -323,7 +323,6 @@ export interface Settings {
   buddy: boolean
   /** Modo orquestrador: na aba Agentes, os agentes viram cartões e a conversa do selecionado aparece ao lado,
    * dentro da janela principal, em vez de cada um numa janela solta */
-  orchestrator: boolean
   /** Fila de tarefas: agentes em espera que já terminaram uma tarefa continuam disponíveis (continuam a conversa
    * quando a tarefa nova é do mesmo assunto; senão, começam uma nova) */
   queueReuse: boolean
@@ -427,8 +426,10 @@ export interface AgentChatOpen {
   resumeId?: string
   /** Agente em espera: nasce pronto, sem conversa, e pega tarefas da fila */
   standby?: boolean
-  /** Nasce sem chamar atenção: no orquestrador não toma a área da conversa; fora dele, aparece sem roubar o foco */
+  /** Nasce sem chamar atenção: não toma a área da conversa */
   quiet?: boolean
+  /** Em janela própria, fora da área do orquestrador ("Abrir em janela" no cartão) */
+  floating?: boolean
 }
 
 /** Tarefa da fila: o próximo agente em espera disponível (do mesmo repositório, se a tarefa tiver um) a pega */
@@ -714,8 +715,10 @@ export interface AgentSnapshot {
   /** Situação da janela, preenchida pelo processo principal: escondida, e se fechar só a esconde (segundo plano) */
   hidden?: boolean
   background?: boolean
-  /** Modo orquestrador: é a conversa mostrada na área ao lado dos cartões */
+  /** É a conversa mostrada na área ao lado dos cartões */
   docked?: boolean
+  /** Está em janela própria ("Abrir em janela"); o cartão continua aqui */
+  floating?: boolean
   /** Agente em espera (pega tarefas da fila quando está sem conversa) */
   standby?: boolean
   /** A conversa pode ser fixada (já tem sessão e mensagens) e se está fixada */
@@ -744,6 +747,10 @@ export type AgentAction =
   | { type: 'pin' }
   /** Conversa nova na mesma janela, sem perguntar (a fila de tarefas devolve o agente à espera) */
   | { type: 'newChat' }
+  /** Abre a conversa numa janela própria; o cartão continua no orquestrador */
+  | { type: 'popOut' }
+  /** Traz a conversa de volta para a área ao lado dos cartões */
+  | { type: 'dock' }
 
 export interface AgentHistoryItem {
   sessionId: string
@@ -1204,7 +1211,6 @@ export interface OvseerApi {
   /** Traz a janela do agente para a frente (no modo orquestrador, mostra a conversa na área ao lado dos cartões) */
   agentShow(uid: string): Promise<void>
   /** Liga ou desliga o modo orquestrador (também pelo menu Exibir); devolve as configurações atualizadas */
-  setOrchestrator(on: boolean): Promise<Settings>
   /** Modo orquestrador: onde fica a área da conversa na janela principal (em px da página); null quando ela não está à vista */
   orchestratorArea(area: WindowBounds | null): void
   /** Janela do agente: passou a ser mostrada dentro da janela principal (ou voltou a ser uma janela solta) */
