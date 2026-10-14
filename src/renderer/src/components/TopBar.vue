@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { count } from '@shared/plural'
 import logo from '../assets/logo.png'
-import { myDoingCount, openNewAgent, setShowDiff, setShowDock, setShowTasks, setShowTerminal, state } from '../store'
+import { openNewAgent, setShowDiff, setShowDock, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
@@ -17,16 +16,8 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 <template>
   <header class="topbar">
     <img :src="logo" class="logo" alt="Ovseer" title="Ovseer" />
+    <!-- as tarefas do Ovseer ficam na barra lateral de ícones -->
     <span class="task-btns">
-      <button
-        class="ghost icon"
-        :class="{ on: state.showTasks }"
-        :title="state.showTasks ? 'Fechar tarefas' : 'Tarefas do Ovseer'"
-        @click="setShowTasks(!state.showTasks)"
-      >
-        <Icon name="panelLeft" />
-        <span v-if="myDoingCount" class="badge-dot" :title="count(myDoingCount, 'tarefa em execução', 'tarefas em execução')" />
-      </button>
       <button class="ghost icon" title="Novo agente de IA (Claude ou ChatGPT) neste projeto" @click="openNewAgent()">
         <Icon name="squarePen" />
       </button>
@@ -105,11 +96,6 @@ button { -webkit-app-region: no-drag; }
 .spacer { flex: 1; min-width: 4px; }
 .task-btns { display: flex; gap: 2px; margin-right: 4px; -webkit-app-region: no-drag; }
 .task-btns button { position: relative; }
-.task-btns .on { color: var(--accent); background: var(--accent-soft); }
-.badge-dot {
-  position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 0 2px var(--panel);
-}
 .layout { display: flex; gap: 2px; -webkit-app-region: no-drag; }
 .layout .on { color: var(--accent); background: var(--accent-soft); }
 .branch { min-width: 0; max-width: 240px; overflow: hidden; }

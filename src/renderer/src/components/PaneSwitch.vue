@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { setPane, state } from '../store'
+import { count } from '@shared/plural'
+import { myDoingCount, setPane, setShowTasks, state } from '../store'
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
 /** Barra lateral de ícones à esquerda da janela, como no Codex: alterna entre o gerenciador de agentes, os arquivos
- * alterados (diff à direita), todos os arquivos do projeto (editor à direita) e o histórico de versões */
+ * alterados (diff à direita), todos os arquivos do projeto (editor à direita), o histórico de versões e o mapa; e
+ * abre e fecha o painel de tarefas do Ovseer (com um ponto quando há tarefa sua em execução) */
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
@@ -36,6 +38,10 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     <button :class="{ on: current() === 'map' }" title="Mapa: os arquivos do projeto e quem usa quem, num gráfico interativo" @click="go('map')">
       <Icon name="network" :size="18" /><span class="lbl">Mapa</span>
     </button>
+    <button :class="{ on: state.showTasks }" :title="state.showTasks ? 'Fechar tarefas' : 'Tarefas do Ovseer'" @click="setShowTasks(!state.showTasks)">
+      <Icon name="listTodo" :size="18" /><span class="lbl">Tarefas</span>
+      <span v-if="myDoingCount" class="run" :title="count(myDoingCount, 'tarefa em execução', 'tarefas em execução')" />
+    </button>
     <span class="gap" />
     <!-- conta e configurações no pé, como no Codex -->
     <UserMenu side />
@@ -60,4 +66,6 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
 }
 .cnt { background: var(--panel); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
 .need { background: var(--mod); color: #1a1a1a; }
+/* tarefa sua em execução: um ponto na cor do tema */
+.run { position: absolute; top: 4px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
 </style>
