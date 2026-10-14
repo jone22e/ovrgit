@@ -50,7 +50,7 @@ function settings() {
       <button class="ghost item" @click="settings()">
         <Icon name="settings" :size="14" /> Configurações <span class="kbd">{{ mod }},</span>
       </button>
-      <button class="ghost item" title="Lista de temas, com prévia ao vivo (também: Shift Shift e digitar \"tema\")" @click="(open = false), (state.quickOpen = 'tema ')"><Icon name="sliders" :size="14" /> Tema…</button>
+      <button class="ghost item" title="Lista de temas, com prévia ao vivo (também: Shift Shift e digitar 'tema')" @click="(open = false), (state.quickOpen = 'tema ')"><Icon name="sliders" :size="14" /> Tema…</button>
       <button class="ghost item" @click="(open = false), (state.showServices = true)">
         <Icon name="server" :size="14" /> Serviços
       </button>
