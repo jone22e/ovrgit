@@ -30,7 +30,11 @@ const pinnedFirst = (list: AgentSnapshot[], by: (a: AgentSnapshot, b: AgentSnaps
 const needYou = computed(() => [...pinnedFirst(byStatus('waiting'), (a, b) => a.since - b.since), ...pinnedFirst(byStatus('error'), (a, b) => b.since - a.since)])
 const running = computed(() => pinnedFirst(byStatus('live'), (a, b) => a.since - b.since))
 const done = computed(() => pinnedFirst(byStatus('done'), (a, b) => b.since - a.since))
-const idle = computed(() => pinnedFirst(byStatus('idle')))
+/** Sem conversa e fora da espera: uma conversa recém-criada (ou reiniciada), que você vai usar agora; a mais nova primeiro */
+const fresh = computed(() => pinnedFirst(byStatus('idle').filter((a) => !a.standby), (a, b) => b.since - a.since))
+/** Em espera: pega tarefas da fila; fica no fim */
+const standby = computed(() => pinnedFirst(byStatus('idle').filter((a) => !!a.standby)))
+const idle = computed(() => [...fresh.value, ...standby.value])
 
 // ---------- fixadas sem janela aberta: continuam na lista depois de fechar o app; o clique reabre a conversa ----------
 const pinnedHistory = ref<AgentHistoryItem[]>([])
@@ -144,8 +148,9 @@ const doneShown = computed(() => done.value.filter(pass))
 const idleShown = computed(() => idle.value.filter(pass))
 
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
-/** Todos, na ordem de prioridade (as barrinhas da barra de ferramentas mostram todos, filtrados ou não) */
-const allOrder = computed(() => [...needYou.value, ...running.value, ...done.value, ...idle.value])
+/** Todos, na ordem de prioridade: a conversa nova no topo (é nela que você vai escrever), depois quem precisa de você,
+ * rodando, concluídos e, no fim, os agentes em espera. As barrinhas da barra de ferramentas mostram todos, filtrados ou não */
+const allOrder = computed(() => [...fresh.value, ...needYou.value, ...running.value, ...done.value, ...standby.value])
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
 const order = computed(() => allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
