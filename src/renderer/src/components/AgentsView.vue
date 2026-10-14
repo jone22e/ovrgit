@@ -227,9 +227,9 @@ async function allWindows(action: 'show' | 'hide' | 'background' | 'foreground' 
   if (action === 'close' && running.value.length) {
     const n = running.value.length
     const ok = await ask({
-      title: `Fechar as ${snaps.value.length} janelas?`,
+      title: `Fechar os ${snaps.value.length} agentes?`,
       message: n === 1 ? 'Um agente está trabalhando e será interrompido. As conversas ficam em Conversas.' : `${n} agentes estão trabalhando e serão interrompidos. As conversas ficam em Conversas.`,
-      confirmLabel: 'Fechar todas',
+      confirmLabel: 'Fechar todos',
       danger: true
     })
     if (!ok) return
@@ -393,7 +393,7 @@ function pick(a: AgentSnapshot) {
     </aside>
     <div class="scroll">
       <header class="head">
-        <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'janela' : 'janelas' }}</strong>
+        <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong>
         <span v-if="byStatus('waiting').length" class="count"><span class="dot waiting" />{{ byStatus('waiting').length }} aguardando</span>
         <span v-if="byStatus('error').length" class="count"><span class="dot error" />{{ byStatus('error').length }} falhou</span>
         <span v-if="running.length" class="count"><span class="dot live" />{{ running.length }} rodando</span>
