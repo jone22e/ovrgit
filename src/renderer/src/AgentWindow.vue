@@ -2338,7 +2338,9 @@ onUnmounted(() => offs.forEach((f) => f()))
 </template>
 
 <style scoped>
-.agent { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+/* degradê imperceptível em vez de cor chapada: blocos de cor única e blocos com conteúdo são desenhados por caminhos
+   diferentes no Chromium, com cores levemente diferentes no Mac, o que em fundos quase pretos virava faixas (ver styles.css) */
+.agent { display: flex; flex-direction: column; height: 100%; background: var(--bg) linear-gradient(180deg, color-mix(in srgb, var(--bg) 99%, var(--text)), var(--bg)); }
 /* cartão do Modo Arquiteto: da mesma família do cartão do checklist, encostado no campo */
 .archcard { flex: none; margin: 0 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); overflow: hidden; }
 .ac-head { display: flex; align-items: center; gap: 6px; padding-right: 8px; min-width: 0; }
