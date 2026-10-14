@@ -120,10 +120,14 @@ function onMenu(e: MouseEvent) {
   if ((e.target as HTMLElement).closest('input, textarea, .ask-in') || renaming.value) return
   e.preventDefault()
   menu.value = { left: e.clientX, top: e.clientY }
+  // o menu fica dentro da coluna dos cartões: se invadisse a área da conversa ao lado (uma vista nativa, sempre
+  // por cima da página), o gerenciador esconderia a conversa inteira enquanto o menu estivesse aberto
+  const column = (e.currentTarget as HTMLElement | null)?.closest('.list')?.getBoundingClientRect()
+  const right = Math.min(window.innerWidth, column?.right ?? window.innerWidth)
   nextTick(() => {
-    // não deixa o menu sair da janela
+    // não deixa o menu sair da janela nem da coluna
     const r = menuEl.value?.getBoundingClientRect()
-    if (r) menu.value = { left: Math.min(e.clientX, window.innerWidth - r.width - 8), top: Math.min(e.clientY, window.innerHeight - r.height - 8) }
+    if (r) menu.value = { left: Math.max(8, Math.min(e.clientX, right - r.width - 8)), top: Math.min(e.clientY, window.innerHeight - r.height - 8) }
   })
 }
 const closeMenu = () => (menu.value = null)
@@ -161,14 +165,18 @@ function pinFromMenu() {
   closeMenu()
   emit('act', { type: 'pin' })
 }
-/** Conversa nova com o mesmo agente (a atual fica em Conversas); trabalhando, confirma antes */
+/**
+ * Conversa nova com o mesmo agente (a atual fica em Conversas); trabalhando, confirma antes. Vai como ação para a
+ * janela da conversa, que reinicia a tela: pedir direto ao processo principal zerava a sessão e a janela continuava
+ * mostrando a conversa antiga, como se nada tivesse acontecido.
+ */
 async function newChat() {
   closeMenu()
   if (props.a.status === 'live') {
     const ok = await ask({ title: 'Começar uma conversa nova?', message: 'O agente está trabalhando e será interrompido. A conversa atual fica em Conversas.', confirmLabel: 'Nova conversa', danger: true })
     if (!ok) return
   }
-  api.agentNewChat(props.a.uid).catch(() => undefined)
+  emit('act', { type: 'newChat' })
 }
 function closeFromMenu() {
   closeMenu()
