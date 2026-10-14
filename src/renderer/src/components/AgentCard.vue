@@ -14,6 +14,9 @@ import Icon from './Icon.vue'
  * sem checklist, girando enquanto trabalha), selo de situação, o que o agente está fazendo e os controles da janela.
  * No rodapé, entre o modo e os controles, os sinais vitais: um traçado de eletrocardiograma cujo ritmo diz o
  * estado antes de ler qualquer texto. Clicar no cartão mostra a conversa na área ao lado.
+ *
+ * Todos os cartões têm a mesma altura: cada parte que varia (título, texto do que está fazendo ou etiquetas do
+ * resultado, barrinhas das etapas) tem uma altura reservada, então o texto muda sem mexer no grid.
  */
 const props = defineProps<{
   a: AgentSnapshot
@@ -264,14 +267,17 @@ async function saveRename() {
       </span>
     </div>
 
-    <p v-if="detail" class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled }" :title="detail">{{ detail }}</p>
-    <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer) -->
-    <ol v-if="checklist.length" class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
+    <!-- o que o cartão tem a dizer, numa área de duas linhas: atividade, pergunta, erro ou, concluído, as etiquetas do resultado -->
+    <div class="say">
+      <div v-if="chips.length" class="chips">
+        <span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
+      </div>
+      <p v-else class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled }" :title="detail">{{ detail }}</p>
+    </div>
+    <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer); sem checklist, a faixa fica vazia -->
+    <ol class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
       <li v-for="(it, k) in checklist" :key="k" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', now: it === current && a.status === 'live' && !stalled }" />
     </ol>
-    <div v-if="chips.length" class="chips">
-      <span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
-    </div>
 
     <div class="foot">
       <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
@@ -336,11 +342,11 @@ async function saveRename() {
 }
 .acard.sel .num { color: var(--on-accent); background: var(--accent); box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 80%, transparent); }
 .ttl { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-height: 2.6em; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .logo { display: inline-block; vertical-align: -2px; margin-right: 6px; opacity: 0.9; }
 .ttl small { font-size: 11.5px; }
 /* renomear em linha: o campo toma o lugar do título */
-.rename { width: 100%; height: 26px; padding: 0 6px; font-size: 13px; font-weight: 600; }
+.rename { width: 100%; height: 26px; margin: 4px 0 5px; padding: 0 6px; font-size: 13px; font-weight: 600; }
 
 /* anel de progresso (ou o mascote, pelas Configurações) */
 .ring { position: relative; width: 28px; height: 28px; flex: none; }
@@ -388,6 +394,7 @@ async function saveRename() {
 .stats .add { color: var(--add); }
 .stats .del { color: var(--del); }
 
+.say { height: calc(2 * 1.45 * 12.5px); overflow: hidden; }
 .detail { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .detail.live { color: var(--text); }
 /* rodando: um cursor piscando no fim do que está fazendo */
@@ -395,14 +402,14 @@ async function saveRename() {
 .detail.err { color: var(--del); }
 .detail.warn { color: var(--mod); }
 /* etapas do checklist como barrinhas */
-.track-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; }
+.track-steps { list-style: none; margin: 0; padding: 0; height: 4px; display: flex; gap: 3px; }
 .track-steps li { flex: 1; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--faint) 25%, transparent); }
 .track-steps li.done { background: var(--add); }
 .track-steps li.skipped { background: color-mix(in srgb, var(--faint) 50%, transparent); }
 .track-steps li.failed { background: var(--del); }
 .track-steps li.now { background: var(--hunk); animation: blink 1.2s ease-in-out infinite; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px 6px; }
+.chip { font-size: 11px; line-height: 14px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); color: var(--muted); }
 .chip.ok { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
 .chip.bad { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .chip.warn { color: var(--mod); background: color-mix(in srgb, var(--mod) 12%, transparent); }
