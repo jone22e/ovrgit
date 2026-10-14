@@ -343,6 +343,7 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('map:event', h)
   },
   orchestratorArea: (area) => ipcRenderer.send('orchestrator:area', area),
+  dockSnapshot: () => ipcRenderer.invoke('orchestrator:snapshot'),
   agentDocked: (uid) => ipcRenderer.invoke('agent:docked', uid),
   queueList: () => ipcRenderer.invoke('queue:list'),
   queueAdd: (task) => ipcRenderer.invoke('queue:add', task),

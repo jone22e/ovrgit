@@ -236,6 +236,18 @@ function currentViewBounds(): WindowBounds | null {
 }
 
 /** O gerenciador avisa onde a área está (ou que ela saiu de vista): a conversa embutida acompanha */
+/** Foto da conversa encaixada: a página a mostra no lugar da vista enquanto algo (menu, diálogo) cobre a área */
+export async function dockSnapshot(): Promise<string | null> {
+  const w = dockedUid ? wins.get(dockedUid) : undefined
+  if (!w || w.win.isDestroyed() || !isEmbedded(w.win) || !w.win.isVisible()) return null
+  try {
+    const img = await w.win.webContents.capturePage()
+    return img.isEmpty() ? null : `data:image/png;base64,${img.toPNG().toString('base64')}`
+  } catch {
+    return null
+  }
+}
+
 export function setDockArea(area: WindowBounds | null) {
   dockArea = area && area.width > 0 && area.height > 0 ? area : null
   layoutDocked()

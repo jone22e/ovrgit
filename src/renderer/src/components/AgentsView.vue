@@ -251,41 +251,50 @@ function startDockResize(e: MouseEvent) {
 type Box = { x: number; y: number; width: number; height: number }
 /**
  * Algo por cima da área (diálogo, menu aberto, balão): a janela presa, que fica sempre por cima da página,
- * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela. Com um diálogo
- * (fundo escurecido) a conversa some; com um menu ou balão, ela continua na maior faixa livre (abaixo, acima, à
- * esquerda ou à direita do que cobre), e só some se sobrar pouco espaço.
+ * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela.
  */
-function freeArea(el: HTMLElement, r: DOMRect): Box | null {
-  // um fundo escurecido (diálogo, buscador) só conta se cobrir a área de fato: a amostragem o encontra
-  const covers: DOMRect[] = []
+function covered(el: HTMLElement, r: DOMRect): boolean {
+  if (document.querySelector('.backdrop, .overlay-backdrop')) return true
   const step = 56
   for (let y = r.top + 6; y < r.bottom; y += step) {
     for (let x = r.left + 8; x < r.right; x += step) {
       const top = document.elementFromPoint(Math.min(x, r.right - 4), Math.min(y, r.bottom - 4))
-      if (top && !el.contains(top)) covers.push(overlayOf(top).getBoundingClientRect())
+      if (top && !el.contains(top)) return true
     }
   }
-  if (!covers.length) return { x: r.left, y: r.top, width: r.width, height: r.height }
-  // a caixa que envolve tudo o que cobre, e as quatro faixas livres em volta dela
-  const c = { left: Math.min(...covers.map((b) => b.left)), top: Math.min(...covers.map((b) => b.top)), right: Math.max(...covers.map((b) => b.right)), bottom: Math.max(...covers.map((b) => b.bottom)) }
-  const bands: Box[] = [
-    { x: r.left, y: c.bottom, width: r.width, height: r.bottom - c.bottom },
-    { x: r.left, y: r.top, width: r.width, height: c.top - r.top },
-    { x: r.left, y: r.top, width: c.left - r.left, height: r.height },
-    { x: c.right, y: r.top, width: r.right - c.right, height: r.height }
-  ]
-  const best = bands.filter((b) => b.width > 0 && b.height > 0).sort((a, b) => b.width * b.height - a.width * a.height)[0]
-  // sobrou pouco: melhor esconder do que mostrar um retalho da conversa
-  if (!best || best.width < 240 || best.height < 160 || best.width * best.height < r.width * r.height * 0.4) return null
-  return best
+  return false
 }
-/** O que cobre, subindo até o seu contêiner flutuante (o menu ou balão inteiro, não só o texto clicado) */
-function overlayOf(node: Element): Element {
-  for (let e: Element | null = node; e && e !== document.body; e = e.parentElement) {
-    const pos = getComputedStyle(e).position
-    if (pos === 'fixed' || pos === 'absolute') return e
+/*
+ * Coberta, a conversa não some nem se recorta: o processo principal tira uma foto da vista, a foto entra no quadro
+ * no mesmo lugar, e só então a vista se esconde. O menu ou diálogo aparece por cima da foto, onde sempre apareceu.
+ * Descoberta, a vista volta e a foto sai um instante depois, para não piscar.
+ */
+const frozen = ref<string | null>(null)
+let wantFrozen = false
+let freezing = false
+let unfreezeTimer: ReturnType<typeof setTimeout> | undefined
+async function freeze() {
+  wantFrozen = true
+  clearTimeout(unfreezeTimer)
+  if (frozen.value || freezing) return
+  freezing = true
+  try {
+    const snap = await api.dockSnapshot().catch(() => null)
+    // o que cobria já saiu enquanto a foto era tirada: fica tudo como está
+    if (!wantFrozen) return
+    frozen.value = snap
+    await nextTick()
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)))
+    if (wantFrozen) api.orchestratorArea(null)
+  } finally {
+    freezing = false
   }
-  return node
+}
+function unfreeze(rect: Box) {
+  wantFrozen = false
+  api.orchestratorArea(rect)
+  clearTimeout(unfreezeTimer)
+  unfreezeTimer = setTimeout(() => (frozen.value = null), 80)
 }
 let areaRaf = 0
 function reportArea() {
@@ -293,9 +302,9 @@ function reportArea() {
   areaRaf = requestAnimationFrame(() => {
     const el = dockEl.value
     if (!el) return api.orchestratorArea(null)
-    const free = freeArea(el, el.getBoundingClientRect())
-    if (!free) return api.orchestratorArea(null)
-    api.orchestratorArea({ x: Math.round(free.x), y: Math.round(free.y), width: Math.round(free.width), height: Math.round(free.height) })
+    const r = el.getBoundingClientRect()
+    if (covered(el, r)) return void freeze()
+    unfreeze({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
   })
 }
 let sizeObs: ResizeObserver | undefined
@@ -416,6 +425,8 @@ function pick(a: AgentSnapshot) {
       <div class="dock" :style="{ width: `${dockWidth}px` }">
         <!-- a janela presa cobre exatamente esta área -->
         <div ref="dockEl" class="dock-area">
+          <!-- a foto da conversa, enquanto algo cobre a área (a vista fica escondida por baixo do que cobre) -->
+          <img v-if="frozen" :src="frozen" class="dock-frozen" alt="" />
           <div v-if="docked" class="dock-under">
             <span class="dot" :class="docked.status" />
             <strong class="ellipsis">{{ docked.title }}</strong>
@@ -454,7 +465,8 @@ function pick(a: AgentSnapshot) {
 /* modo orquestrador: a conversa do agente escolhido fica à direita, numa área redimensionável */
 .dock { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); }
 /* o fundo imita a janela presa (cabeçalho em cima, corpo embaixo): os cantos arredondados dela ficam invisíveis */
-.dock-area { flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--panel) 0 var(--titlebar), var(--bg) var(--titlebar)); }
+.dock-area { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--panel) 0 var(--titlebar), var(--bg) var(--titlebar)); }
+.dock-frozen { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; }
 .dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
 .dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }

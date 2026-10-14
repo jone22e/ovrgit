@@ -1229,6 +1229,8 @@ export interface OvseerApi {
   /** Liga ou desliga o modo orquestrador (também pelo menu Exibir); devolve as configurações atualizadas */
   /** Modo orquestrador: onde fica a área da conversa na janela principal (em px da página); null quando ela não está à vista */
   orchestratorArea(area: WindowBounds | null): void
+  /** Foto da conversa encaixada (data URL), para ficar no lugar dela enquanto algo cobre a área; null se não há */
+  dockSnapshot(): Promise<string | null>
   /** Janela do agente: passou a ser mostrada dentro da janela principal (ou voltou a ser uma janela solta) */
   onAgentDocked(cb: (uid: string, docked: boolean) => void): () => void
   /** A janela está presa à principal agora (para a tela saber ao carregar) */

@@ -285,12 +285,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 </template>
 
 <style scoped>
-/* com a conversa encaixada do orquestrador ao lado (--dock-w), o fundo e a paleta ficam na faixa à esquerda dela:
-   cobri-la faria a conversa sumir enquanto o buscador estivesse aberto */
-.backdrop { position: fixed; inset: 0; right: var(--dock-w, 0px); z-index: 70; background: rgba(0, 0, 0, 0.35); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; animation: fade 0.1s ease-out; }
+.backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, 0.35); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; animation: fade 0.1s ease-out; }
 @keyframes fade { from { opacity: 0; } }
 .palette {
-  width: min(560px, calc(100vw - var(--dock-w, 0px) - 32px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden;
+  width: min(560px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 .field { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 46px; border-bottom: 1px solid var(--border); }

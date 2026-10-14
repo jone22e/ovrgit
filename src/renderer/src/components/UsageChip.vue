@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { keepOutOfDock } from '../popover'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { CliProvider, CliUpdates, ProviderUsage, UsageInfo, UsageWindow } from '@shared/types'
 import { api } from '../store'
 import AgentLogo from './AgentLogo.vue'
@@ -122,13 +121,9 @@ const ago = (at: number) => {
 const onDoc = (e: MouseEvent) => {
   if (open.value && root.value && !root.value.contains(e.target as Node)) open.value = false
 }
-const popEl = ref<HTMLElement>()
 function toggle() {
   open.value = !open.value
-  if (!open.value) return
-  load(true)
-  // com a conversa encaixada ao lado, o balão abre à esquerda dela (senão ficaria por baixo da vista)
-  nextTick(() => keepOutOfDock(popEl.value))
+  if (open.value) load(true)
 }
 onMounted(() => {
   load()
@@ -152,7 +147,7 @@ onUnmounted(() => {
       <span v-if="hasUpdate" class="dot" title="Há versão nova de um CLI" />
     </button>
 
-    <div v-if="open" ref="popEl" class="pop">
+    <div v-if="open" class="pop">
       <header>
         <strong>Uso das assinaturas</strong>
         <button class="ghost icon small" title="Atualizar" @click="load(true)">
