@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assign, move } from '../src/shared/queue'
+import { assign, move, reasoningPrompt, taskPrompt } from '../src/shared/queue'
 import type { QueueTask } from '../src/shared/types'
 
 const t = (id: string, status: QueueTask['status'] = 'queued', cwd?: string): QueueTask => ({ id, text: id, status, cwd, createdAt: 0 })
@@ -51,5 +51,36 @@ describe('fila: afinidade entre a tarefa e as conversas', () => {
     expect(parsePick('0', 3)).toBe(0)
     expect(parsePick('7', 3)).toBeNull()
     expect(parsePick('nenhuma', 3)).toBeNull()
+  })
+})
+
+describe('fila de raciocínio', () => {
+  const t = (id: string, extra: Partial<QueueTask> = {}): QueueTask => ({ id, text: `tarefa ${id}`, status: 'queued', createdAt: 1, ...extra })
+  it('em raciocínio, a tarefa não vai para agente nenhum; na execução, vai', () => {
+    const agents = [{ uid: 'a1', cwd: '/p', title: 'A' }]
+    expect(assign([t('r', { stage: 'reasoning' }), t('e')], agents, new Set()).map((x) => x.task.id)).toEqual(['e'])
+  })
+  it('subir e descer só troca de lugar dentro da mesma fila', () => {
+    const list = [t('r1', { stage: 'reasoning' }), t('e1'), t('r2', { stage: 'reasoning' }), t('e2')]
+    expect(move(list, 'r2', -1).map((x) => x.id)).toEqual(['r2', 'e1', 'r1', 'e2'])
+    expect(move(list, 'e2', -1).map((x) => x.id)).toEqual(['r1', 'e2', 'r2', 'e1'])
+    expect(move(list, 'r1', -1)).toBe(list)
+  })
+  it('o pedido ao agente de raciocínio leva a análise anterior e as observações; o de execução, o raciocínio formado', () => {
+    const fresh = t('x', { text: 'Trocar o fuso do relatório', stage: 'reasoning' })
+    const p1 = reasoningPrompt(fresh)
+    expect(p1).toContain('Tarefa:\nTrocar o fuso do relatório')
+    expect(p1).not.toContain('Análise anterior')
+    expect(p1).toContain('não altere arquivos')
+    const reviewed = { ...fresh, analysis: '**Do que se trata**: o relatório usa UTC.', notes: [{ at: 1, text: 'Usar o fuso do usuário, não o do servidor' }] }
+    const p2 = reasoningPrompt(reviewed)
+    expect(p2).toContain('Análise anterior:\n**Do que se trata**: o relatório usa UTC.')
+    expect(p2).toContain('Observações do usuário, em ordem:\n1. Usar o fuso do usuário, não o do servidor')
+    expect(p2).toContain('marque com ✓')
+    expect(taskPrompt(fresh)).toBe('Trocar o fuso do relatório')
+    const run = taskPrompt(reviewed)
+    expect(run.startsWith('Trocar o fuso do relatório\n\n---\n')).toBe(true)
+    expect(run).toContain('Análise:\n**Do que se trata**: o relatório usa UTC.')
+    expect(run).toContain('Observações do usuário:\n- Usar o fuso do usuário, não o do servidor')
   })
 })

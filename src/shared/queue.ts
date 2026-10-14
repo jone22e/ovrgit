@@ -16,7 +16,7 @@ export function assign(tasks: QueueTask[], agents: StandbyAgent[], busy: Set<str
   const free = agents.filter((a) => !busy.has(a.uid))
   const out: { task: QueueTask; agent: StandbyAgent }[] = []
   for (const task of tasks) {
-    if (task.status !== 'queued') continue
+    if (task.status !== 'queued' || task.stage === 'reasoning') continue
     const i = free.findIndex((a) => !task.cwd || a.cwd === task.cwd)
     if (i < 0) continue
     out.push({ task, agent: free[i] })
@@ -25,9 +25,10 @@ export function assign(tasks: QueueTask[], agents: StandbyAgent[], busy: Set<str
   return out
 }
 
-/** Sobe ou desce uma tarefa entre as que ainda estão na fila (as outras não saem do lugar) */
+/** Sobe ou desce uma tarefa entre as que esperam na mesma fila (raciocínio ou execução); as outras não saem do lugar */
 export function move(tasks: QueueTask[], id: string, dir: -1 | 1): QueueTask[] {
-  const queued = tasks.filter((t) => t.status === 'queued')
+  const self = tasks.find((t) => t.id === id)
+  const queued = tasks.filter((t) => t.status === 'queued' && (t.stage === 'reasoning') === (self?.stage === 'reasoning'))
   const i = queued.findIndex((t) => t.id === id)
   const j = i + dir
   if (i < 0 || j < 0 || j >= queued.length) return tasks
@@ -36,6 +37,48 @@ export function move(tasks: QueueTask[], id: string, dir: -1 | 1): QueueTask[] {
   const next = [...tasks]
   ;[next[a], next[b]] = [next[b], next[a]]
   return next
+}
+
+// ---------- fila de raciocínio: a análise antes da execução ----------
+
+/** O pedido ao agente de raciocínio: entender a tarefa no repositório, sem executar; com observações, rever a análise */
+export function reasoningPrompt(task: QueueTask): string {
+  const notes = (task.notes ?? []).map((n, i) => `${i + 1}. ${n.text.trim()}`).join('\n')
+  const lines = [
+    'Você é o agente de raciocínio de uma fila de tarefas. A tarefa abaixo foi anotada e ainda NÃO vai ser executada: seu papel é ajudar a formar o raciocínio antes da execução. Leia o repositório (só leitura) o quanto for preciso para entender do que se trata. Não implemente nada e não altere arquivos.',
+    '',
+    'Escreva uma análise curta, em português do Brasil, em markdown, com estas seções (título em negrito, itens curtos):',
+    '- **Do que se trata**: uma frase.',
+    '- **Onde mexe**: arquivos ou módulos prováveis, com os caminhos.',
+    '- **Dúvidas em aberto**: perguntas objetivas para o usuário decidir (pule a seção se não houver).',
+    '- **Riscos e cuidados**.',
+    '- **Esboço de plano**: poucos passos.',
+    task.analysis
+      ? 'Há uma análise anterior e observações do usuário: incorpore as observações, responda às dúvidas que elas resolvem, ajuste o que mudou e marque com ✓ o que ficou decidido. Entregue a análise inteira atualizada, não só o que mudou.'
+      : '',
+    '',
+    `Tarefa:\n${task.text.trim()}`,
+    task.analysis ? `\nAnálise anterior:\n${task.analysis.trim()}` : '',
+    notes ? `\nObservações do usuário, em ordem:\n${notes}` : ''
+  ]
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** O texto que vai ao agente de execução: o pedido e, se houve raciocínio, a análise e as observações */
+export function taskPrompt(task: QueueTask): string {
+  const notes = (task.notes ?? []).map((n) => `- ${n.text.trim()}`).join('\n')
+  if (!task.analysis && !notes) return task.text
+  return [
+    task.text.trim(),
+    '',
+    '---',
+    'Raciocínio formado antes de executar (análise de um agente de leitura e observações do usuário). O pedido acima é o que manda; use isto como ponto de partida e confira no código antes de seguir.',
+    task.analysis ? `\nAnálise:\n${task.analysis.trim()}` : '',
+    notes ? `\nObservações do usuário:\n${notes}` : ''
+  ]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 // ---------- afinidade entre a tarefa e as conversas dos agentes ----------

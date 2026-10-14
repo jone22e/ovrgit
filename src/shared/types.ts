@@ -433,12 +433,26 @@ export interface AgentChatOpen {
 }
 
 /** Tarefa da fila: o próximo agente em espera disponível (do mesmo repositório, se a tarefa tiver um) a pega */
+/** Observação do usuário numa tarefa em raciocínio */
+export interface QueueNote {
+  at: number
+  text: string
+}
 export interface QueueTask {
   id: string
   text: string
   /** Repositório onde deve rodar (ausente: qualquer agente em espera serve) */
   cwd?: string
   status: 'queued' | 'running' | 'done' | 'failed'
+  /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
+  stage?: 'reasoning'
+  /** Análise do agente de raciocínio (markdown), quando e se está sendo refeita */
+  analysis?: string
+  analyzedAt?: number
+  analyzing?: boolean
+  analysisError?: string
+  /** Observações do usuário, em ordem: cada uma dispara uma revisão da análise */
+  notes?: QueueNote[]
   createdAt: number
   /** Agente que a pegou */
   uid?: string
@@ -1225,6 +1239,12 @@ export interface OvseerApi {
   queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>
   /** Uma tarefa que falhou volta para a fila */
   queueRetry(id: string): Promise<QueueTask[]>
+  /** Observação numa tarefa em raciocínio (o agente revê a análise com ela) */
+  queueComment(id: string, text: string): Promise<QueueTask[]>
+  /** Move entre a fila de raciocínio e a de execução (só enquanto espera) */
+  queueStage(id: string, stage: 'reasoning' | 'ready'): Promise<QueueTask[]>
+  /** Refaz a análise de uma tarefa em raciocínio */
+  queueAnalyze(id: string): Promise<QueueTask[]>
   queueClearFinished(): Promise<QueueTask[]>
   onQueueChange(cb: (tasks: QueueTask[]) => void): () => void
   /** Mapa do projeto (aba Mapa): o gravado, a varredura dos imports, o mapeamento com IA e o andamento dele */

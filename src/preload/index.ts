@@ -349,6 +349,9 @@ const api: OvseerApi = {
   queueRemove: (id) => ipcRenderer.invoke('queue:remove', id),
   queueMove: (id, dir) => ipcRenderer.invoke('queue:move', id, dir),
   queueRetry: (id) => ipcRenderer.invoke('queue:retry', id),
+  queueComment: (id, text) => ipcRenderer.invoke('queue:comment', id, text),
+  queueStage: (id, stage) => ipcRenderer.invoke('queue:stage', id, stage),
+  queueAnalyze: (id) => ipcRenderer.invoke('queue:analyze', id),
   queueClearFinished: () => ipcRenderer.invoke('queue:clearFinished'),
   onQueueChange: (cb) => {
     const h = (_e: unknown, tasks: QueueTask[]) => cb(tasks)

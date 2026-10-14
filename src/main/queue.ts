@@ -2,14 +2,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { AgentStatus, QueueTask } from '../shared/types'
-import { assign, clearlyRelated, move as moveTask, parsePick, pickPrompt, rankRelated, type AgentContext } from '../shared/queue'
+import { assign, clearlyRelated, move as moveTask, parsePick, pickPrompt, rankRelated, reasoningPrompt, taskPrompt, type AgentContext } from '../shared/queue'
 import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
+import { reasonAbout } from './reasoner'
 
 /**
- * Fila de tarefas para os agentes em espera. Uma tarefa entra na fila e vai para um agente em espera livre, como
- * mensagem. A escolha olha o contexto: um agente que já terminou uma tarefa do mesmo assunto continua a mesma
+ * Fila de tarefas para os agentes em espera, em duas etapas. Uma tarefa nova entra na fila de raciocínio: um agente
+ * só de leitura analisa do que se trata e anexa a análise; cada observação do usuário faz a análise ser revista, em
+ * segundo plano. Quando o raciocínio está formado, o usuário move a tarefa para a execução, e ela vai para um agente
+ * em espera livre, como mensagem, com a análise e as observações junto. A escolha olha o contexto: um agente que já terminou uma tarefa do mesmo assunto continua a mesma
  * conversa (aproveita o que já leu e decidiu); quando a relação não é óbvia, uma IA rápida decide; sem relação, a
  * tarefa vai para um agente zerado (ou um terminado abre uma conversa nova). A fila sobrevive ao fechar do app
  * (as que estavam rodando voltam para a fila).
@@ -44,21 +47,95 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
   } catch {
     tasks = []
   }
-  // o app fechou com tarefas rodando: voltam para a fila
+  // o app fechou com tarefas rodando: voltam para a fila; com análises no meio: recomeçam
   for (const t of tasks) if (t.status === 'running') (t.status = 'queued'), (t.uid = undefined), (t.startedAt = undefined)
+  for (const t of tasks) if (t.analyzing) t.analyzing = false
   agentChat.onAgentStatus(onStatus)
   agentChat.onAgentGone(onGone)
+  for (const t of tasks) if (t.stage === 'reasoning' && !t.analysis) analyze(t.id)
 }
 
 export const list = (): QueueTask[] => tasks
 
+/** Tarefa nova: entra na fila de raciocínio, e a análise começa */
 export function add(task: { text: string; cwd?: string }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
-  tasks.push({ id: crypto.randomUUID(), text, cwd: task.cwd || undefined, status: 'queued', createdAt: Date.now() })
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, status: 'queued', stage: 'reasoning', createdAt: Date.now() }
+  tasks.push(t)
   save()
-  void dispatch()
+  analyze(t.id)
   return tasks
+}
+
+/** Observação do usuário numa tarefa em raciocínio: fica anexada e a análise é revista com ela */
+export function comment(id: string, text: string): QueueTask[] {
+  const t = tasks.find((x) => x.id === id)
+  const clean = String(text ?? '').trim().slice(0, 4000)
+  if (!t || t.stage !== 'reasoning' || !clean) return tasks
+  ;(t.notes ??= []).push({ at: Date.now(), text: clean })
+  save()
+  analyze(id)
+  return tasks
+}
+
+/** Entre a fila de raciocínio e a de execução (só enquanto espera); para a execução, o próximo agente livre a pega */
+export function setStage(id: string, stage: 'reasoning' | 'ready'): QueueTask[] {
+  const t = tasks.find((x) => x.id === id)
+  if (!t || t.status !== 'queued') return tasks
+  if (stage === 'reasoning') t.stage = 'reasoning'
+  else delete t.stage
+  save()
+  if (stage === 'ready') void dispatch()
+  return tasks
+}
+
+/** Refaz a análise de uma tarefa em raciocínio */
+export function reanalyze(id: string): QueueTask[] {
+  const t = tasks.find((x) => x.id === id)
+  if (!t || t.stage !== 'reasoning') return tasks
+  analyze(id)
+  return tasks
+}
+
+/* as análises rodam uma por vez (cada uma é um processo do CLI); uma observação no meio faz a tarefa ser analisada de novo */
+let chain: Promise<void> = Promise.resolve()
+function analyze(id: string) {
+  const t = tasks.find((x) => x.id === id)
+  if (!t || t.stage !== 'reasoning') return
+  if (!t.analyzing) {
+    t.analyzing = true
+    save()
+  }
+  chain = chain.then(() => runAnalysis(id)).catch(() => undefined)
+}
+async function runAnalysis(id: string): Promise<void> {
+  const t = tasks.find((x) => x.id === id)
+  if (!t || t.stage !== 'reasoning') return
+  const notesBefore = t.notes?.length ?? 0
+  t.analyzing = true
+  try {
+    const text = (await reasonAbout({ cwd: t.cwd, prompt: reasoningPrompt(t) })).trim()
+    const cur = tasks.find((x) => x.id === id)
+    if (!cur) return
+    if (text) {
+      cur.analysis = text.slice(0, 20000)
+      cur.analyzedAt = Date.now()
+      cur.analysisError = undefined
+    } else cur.analysisError = 'A análise voltou vazia.'
+  } catch (e) {
+    const cur = tasks.find((x) => x.id === id)
+    if (cur) cur.analysisError = String((e as Error)?.message ?? e).slice(0, 300)
+  }
+  const cur = tasks.find((x) => x.id === id)
+  if (!cur) return
+  // chegaram observações enquanto analisava: a análise é revista com elas
+  if (cur.stage === 'reasoning' && (cur.notes?.length ?? 0) > notesBefore) {
+    save()
+    return runAnalysis(id)
+  }
+  cur.analyzing = false
+  save()
 }
 
 export function remove(id: string): QueueTask[] {
@@ -114,7 +191,7 @@ async function dispatch() {
   dispatching = true
   try {
     for (const task of [...tasks]) {
-      if (task.status !== 'queued') continue
+      if (task.status !== 'queued' || task.stage === 'reasoning') continue
       const reuse = getSettings().queueReuse
       const all = agentChat
         .availableStandby()
@@ -182,7 +259,8 @@ async function dispatch() {
 /** Entrega a tarefa ao agente escolhido */
 function start(task: QueueTask, agent: AgentContext, via: 'fresh' | 'related', reason: string) {
   try {
-    agentChat.actOnAgent(agent.uid, { type: 'reply', text: task.text })
+    // o pedido vai com o raciocínio formado antes (análise e observações), quando houve
+    agentChat.actOnAgent(agent.uid, { type: 'reply', text: taskPrompt(task) })
   } catch (e) {
     console.error('Fila: não consegui entregar a tarefa:', (e as Error).message)
     return
