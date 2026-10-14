@@ -409,6 +409,19 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
       hideAgentWindow(uid)
       return
     }
+    // janela própria ("Abrir em janela"): o X a traz de volta para o orquestrador em vez de encerrar o agente;
+    // a conversa volta a ser embutida, o cartão fica, e a área a mostra se estiver vazia
+    if (w?.floating && !w.closing && !quitting && !embedded) {
+      e.preventDefault()
+      w.floating = false
+      w.undocked = win.getBounds()
+      setHistoryBounds(w.info.sessionId ?? null, win.getBounds())
+      rehost(w, true)
+      w.docked = true
+      if (!dockedUid) dockAgent(uid)
+      else broadcastSnapshots()
+      return
+    }
     // lembra onde a janela ficou, para a conversa reabrir no mesmo lugar
     if (embedded || win.isMinimized() || win.isFullScreen()) return
     setHistoryBounds(w?.info.sessionId ?? null, win.getBounds())
