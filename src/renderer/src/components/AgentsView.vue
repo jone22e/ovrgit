@@ -334,20 +334,44 @@ function startDockResize(e: MouseEvent) {
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
 }
+type Box = { x: number; y: number; width: number; height: number }
 /**
- * Algo por cima da área (diálogo, menu aberto, dropdown): a janela presa, que fica sempre por cima da página,
- * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela.
+ * Algo por cima da área (diálogo, menu aberto, balão): a janela presa, que fica sempre por cima da página,
+ * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela. Com um diálogo
+ * (fundo escurecido) a conversa some; com um menu ou balão, ela continua na maior faixa livre (abaixo, acima, à
+ * esquerda ou à direita do que cobre), e só some se sobrar pouco espaço.
  */
-function covered(el: HTMLElement, r: DOMRect): boolean {
-  if (document.querySelector('.backdrop, .overlay-backdrop')) return true
+function freeArea(el: HTMLElement, r: DOMRect): Box | null {
+  if (document.querySelector('.backdrop, .overlay-backdrop')) return null
+  const covers: DOMRect[] = []
   const step = 56
   for (let y = r.top + 6; y < r.bottom; y += step) {
     for (let x = r.left + 8; x < r.right; x += step) {
       const top = document.elementFromPoint(Math.min(x, r.right - 4), Math.min(y, r.bottom - 4))
-      if (top && !el.contains(top)) return true
+      if (top && !el.contains(top)) covers.push(overlayOf(top).getBoundingClientRect())
     }
   }
-  return false
+  if (!covers.length) return { x: r.left, y: r.top, width: r.width, height: r.height }
+  // a caixa que envolve tudo o que cobre, e as quatro faixas livres em volta dela
+  const c = { left: Math.min(...covers.map((b) => b.left)), top: Math.min(...covers.map((b) => b.top)), right: Math.max(...covers.map((b) => b.right)), bottom: Math.max(...covers.map((b) => b.bottom)) }
+  const bands: Box[] = [
+    { x: r.left, y: c.bottom, width: r.width, height: r.bottom - c.bottom },
+    { x: r.left, y: r.top, width: r.width, height: c.top - r.top },
+    { x: r.left, y: r.top, width: c.left - r.left, height: r.height },
+    { x: c.right, y: r.top, width: r.right - c.right, height: r.height }
+  ]
+  const best = bands.filter((b) => b.width > 0 && b.height > 0).sort((a, b) => b.width * b.height - a.width * a.height)[0]
+  // sobrou pouco: melhor esconder do que mostrar um retalho da conversa
+  if (!best || best.width < 240 || best.height < 160 || best.width * best.height < r.width * r.height * 0.4) return null
+  return best
+}
+/** O que cobre, subindo até o seu contêiner flutuante (o menu ou balão inteiro, não só o texto clicado) */
+function overlayOf(node: Element): Element {
+  for (let e: Element | null = node; e && e !== document.body; e = e.parentElement) {
+    const pos = getComputedStyle(e).position
+    if (pos === 'fixed' || pos === 'absolute') return e
+  }
+  return node
 }
 let areaRaf = 0
 function reportArea() {
@@ -355,9 +379,9 @@ function reportArea() {
   areaRaf = requestAnimationFrame(() => {
     const el = dockEl.value
     if (!orch.value || !el) return api.orchestratorArea(null)
-    const r = el.getBoundingClientRect()
-    if (covered(el, r)) return api.orchestratorArea(null)
-    api.orchestratorArea({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
+    const free = freeArea(el, el.getBoundingClientRect())
+    if (!free) return api.orchestratorArea(null)
+    api.orchestratorArea({ x: Math.round(free.x), y: Math.round(free.y), width: Math.round(free.width), height: Math.round(free.height) })
   })
 }
 let sizeObs: ResizeObserver | undefined
