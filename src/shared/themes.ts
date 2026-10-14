@@ -215,12 +215,13 @@ export const THEMES: Theme[] = [
     dark: true,
     colors: {
       accent: '#5fd75f', accentStrong: '#4cbf4c', onAccent: '#061a0a',
-      bg: '#070907', panel: '#0c0f0c', panel2: '#131813', hover: '#1b221b', border: '#223022',
+      // fundos pretos e cinzas neutros (sem tingir de verde): o verde fica só no texto e no destaque
+      bg: '#000000', panel: '#0b0b0b', panel2: '#141414', hover: '#1c1c1c', border: '#262626',
       text: '#c9e8c9', muted: '#8fb58f', faint: '#5b7a5b',
       add: '#5fd75f', del: '#d75f5f', mod: '#d7af5f', hunk: '#5fafd7'
     },
     ansi: {
-      black: '#070907', red: '#ff5f5f', green: '#5fd75f', yellow: '#ffd75f', blue: '#5f87ff', magenta: '#d787ff',
+      black: '#000000', red: '#ff5f5f', green: '#5fd75f', yellow: '#ffd75f', blue: '#5f87ff', magenta: '#d787ff',
       cyan: '#5fd7ff', white: '#c9e8c9', brightBlack: '#5b7a5b', brightRed: '#ff8787', brightGreen: '#87ff87',
       brightYellow: '#ffff87', brightBlue: '#87afff', brightMagenta: '#ffafff', brightCyan: '#87ffff',
       brightWhite: '#ffffff'
