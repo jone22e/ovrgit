@@ -5,9 +5,9 @@ import type { Service, ServiceState } from '../shared/types'
 
 /**
  * API local para os agentes mexerem nos serviços do Ovseer sem passar pela tela: listar, ligar (esperando a porta
- * abrir), desligar e ler a saída. Só responde em 127.0.0.1 e exige um token sorteado a cada abertura do app, que
- * vai para o agente na nota de serviços (agentChat.servicesNote). Serviços são os que o usuário cadastrou no menu
- * Serviços: a API não cria nem edita nenhum.
+ * abrir), desligar, ler a saída e cadastrar um serviço novo. Só responde em 127.0.0.1 e exige um token sorteado a
+ * cada abertura do app, que vai para o agente na nota de serviços (agentChat.servicesNote). Editar e remover
+ * continuam só na tela: um serviço sobrevive à conversa, e essa decisão é do usuário.
  */
 
 export interface AgentApiBackend {
@@ -17,6 +17,24 @@ export interface AgentApiBackend {
   stop(id: string): void
   /** Últimas linhas da saída (sem códigos de cor) */
   output(id: string, lines: number): string[]
+  /** Cadastra um serviço novo (entra na lista do menu Serviços) */
+  create(s: { name: string; command: string; cwd: string; autostart: boolean }): Service | Promise<Service>
+}
+
+/** Corpo JSON de um pedido (limitado a 64 KB) */
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = ''
+    req.on('data', (c: Buffer) => {
+      data += c.toString('utf8')
+      if (data.length > 65_536) {
+        reject(new Error('Corpo grande demais.'))
+        req.destroy()
+      }
+    })
+    req.on('end', () => resolve(data))
+    req.on('error', reject)
+  })
 }
 
 export interface AgentApiInfo {
@@ -56,11 +74,28 @@ export function startAgentApi(backend: AgentApiBackend): Promise<AgentApiInfo> {
       const auth = req.headers.authorization ?? ''
       if (auth !== `Bearer ${token}`) return json(res, 401, { error: 'Token inválido. Use o cabeçalho Authorization: Bearer <token> da nota de serviços.' })
       const parts = url.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p))
-      if (parts[0] !== 'services') return json(res, 404, { error: 'Rota desconhecida. Rotas: GET /services, GET /services/{nome}, POST /services/{nome}/start?wait=30, POST /services/{nome}/stop, GET /services/{nome}/log?lines=40' })
+      if (parts[0] !== 'services') return json(res, 404, { error: 'Rota desconhecida. Rotas: GET /services, POST /services (cadastrar), GET /services/{nome}, POST /services/{nome}/start?wait=30, POST /services/{nome}/stop, GET /services/{nome}/log?lines=40' })
       const list = backend.services()
       const stateOf = (id: string) => backend.states().find((x) => x.id === id)
       if (parts.length === 1) {
-        if (req.method !== 'GET') return json(res, 405, { error: 'Use GET.' })
+        if (req.method === 'POST') {
+          // cadastro: nome, comando e pasta; sem repetir um nome que já existe (um agente tentando de novo não duplica)
+          let body: Record<string, unknown>
+          try {
+            body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>
+          } catch {
+            return json(res, 400, { error: 'Corpo inválido: mande JSON com name, command e, se quiser, cwd e autostart.' })
+          }
+          const name = String(body.name ?? '').trim().slice(0, 80)
+          const command = String(body.command ?? '').trim().slice(0, 4000)
+          const cwd = String(body.cwd ?? '').trim()
+          if (!name || !command) return json(res, 400, { error: 'Faltou name ou command.' })
+          const dup = resolveService(list, name)
+          if (dup) return json(res, 409, { error: `Já existe um serviço chamado "${dup.name}".`, ...serviceView(dup, stateOf(dup.id)) })
+          const created = await backend.create({ name, command, cwd, autostart: body.autostart === true })
+          return json(res, 201, { ...serviceView(created, undefined), created: true })
+        }
+        if (req.method !== 'GET') return json(res, 405, { error: 'Use GET, ou POST para cadastrar.' })
         return json(res, 200, { services: list.map((s) => serviceView(s, stateOf(s.id))) })
       }
       const s = resolveService(list, parts[1])

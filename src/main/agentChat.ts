@@ -1217,7 +1217,8 @@ function apiHowTo(api: { port: number; token: string }): string[] {
     `- Ligar e esperar até 30 s por uma porta em escuta: curl -s -X POST ${h} "${base}/services/NOME/start?wait=30" (a resposta traz "ready": true quando há porta; senão confira "log")`,
     `- Desligar: curl -s -X POST ${h} ${base}/services/NOME/stop`,
     `- Últimas linhas da saída: curl -s ${h} "${base}/services/NOME/log?lines=40"`,
-    'Depois de ligar, use as portas da resposta. Não desligue serviços que você não ligou.'
+    `- Cadastrar um serviço novo, só quando a tarefa precisar de algo que fique rodando (servidor de desenvolvimento, túnel): curl -s -X POST ${h} -H "Content-Type: application/json" ${base}/services -d '{"name":"Nome","command":"npm run dev","cwd":"/pasta/do/projeto","autostart":false}' (depois ligue com /start; um nome que já existe não é duplicado)`,
+    'Depois de ligar, use as portas da resposta. Não desligue serviços que você não ligou. Editar e remover serviços é só na tela, pelo usuário.'
   ]
 }
 

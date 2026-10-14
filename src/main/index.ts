@@ -10,7 +10,8 @@ import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
   AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds,
-  HandoffMaterial
+  HandoffMaterial,
+  Service
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -45,6 +46,7 @@ import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
 import * as agentApi from './agentApi'
+import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
 import type { ServicesFile } from '../shared/servicesShare'
@@ -892,7 +894,19 @@ app.whenReady().then(() => {
   services.startAutostart()
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
   agentApi
-    .startAgentApi({ services: () => getSettings().services, states: services.serviceStates, start: services.startService, stop: services.stopService, output: services.serviceOutput })
+    .startAgentApi({
+      services: () => getSettings().services,
+      states: services.serviceStates,
+      start: services.startService,
+      stop: services.stopService,
+      output: services.serviceOutput,
+      create: (s) => {
+        const service: Service = { id: randomUUID(), name: s.name, command: s.command, cwd: s.cwd, autostart: s.autostart || undefined }
+        const next = saveSettings({ services: [...getSettings().services, service] })
+        for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('settings:changed', next)
+        return service
+      }
+    })
     .catch((e) => console.error('API local dos agentes não subiu:', e))
   createWindow()
   // os agentes abertos da última vez voltam como estavam (conversas retomadas, em espera, a da área do orquestrador)

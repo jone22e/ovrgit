@@ -23,7 +23,12 @@ const backend = {
   stop(id: string) {
     states.set(id, { id, status: 'exited', exitCode: 0 })
   },
-  output: (id: string, n: number) => (log.get(id) ?? []).slice(-n)
+  output: (id: string, n: number) => (log.get(id) ?? []).slice(-n),
+  create(s: { name: string; command: string; cwd: string; autostart: boolean }) {
+    const svc: Service = { id: `s${services.length + 1}`, name: s.name, command: s.command, cwd: s.cwd, autostart: s.autostart || undefined }
+    services.push(svc)
+    return svc
+  }
 }
 const api = await startAgentApi(backend)
 afterAll(stopAgentApi)
@@ -52,6 +57,17 @@ describe('API local dos serviços para os agentes', () => {
 
     const stopped = (await (await call('/services/db/stop', 'POST')).json()) as { status: string; exitCode: number }
     expect(stopped).toMatchObject({ status: 'exited', exitCode: 0 })
+  })
+  it('cadastra um serviço novo; nome repetido não duplica; sem nome ou comando, 400', async () => {
+    const post = (body: unknown) => fetch(`http://127.0.0.1:${api.port}/services`, { method: 'POST', headers: { Authorization: `Bearer ${api.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const r = await post({ name: 'Túnel do Redis', command: 'ssh -L 6379:redis:6379 host', cwd: '/p', autostart: true })
+    expect(r.status).toBe(201)
+    expect((await r.json()) as object).toMatchObject({ name: 'Túnel do Redis', status: 'stopped', created: true })
+    expect(services.find((s) => s.name === 'Túnel do Redis')).toMatchObject({ command: 'ssh -L 6379:redis:6379 host', cwd: '/p', autostart: true })
+    const dup = await post({ name: 'tunel do redis', command: 'outro' })
+    expect(dup.status).toBe(409)
+    expect(services.filter((s) => /redis/i.test(s.name))).toHaveLength(1)
+    expect((await post({ name: 'Sem comando' })).status).toBe(400)
   })
   it('serviço ou ação desconhecidos: 404 com a lista do que existe', async () => {
     const r = await call('/services/nada/start', 'POST')
