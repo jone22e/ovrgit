@@ -158,7 +158,10 @@ function createWindow() {
   // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
   const wc = win.webContents
   wc.on('will-navigate', (e, url) => {
-    if (url.split('#')[0] !== wc.getURL().split('#')[0]) e.preventDefault()
+    if (url.split('#')[0] === wc.getURL().split('#')[0]) return
+    e.preventDefault()
+    // um link em texto (resumo de plano, histórico) abre no navegador do sistema
+    if (/^https?:\/\//.test(url)) shell.openExternal(url)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)

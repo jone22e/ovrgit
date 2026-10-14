@@ -408,7 +408,10 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
   // bloqueia navegação para fora, mas deixa a própria página recarregar (o servidor de desenvolvimento pede
   // recarga completa quando uma atualização a quente falha; sem isso a janela ficava com código antigo)
   win.webContents.on('will-navigate', (e, url) => {
-    if (url.split('#')[0] !== win.webContents.getURL().split('#')[0]) e.preventDefault()
+    if (url.split('#')[0] === win.webContents.getURL().split('#')[0]) return
+    e.preventDefault()
+    // um link no texto da conversa abre no navegador do sistema, em vez de ser engolido
+    if (/^https?:\/\//.test(url)) shell.openExternal(url)
   })
   // o título é da janela: a página não pode trocar
   win.on('page-title-updated', (e) => e.preventDefault())
