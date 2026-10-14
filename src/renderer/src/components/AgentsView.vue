@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, GridCell, GridSize, KnownModels, DisplayInfo } from '@shared/types'
-import { api, ask, openNewAgent, saveSettings, setPane, state, toast } from '../store'
+import { api, ask, openNewAgent, saveSettings, setPane, setShowDock, state, toast } from '../store'
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
@@ -384,9 +384,10 @@ function numberOf(a: AgentSnapshot): number | null {
   const i = order.value.indexOf(a)
   return i >= 0 && i < 9 ? i + 1 : null
 }
-/** Clique no cartão: a conversa vai para a área ao lado */
+/** Clique no cartão: a conversa vai para a área ao lado (escondida, volta a aparecer) */
 function pick(a: AgentSnapshot) {
   select(a)
+  if (orch.value && !state.showDock) setShowDock(true)
   show(a)
 }
 </script>
@@ -642,8 +643,9 @@ function pick(a: AgentSnapshot) {
       </section>
     </div>
 
-    <!-- modo orquestrador: a área da conversa. A janela do agente escolhido fica presa por cima dela (processo principal) -->
-    <template v-if="orch">
+    <!-- modo orquestrador: a área da conversa. A janela do agente escolhido fica presa por cima dela (processo principal).
+         Escondida (botão do painel na barra do topo), os cartões ocupam a largura toda -->
+    <template v-if="orch && state.showDock">
       <div class="dock-resizer" @mousedown.prevent="startDockResize" />
       <div class="dock" :style="{ width: `${dockWidth}px` }">
         <!-- a janela presa cobre exatamente esta área -->

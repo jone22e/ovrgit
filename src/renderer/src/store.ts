@@ -58,6 +58,8 @@ export const state = reactive({
   /** Janela estreita com o diff/editor aberto: a coluna de arquivos vira um painel flutuante, aberto por este sinal */
   listOverlay: false,
   showTerminal: readPref('ovseer.terminal') === '1',
+  /** Orquestrador: a conversa ao lado dos cartões está à mostra (escondida, os cartões ocupam a largura toda) */
+  showDock: readPref('ovseer.dock.show') !== '0',
   /** Terminal ocupando toda a área do app (abaixo da barra superior) */
   terminalMax: readPref('ovseer.terminalMax') === '1',
   analyzeStartedAt: 0,
@@ -176,6 +178,10 @@ export function toggleListOverlay() {
 export function setShowTerminal(v: boolean) {
   state.showTerminal = v
   writePref('ovseer.terminal', v ? '1' : '0')
+}
+export function setShowDock(v: boolean) {
+  state.showDock = v
+  writePref('ovseer.dock.show', v ? '1' : '0')
 }
 
 export function setShowTasks(v: boolean) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { count } from '@shared/plural'
 import logo from '../assets/logo.png'
-import { myDoingCount, openNewAgent, setShowDiff, setShowTasks, setShowTerminal, state } from '../store'
+import { myDoingCount, openNewAgent, setShowDiff, setShowDock, setShowTasks, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
@@ -51,7 +51,18 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
     <template v-if="state.repo">
       <span class="layout">
+        <!-- no orquestrador o painel lateral é a conversa ao lado dos cartões; nas outras abas, o diff -->
         <button
+          v-if="state.tab === 'agents' && state.settings?.orchestrator"
+          class="ghost icon"
+          :class="{ on: state.showDock }"
+          :title="state.showDock ? 'Esconder a conversa ao lado dos cartões' : 'Mostrar a conversa ao lado dos cartões'"
+          @click="setShowDock(!state.showDock)"
+        >
+          <Icon name="panel" />
+        </button>
+        <button
+          v-else
           class="ghost icon"
           :class="{ on: state.showDiff }"
           :title="`${state.showDiff ? 'Fechar' : 'Abrir'} o diff (${mod}D)`"
