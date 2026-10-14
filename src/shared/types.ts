@@ -464,6 +464,22 @@ export interface AgentWindowInfo extends AgentChatOpen {
   renamed: boolean
   /** Conversa que estava aberta antes de "Nova conversa": dá para voltar a ela até a nova receber a primeira mensagem */
   previousSessionId?: string | null
+  /** "Nova conversa a partir desta": contexto curto da anterior, que vai escondido com a primeira mensagem */
+  handoff?: AgentHandoff | null
+}
+
+/** Contexto curto trazido de outra conversa */
+export interface AgentHandoff {
+  text: string
+  /** Título da conversa de onde veio */
+  from: string
+  /** A IA ainda está resumindo: o texto atual é o resumo automático, sem IA */
+  pending: boolean
+}
+/** O que a janela manda para montar o contexto: o resumo automático e a transcrição condensada (para a IA) */
+export interface HandoffMaterial {
+  digest: string
+  transcript: string
 }
 
 /** Arquivo anexado a uma mensagem: imagens vão em linha; os demais pelo caminho (o agente lê com as ferramentas) */
@@ -497,6 +513,8 @@ export type AgentChatEvent =
   | { type: 'files'; paths: string[]; stats?: Record<string, FileStat | null>; repos?: Record<string, FileRepo> }
   | { type: 'done'; ok: boolean; error?: string; durationMs?: number; costUsd?: number }
   | { type: 'title'; title: string }
+  /** O resumo da IA para o contexto trazido de outra conversa chegou (ou falhou: vem o automático, sem `pending`) */
+  | { type: 'handoff'; handoff: AgentHandoff }
   /** O agente gravou o plano num arquivo dele (Claude Code, em ~/.claude/plans): `text` é o conteúdo, para aparecer na conversa */
   | { type: 'plan'; path: string; text?: string }
 
@@ -1078,6 +1096,10 @@ export interface OvseerApi {
   agentCancel(uid: string): Promise<void>
   /** Conversa nova na mesma janela, com o mesmo agente (interrompe a resposta em curso) */
   agentNewChat(uid: string): Promise<void>
+  /** Conversa nova que dá sequência à atual: leva um contexto curto, que vai escondido com a primeira mensagem */
+  agentNewChatFrom(uid: string, material: HandoffMaterial): Promise<void>
+  /** Descarta o contexto trazido: a conversa nova começa do zero */
+  agentDropHandoff(uid: string): Promise<void>
   /** Volta à conversa anterior a "Nova conversa"; false se a nova já começou */
   agentBack(uid: string): Promise<boolean>
   /** Entrega a mensagem ao agente no meio da resposta, sem interromper (só Claude). false: não havia resposta em andamento */

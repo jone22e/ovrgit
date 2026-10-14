@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
-  GridCell,
+  GridCell, AgentHandoff,
   AgentAction, AgentAsk, AgentSnapshot,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings, RepoGroup
 } from '@shared/types'
@@ -13,7 +13,8 @@ import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/quest
 import { checksOf } from '@shared/agentChecks'
 import { readCodexFast } from './agentPrefs'
 import { useDictation } from './dictation'
-import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, canAutoRetry } from '@shared/autoRetry'
+import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, CONTINUE_REQUEST, canAutoRetry } from '@shared/autoRetry'
+import { handoffDigest, handoffPreamble, handoffTranscript } from '@shared/handoff'
 import { summaryOf } from '@shared/summary'
 import { applyMarkers, CHECKLIST_PROGRESS, checklistReminder, isPlanMode, parseChecklist, type ChecklistItem } from '@shared/checklist'
 import { nowLabel } from '@shared/activity'
@@ -548,6 +549,11 @@ function apply(ev: AgentChatEvent) {
     if (!editingTitle.value) chatTitle.value = ev.title
     return
   }
+  if (ev.type === 'handoff') {
+    // o resumo da IA entra se o usuário ainda não mexeu no texto; senão só some o "resumindo…"
+    if (handoff.value) handoff.value = handoffEdited.value ? { ...handoff.value, pending: false } : ev.handoff
+    return
+  }
   const t = current()
   if (!t) return
   if (ev.type === 'text') {
@@ -855,17 +861,20 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   const discovery = mode.value === 'architect'
   if (discovery && !arch.value) turn.arch = { phase: 'discovery' }
   else if (discovery && arch.value) arch.value.phase = 'discovery'
+  // contexto trazido de outra conversa: vai escondido com a primeira mensagem que sair (fica até sair de fato)
+  const carried = handoff.value?.text.trim() ? handoffPreamble(handoff.value.text, handoff.value.from) : ''
   turns.push(turn)
   running.value = true
   scrollToEnd(true)
   try {
     await api.agentSend(
       uid,
-      [p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
+      [carried, p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
       // (na descoberta o processo principal troca para um modelo rápido e esforço baixo só nessa chamada)
       { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast: provider.value === 'codex' && readCodexFast() },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
+    if (carried) handoff.value = null
   } catch (e) {
     turn.running = false
     turn.thinking = false
@@ -1228,6 +1237,29 @@ async function newChat(force = false) {
   }
   sessionStorage.removeItem(STORE)
   location.reload()
+}
+/**
+ * Conversa nova que dá sequência a esta: leva um contexto curto (resumo automático agora, a IA refina depois),
+ * que vai escondido com a primeira mensagem. A transcrição toda fica no histórico.
+ */
+async function newChatFrom() {
+  if (running.value && !confirm('O agente ainda está trabalhando. Interromper e começar uma conversa nova a partir desta?')) return
+  try {
+    await api.agentNewChatFrom(uid, { digest: handoffDigest(turns), transcript: handoffTranscript(turns) })
+  } catch (e) {
+    fatal.value = e instanceof Error ? e.message : String(e)
+    return
+  }
+  sessionStorage.removeItem(STORE)
+  location.reload()
+}
+/** O contexto trazido de outra conversa (cartão no estado vazio, editável) */
+const handoff = ref<AgentHandoff | null>(null)
+const handoffEdited = ref(false)
+function dropHandoff() {
+  handoff.value = null
+  api.agentDropHandoff(uid).catch(() => undefined)
+  box.value?.focus()
 }
 /** Dá para voltar à conversa anterior enquanto a nova ainda não recebeu a primeira mensagem */
 const canGoBack = computed(() => !!info.value?.previousSessionId && !turns.length && !queue.length)
@@ -1656,7 +1688,6 @@ watch(
   { deep: true, immediate: true }
 )
 // ---------- retomada automática: a resposta caiu por um erro passageiro ----------
-const CONTINUE = 'Continue a tarefa de onde parou, sem refazer o que já foi feito.'
 let retryTimer: ReturnType<typeof setInterval> | undefined
 /** O que a retomada manda: "continue" se o agente chegou a trabalhar; senão, o pedido que falhou, de novo */
 let retryBase: { body: string; attachments: Shown[] } | null = null
@@ -1678,9 +1709,9 @@ function scheduleRetry(t: Turn): boolean {
     retryGaveUp.value = true
     return false
   }
-  if (t.blocks.length && sessionId.value) retryBase = { body: CONTINUE, attachments: [] }
+  if (t.blocks.length && sessionId.value) retryBase = { body: CONTINUE_REQUEST, attachments: [] }
   else if (!t.silent && t.user.trim()) retryBase = { body: t.user, attachments: t.attachments }
-  else if (!retryBase && sessionId.value) retryBase = { body: CONTINUE, attachments: [] }
+  else if (!retryBase && sessionId.value) retryBase = { body: CONTINUE_REQUEST, attachments: [] }
   if (!retryBase) return false
   clearInterval(retryTimer)
   retryIn.value = AUTO_RETRY_DELAYS[Math.min(autoRetries.value, AUTO_RETRY_DELAYS.length - 1)]
@@ -1709,7 +1740,7 @@ async function retryLast() {
 /** Pede ao agente para continuar a tarefa interrompida (a sessão lembra o que já foi feito) */
 async function continueAfter() {
   if (running.value) return
-  await dispatch({ id: crypto.randomUUID(), body: CONTINUE, attachments: [] })
+  await dispatch({ id: crypto.randomUUID(), body: CONTINUE_REQUEST, attachments: [] })
 }
 /** Manda de novo o pedido da vez que falhou, com os mesmos anexos */
 async function resend(t: Turn) {
@@ -1828,6 +1859,7 @@ onMounted(async () => {
   mode.value = i.mode
   chatTitle.value = i.title
   sessionId.value = i.sessionId
+  handoff.value = i.handoff ?? null
   await restore(i)
   // Modo Arquiteto: conversa reaberta volta no modo da etapa em que parou (o processo principal reabre tudo em
   // Controle Total, e uma mensagem na descoberta ou no plano executaria em vez de refinar)
@@ -1914,6 +1946,9 @@ onUnmounted(() => offs.forEach((f) => f()))
       <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa com este agente (a atual fica no histórico)" @click="newChat()">
         <Icon name="compose" :size="14" />
       </button>
+      <button v-if="turns.length" type="button" class="ghost icon head-btn" title="Nova conversa a partir desta: leva só um resumo curto, não a conversa toda" @click="newChatFrom()">
+        <Icon name="forward" :size="14" />
+      </button>
       <span class="status" :class="[statusKind, { blink: unseen && statusKind !== 'live' }]" :title="statusTitle">
         <span class="ball">
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
@@ -1933,6 +1968,17 @@ onUnmounted(() => offs.forEach((f) => f()))
           <RepoMenu v-if="info" :cwd="info.cwd" :project="info.project" :switchable="canSwitchRepo" :extra="info.extraDirs" extensible big center @choose="switchRepo" @pick="pickRepo" @add="addDir" @remove="removeDir" @pick-extra="pickExtraDir" @apply="applyRepoGroup" />
         </div>
         <p v-if="info?.resumeId" class="faint resumed">Continuando uma conversa anterior; o agente lembra o que foi feito, mas a transcrição não foi encontrada.</p>
+        <!-- "Nova conversa a partir desta": o contexto curto da anterior, editável; vai escondido com a primeira mensagem -->
+        <div v-if="handoff" class="handoff">
+          <div class="hd-head">
+            <Icon name="forward" :size="13" class="faint" />
+            <strong class="ellipsis">{{ handoff.from ? `Contexto de “${handoff.from}”` : 'Contexto da conversa anterior' }}</strong>
+            <small v-if="handoff.pending" class="faint hd-wait"><Icon name="hourglass" :size="11" /> a IA está resumindo…</small>
+            <button type="button" class="ghost icon hd-x" title="Começar sem este contexto" @click="dropHandoff"><Icon name="x" :size="12" /></button>
+          </div>
+          <textarea v-model="handoff.text" rows="5" spellcheck="false" @input="handoffEdited = true" />
+          <small class="faint">Vai junto com a sua primeira mensagem, sem aparecer na conversa. Edite à vontade.</small>
+        </div>
       </div>
 
       <article v-for="t in turns" :key="t.id" class="turn">
@@ -2403,6 +2449,14 @@ onUnmounted(() => offs.forEach((f) => f()))
 .empty .ask-repo { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
 .empty p { margin: 0; font-size: 12.5px; line-height: 1.5; }
 .resumed { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); }
+/* o cartão do contexto trazido de outra conversa */
+.handoff { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); text-align: left; }
+.hd-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+.hd-head strong { font-weight: 600; min-width: 0; }
+.hd-wait { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; white-space: nowrap; }
+.hd-x { margin-left: auto; width: 22px; height: 22px; flex: none; }
+.handoff textarea { width: 100%; min-height: 92px; max-height: 240px; resize: vertical; font: inherit; font-size: 12.5px; line-height: 1.45; padding: 7px 9px; box-sizing: border-box; background: var(--bg); }
+.handoff > small { font-size: 11.5px; line-height: 1.4; }
 
 .turn { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 100%; }
 /* faixa do checklist: parte da janela, entre a conversa e o campo; linha de progresso no topo e etapas numeradas */

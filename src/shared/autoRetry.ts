@@ -6,6 +6,8 @@
 
 /** Tentativas seguidas antes de parar e avisar o usuário */
 export const AUTO_RETRY_MAX = 3
+/** O que a retomada manda quando o agente já tinha começado a trabalhar */
+export const CONTINUE_REQUEST = 'Continue a tarefa de onde parou, sem refazer o que já foi feito.'
 /** Espera, em segundos, antes de cada tentativa (cresce para dar tempo de o serviço voltar) */
 export const AUTO_RETRY_DELAYS = [3, 10, 30]
 

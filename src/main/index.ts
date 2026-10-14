@@ -9,7 +9,8 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
-  AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds
+  AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds,
+  HandoffMaterial
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { findFavicon } from './favicon'
@@ -665,6 +666,8 @@ function registerIpc() {
   ipcMain.handle('agent:image', (_e, p: string) => agentChat.attachmentImage(String(p)))
   ipcMain.handle('agent:cancel', (_e, uid: string) => agentChat.cancelAgent(String(uid)))
   ipcMain.handle('agent:new', (_e, uid: string) => agentChat.newChat(String(uid)))
+  ipcMain.handle('agent:newFrom', (_e, uid: string, material: HandoffMaterial) => agentChat.newChatFrom(String(uid), material))
+  ipcMain.handle('agent:dropHandoff', (_e, uid: string) => agentChat.dropHandoff(String(uid)))
   ipcMain.handle('agent:back', (_e, uid: string) => agentChat.backToPreviousChat(String(uid)))
   ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[]) =>
     agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [])
