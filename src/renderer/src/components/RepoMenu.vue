@@ -218,7 +218,6 @@ onUnmounted(() => {
         <hr class="sep" />
       </template>
       <h6>{{ switchable ? 'Repositório principal' : 'Repositórios da conversa' }}</h6>
-      <p v-if="extensible" class="faint hint">{{ switchable ? 'Clique para trocar o principal; o + junta outros repositórios à mesma conversa.' : 'O + junta outros repositórios à conversa: a IA vê e edita todos.' }}</p>
       <div class="list">
         <button v-for="p in projects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd, in: inExtra(p) }" :title="p" @click="choose(p)">
           <img v-if="icons.get(p)" :src="icons.get(p)!" class="fav" alt="" />
@@ -264,7 +263,6 @@ onUnmounted(() => {
 .rm:hover { color: var(--del); background: color-mix(in srgb, var(--del) 15%, transparent); }
 .big .rm { width: 18px; height: 18px; }
 .members { flex-basis: 100%; text-align: center; font-size: 12.5px; line-height: 1.4; }
-.hint { margin: 0 10px 6px; font-size: 11.5px; line-height: 1.35; }
 .opt.in { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .add { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--faint); flex: none; }
 .add:hover { color: var(--accent); background: var(--accent-soft); }
@@ -302,7 +300,6 @@ h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-
 /* o menu não cabe na altura da janela: só a lista de repositórios encolhe e rola; os grupos (poucos) ficam inteiros */
 .list.groups { flex: none; max-height: 150px; }
 .list .opt { flex: none; }
-.hint { flex: none; }
 .opt { justify-content: flex-start; gap: 10px; height: auto; padding: 7px 10px; width: 100%; text-align: left; color: var(--text); }
 .opt.cur { background: var(--accent-soft); }
 .opt-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
