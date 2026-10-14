@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type {
-  GridCell, AgentHandoff,
+  AgentHandoff, GridCell,
   AgentAction, AgentAsk, AgentSnapshot,
   AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings, RepoGroup
 } from '@shared/types'
