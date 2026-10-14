@@ -264,6 +264,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
               <template v-else-if="it.repo">
                 <img v-if="projectIcons.get(it.path)" :src="projectIcons.get(it.path)!" class="fav" alt="" />
                 <Icon v-else name="folder" :size="15" class="faint" />
+                <span class="name ellipsis">{{ base(it.path) }}</span>
+                <span v-if="dir(it.path)" class="dir faint ellipsis">{{ dir(it.path) }}</span>
               </template>
               <template v-else>
                 <FileIcon :path="it.path" :size="15" />
