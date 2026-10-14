@@ -746,6 +746,8 @@ export interface AgentSnapshot {
   context?: AgentContext
   /** O usuário está escrevendo para este agente: o rascunho do campo de mensagem (ou "N anexos", sem texto) */
   draft?: string
+  /** Última interação sua com a conversa (mensagem enviada, resposta ao cartão) ou a abertura dela: a ordem dos cartões */
+  interactedAt?: number
 }
 
 /** Ação feita no gerenciador de agentes e executada pela janela do agente */

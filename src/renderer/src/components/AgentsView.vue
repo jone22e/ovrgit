@@ -147,9 +147,10 @@ const doneShown = computed(() => done.value.filter(pass))
 const idleShown = computed(() => idle.value.filter(pass))
 
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
-/** Todos, na ordem de prioridade: a conversa nova no topo (é nela que você vai escrever), depois quem precisa de você,
- * rodando, concluídos e, no fim, os agentes em espera. As barrinhas da barra de ferramentas mostram todos, filtrados ou não */
-const allOrder = computed(() => [...fresh.value, ...needYou.value, ...running.value, ...done.value, ...standby.value])
+/** Todos, pela sua última interação: a conversa em que você mandou a mensagem mais recente (ou que acabou de abrir)
+ * fica no topo e só sai de lá quando você interagir com outra; mudanças de situação não mexem na ordem, para você
+ * não se perder. Fixadas primeiro. As barrinhas da barra de ferramentas mostram todos, filtrados ou não */
+const allOrder = computed(() => pinnedFirst(snaps.value, (a, b) => (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
 const order = computed(() => allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)

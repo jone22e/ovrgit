@@ -44,7 +44,11 @@ type FilesBlock = Extract<Block, { kind: 'files' }>
 
 interface Turn extends AgentTurn {
   attachments: Shown[]
+  /** Mandada pela retomada automática, não por você: não conta como interação sua */
+  auto?: boolean
 }
+/** Quando esta tela abriu: a interação inicial de uma conversa ainda sem mensagens */
+const bornAt = Date.now()
 
 /** Blocos como aparecem: ferramentas seguidas viram um único grupo discreto (como nos apps do Claude e do Codex) */
 type DisplayBlock = Exclude<Block, { kind: 'tool' }> | { kind: 'tools'; key: string; items: ToolBlock[] }
@@ -854,7 +858,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   if (!info.value) return
   if (p.auto) clearRetryTimer()
   else resetRetry()
-  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
+  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
   // Modo Arquiteto: a primeira vez neste modo abre a descoberta; o estado da conversa fica guardado nela
@@ -1677,7 +1681,9 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     canPin: !!sessionId.value && turns.length > 0,
     pinned: pinned.value,
     // escrevendo para este agente: o cartão mostra, para você achar entre os outros a conversa em que estava
-    draft: canCompose.value ? draftLabel() : undefined
+    draft: canCompose.value ? draftLabel() : undefined,
+    // a sua última mensagem (ou a abertura da conversa): o gerenciador ordena os cartões por isso
+    interactedAt: [...turns].reverse().find((t) => !t.silent && !t.auto && t.user.trim())?.startedAt ?? bornAt
   }
 })
 /** O rascunho, resumido para o cartão: o texto, ou só a contagem de anexos */
