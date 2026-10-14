@@ -126,8 +126,28 @@ function goToChanges() {
 const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
 const archiveReviewed = () => api.agentClose(reviewed.value.map((a) => a.uid)).catch(() => undefined)
 
+// ---------- filtro por situação: os contadores do cabeçalho; de novo no mesmo, ou em "agentes", volta a todos ----------
+type StatusFilter = 'all' | AgentSnapshot['status']
+const filter = ref<StatusFilter>('all')
+const pass = (a: AgentSnapshot) => filter.value === 'all' || a.status === filter.value
+function toggleFilter(s: StatusFilter) {
+  filter.value = s === 'all' || filter.value === s ? 'all' : s
+}
+// o grupo filtrado esvaziou (ex.: todas as perguntas respondidas): volta a todos, em vez de uma tela vazia
+watch(
+  () => filter.value !== 'all' && !snaps.value.some(pass),
+  (empty) => empty && (filter.value = 'all')
+)
+const needYouShown = computed(() => needYou.value.filter(pass))
+const runningShown = computed(() => running.value.filter(pass))
+const doneShown = computed(() => done.value.filter(pass))
+const idleShown = computed(() => idle.value.filter(pass))
+
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
-const order = computed(() => [...needYou.value, ...running.value, ...done.value, ...idle.value])
+/** Todos, na ordem de prioridade (as barrinhas da barra de ferramentas mostram todos, filtrados ou não) */
+const allOrder = computed(() => [...needYou.value, ...running.value, ...done.value, ...idle.value])
+/** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
+const order = computed(() => allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
 const root = ref<HTMLElement>()
@@ -392,12 +412,13 @@ function pick(a: AgentSnapshot) {
       <QueuePanel @standby="state.showStandby = true" />
     </aside>
     <div class="scroll">
-      <header class="head">
-        <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong>
-        <span v-if="byStatus('waiting').length" class="count"><span class="dot waiting" />{{ byStatus('waiting').length }} aguardando</span>
-        <span v-if="byStatus('error').length" class="count"><span class="dot error" />{{ byStatus('error').length }} falhou</span>
-        <span v-if="running.length" class="count"><span class="dot live" />{{ running.length }} rodando</span>
-        <span v-if="done.length" class="count"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</span>
+      <!-- os contadores filtram a lista por situação; "agentes" (ou o filtro de novo) mostra todos -->
+      <header class="head" :class="{ filtered: filter !== 'all' }">
+        <button class="ghost all" :title="filter === 'all' ? 'Todos os agentes' : 'Mostrar todos'" @click="toggleFilter('all')"><strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong></button>
+        <button v-if="byStatus('waiting').length" class="ghost count" :class="{ on: filter === 'waiting' }" :title="filter === 'waiting' ? 'Mostrar todos' : 'Só os que aguardam você'" @click="toggleFilter('waiting')"><span class="dot waiting" />{{ byStatus('waiting').length }} aguardando</button>
+        <button v-if="byStatus('error').length" class="ghost count" :class="{ on: filter === 'error' }" :title="filter === 'error' ? 'Mostrar todos' : 'Só os que falharam'" @click="toggleFilter('error')"><span class="dot error" />{{ byStatus('error').length }} falhou</button>
+        <button v-if="running.length" class="ghost count" :class="{ on: filter === 'live' }" :title="filter === 'live' ? 'Mostrar todos' : 'Só os que estão rodando'" @click="toggleFilter('live')"><span class="dot live" />{{ running.length }} rodando</button>
+        <button v-if="done.length" class="ghost count" :class="{ on: filter === 'done' }" :title="filter === 'done' ? 'Mostrar todos' : 'Só os concluídos'" @click="toggleFilter('done')"><span class="dot done" />{{ done.length }} {{ done.length === 1 ? 'concluído' : 'concluídos' }}</button>
         <span class="gap" />
         <template v-if="orch">
           <button v-if="withChanges.length" class="ghost link accent" title="Abre a aba Alterações" @click="goToChanges">Enviar alterações →</button>
@@ -405,7 +426,7 @@ function pick(a: AgentSnapshot) {
         </template>
         <span v-if="snaps.length" class="slots" :title="`${active} de ${snaps.length} agentes ativos (rodando, esperando ou com falha)`">
           <span class="faint">{{ active }}/{{ snaps.length }} ativos</span>
-          <span class="bars"><span v-for="a in order.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
+          <span class="bars"><span v-for="a in allOrder.slice(0, 12)" :key="a.uid" :class="a.status" :title="a.title" /></span>
         </span>
         <span v-if="!orch" ref="gridRoot" class="arrange" :class="{ on: gridOpen }">
           <button class="arrange-main" :disabled="!snaps.length || arranging" title="Coloca as janelas de agente no grid de cada tela, lado a lado" @click="arrange">
@@ -452,10 +473,10 @@ function pick(a: AgentSnapshot) {
       </section>
 
       <!-- precisa de você: perguntas, aprovação do plano, falhas -->
-      <section v-if="!orch && needYou.length">
+      <section v-if="!orch && needYouShown.length">
         <h3 class="sec waiting">Precisa de você</h3>
         <div class="list">
-        <article v-for="a in needYou" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
+        <article v-for="a in needYouShown" :key="a.uid" :data-uid="a.uid" class="card" :class="[a.status, { sel: selUid === a.uid }]">
           <div class="row">
             <span class="dot" :class="a.status" />
             <span class="text">
@@ -492,10 +513,10 @@ function pick(a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="!orch && running.length">
+      <section v-if="!orch && runningShown.length">
         <h3 class="sec live">Rodando</h3>
         <div class="list">
-        <div v-for="(a, i) in running" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
+        <div v-for="(a, i) in runningShown" :key="a.uid" :data-uid="a.uid" class="item run" :style="{ '--i': i }" :class="{ stalled: stalled(a), sel: selUid === a.uid, 'has-cl': a.checklist?.length }" @click="show(a)">
           <span class="dot" :class="stalled(a) ? 'waiting' : 'live'" />
           <span class="text">
             <span class="line">
@@ -525,7 +546,7 @@ function pick(a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="!orch && done.length">
+      <section v-if="!orch && doneShown.length">
         <h3 class="sec done">
           Concluídos
           <span class="sec-actions">
@@ -534,7 +555,7 @@ function pick(a: AgentSnapshot) {
           </span>
         </h3>
         <div class="list">
-        <template v-for="a in done" :key="a.uid">
+        <template v-for="a in doneShown" :key="a.uid">
           <article v-if="selUid === a.uid" :data-uid="a.uid" class="card done-open sel" @click="onCardClick">
             <div class="row">
               <span class="dot done" />
@@ -581,10 +602,10 @@ function pick(a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="!orch && idle.length">
+      <section v-if="!orch && idleShown.length">
         <h3 class="sec">Sem conversa</h3>
         <div class="list">
-        <div v-for="a in idle" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
+        <div v-for="a in idleShown" :key="a.uid" :data-uid="a.uid" class="item" :class="{ sel: selUid === a.uid }" @click="show(a)">
           <span class="dot" />
           <span class="text">
             <strong class="ellipsis">{{ a.title }}</strong>
@@ -686,7 +707,13 @@ function pick(a: AgentSnapshot) {
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .head strong { font-size: 14px; }
-.count { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+/* contadores como filtros: pílulas discretas; a ativa fica marcada e as outras apagam um pouco */
+.head .all, .head .count { height: 26px; padding: 0 9px; margin: 0 -5px; border-radius: 999px; color: var(--muted); font-size: 13px; }
+.head .all { color: var(--text); }
+.count { display: inline-flex; align-items: center; gap: 6px; }
+.count.on { background: var(--accent-soft); color: var(--text); }
+.head.filtered .count:not(.on) { opacity: 0.55; }
+.head.filtered .count:not(.on):hover { opacity: 1; }
 .gap { flex: 1; }
 .head button { height: 28px; gap: 6px; font-size: 12.5px; }
 /* Organizar dividido: a ação à esquerda, a seta abre o grid */
