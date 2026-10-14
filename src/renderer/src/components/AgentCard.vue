@@ -309,7 +309,7 @@ async function saveRename() {
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
       </span>
     </div>
-    <!-- encerrar: no canto superior direito, só ao passar o mouse -->
+    <!-- encerrar: no canto superior direito, sempre visível -->
     <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
     <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
     <Teleport to="body">
@@ -451,8 +451,7 @@ async function saveRename() {
 .acard:hover .ctl, .ctl:has(.pinned) { opacity: 1; }
 .pin { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
-.close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); opacity: 0; transition: opacity 0.12s; }
-.acard:hover .close, .close:focus-visible { opacity: 1; }
+.close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); }
 .close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 
 /* menu do botão direito (vive no body) */
