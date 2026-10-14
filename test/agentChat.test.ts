@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -458,6 +458,20 @@ describe('janela de contexto do Claude Code', () => {
     const s2 = st()
     const b = parseClaudeLine(j({ type: 'assistant', message: { model: 'claude-opus-4-1', content: [], usage: { input_tokens: 32, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 220_000 } } }), s2)
     expect(b).toContainEqual({ type: 'context', context: null })
+  })
+  it('o pedido de controle traz a janela exata antes de qualquer resposta; o uso segue das mensagens', () => {
+    expect(JSON.parse(claudeContextRequest())).toEqual({ type: 'control_request', request_id: 'ovseer-ctx', request: { subtype: 'get_context_usage', detail: 'summary' } })
+    const s = st()
+    parseClaudeLine(j({ type: 'system', subtype: 'init', session_id: 's1', model: 'claude-nova-9' }), s)
+    const a = parseClaudeLine(j({ type: 'control_response', response: { subtype: 'success', request_id: 'ovseer-ctx', response: { totalTokens: 3075, maxTokens: 1_000_000, rawMaxTokens: 1_000_000, percentage: 0 } } }), s)
+    expect(a).toEqual([{ type: 'context', context: { used: 3075, window: 1_000_000 } }])
+    const b = parseClaudeLine(j({ type: 'assistant', message: { model: 'claude-nova-9', content: [], usage: { input_tokens: 32, cache_creation_input_tokens: 5_000, cache_read_input_tokens: 220_000 } } }), s)
+    expect(b).toContainEqual({ type: 'context', context: { used: 225_032, window: 1_000_000 } })
+    // aprendido pelo pedido: uma conversa nova com o modelo já conhece a janela
+    expect(claudeWindowFor('claude-nova-9')).toBe(1_000_000)
+    // resposta de outro pedido, ou com erro: ignorada
+    expect(parseClaudeLine(j({ type: 'control_response', response: { subtype: 'error', request_id: 'ovseer-ctx', error: 'x' } }), st())).toEqual([])
+    expect(parseClaudeLine(j({ type: 'control_response', response: { subtype: 'success', request_id: 'outro', response: { rawMaxTokens: 5 } } }), st())).toEqual([])
   })
   it('compactação: as mensagens seguintes vêm marcadas até o fim da vez; subagentes não contam', () => {
     const s = st()

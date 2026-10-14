@@ -1139,6 +1139,14 @@ export function splitAttachments(files: AgentAttachment[]) {
 }
 
 /** Mensagem no formato de entrada stream-json do Claude Code, com as imagens em base64. */
+/** Id dos pedidos de controle de contexto (a resposta chega com o mesmo id) */
+const CTX_REQUEST = 'ovseer-ctx'
+/**
+ * Pedido de controle do Claude Code, pelo stdin, que devolve o uso da janela de contexto sem chamar a API: o tamanho
+ * exato da janela do modelo (`rawMaxTokens`) e o que já está ocupado. Vai logo depois de cada mensagem enviada.
+ */
+export const claudeContextRequest = (): string => `${JSON.stringify({ type: 'control_request', request_id: CTX_REQUEST, request: { subtype: 'get_context_usage', detail: 'summary' } })}\n`
+
 export function claudeInputMessage(text: string, images: AgentAttachment[]): string {
   const content: unknown[] = [{ type: 'text', text }]
   for (const img of images) {
@@ -1442,6 +1450,21 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
   } else if (o.type === 'system' && o.subtype === 'compact_boundary') {
     // o CLI resumiu a conversa: a próxima mensagem traz o contexto já enxuto (a bateria "recarrega")
     st.compacted = true
+  } else if (o.type === 'control_response') {
+    // resposta ao pedido de uso de contexto: a janela exata do modelo e o que já está ocupado
+    const r = o.response as { subtype?: string; request_id?: string; response?: Record<string, unknown> } | undefined
+    const body = r?.subtype === 'success' && r.request_id === CTX_REQUEST ? r.response : undefined
+    if (body) {
+      const window = Number(body.rawMaxTokens ?? body.raw_max_tokens ?? body.maxTokens ?? body.max_tokens)
+      const total = Number(body.totalTokens ?? body.total_tokens)
+      if (window > 0) {
+        st.window = window
+        if (st.model) learnedWindows.set(st.model, window)
+      }
+      // o uso de cada mensagem do assistente é mais preciso; o do pedido serve de ponto de partida
+      if (st.used === undefined && total > 0) st.used = total
+      if (st.used !== undefined && window > 0) out.push({ type: 'context', context: contextOf(st) })
+    }
   } else if (o.type === 'stream_event') {
     const ev = (o.event ?? {}) as { type?: string; delta?: { type?: string; text?: string; thinking?: string } }
     if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
@@ -1918,8 +1941,11 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       emit(w, { type: 'done', ok: false, error })
     }
   })
-  if (provider === 'claude') child.stdin.write(input)
-  else child.stdin.end(input)
+  if (provider === 'claude') {
+    child.stdin.write(input)
+    // a janela de contexto exata, sem esperar o fim da vez (a resposta chega pelo stdout, como os outros eventos)
+    child.stdin.write(claudeContextRequest())
+  } else child.stdin.end(input)
 }
 
 /** Texto final do pedido e imagens em linha: imagens (Claude: blocos base64; Codex: -i), o resto pelo caminho no texto. */
