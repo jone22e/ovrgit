@@ -216,7 +216,7 @@ export const THEMES: Theme[] = [
     colors: {
       accent: '#5fd75f', accentStrong: '#4cbf4c', onAccent: '#061a0a',
       // fundos pretos e cinzas neutros (sem tingir de verde): o verde fica só no texto e no destaque
-      bg: '#000000', panel: '#0b0b0b', panel2: '#141414', hover: '#1c1c1c', border: '#262626',
+      bg: '#000000', panel: '#070707', panel2: '#0f0f0f', hover: '#171717', border: '#222222',
       text: '#c9e8c9', muted: '#8fb58f', faint: '#5b7a5b',
       add: '#5fd75f', del: '#d75f5f', mod: '#d7af5f', hunk: '#5fafd7'
     },
