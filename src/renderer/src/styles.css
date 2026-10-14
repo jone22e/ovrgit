@@ -76,7 +76,10 @@ body {
   font-family: var(--font);
   font-size: 13px;
   line-height: 1.45;
-  background: var(--bg);
+  /* um degradê imperceptível (1% do texto numa ponta) em vez de cor chapada: o Chromium desenha blocos de cor única
+     por um caminho e blocos com conteúdo por outro, e no Mac os dois convertem a cor um pouco diferente; em fundos
+     quase pretos (GitHub Dark) isso virava faixas visíveis na conversa */
+  background: var(--bg) linear-gradient(180deg, color-mix(in srgb, var(--bg) 99%, var(--text)), var(--bg));
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   user-select: none;
