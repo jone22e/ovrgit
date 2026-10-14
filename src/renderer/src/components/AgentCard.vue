@@ -356,9 +356,10 @@ async function saveRename() {
 /* à direita fica o lugar do × de encerrar (canto do cartão) */
 .top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-right: 26px; }
 /* número do atalho: uma tecla; na conversa da vez, cheia */
+/* centrado na primeira linha do título (17,5 px de altura): 20 px, começando 1 px acima dela */
 .num {
-  display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; flex: none; margin-top: 1px; border-radius: 6px;
-  font-size: 12px; font-weight: 800; color: var(--accent); background: var(--accent-soft);
+  display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; flex: none; margin-top: -1px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 800; color: var(--accent); background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .acard.sel .num { color: var(--on-accent); background: var(--accent); box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 80%, transparent); }
