@@ -30,19 +30,16 @@ const fill = computed(() => (left.value <= 0 ? 0 : Math.max(1, Math.round(12 * l
       <rect class="charge" x="2.5" y="2.5" :width="fill" height="7" :rx="fill < 2 ? 0 : 1" />
       <path v-if="tone === 'charged'" class="bolt" d="M9.5 1.5 6 7h2.4l-.9 3.5L11 5H8.6z" />
     </svg>
-    <!-- restando pouco, a barrinha vira um fio que o olho lê como nada: o número diz quanto sobra -->
-    <small v-if="tone === 'low'" class="pct mono">{{ Math.round(left * 100) }}%</small>
   </span>
 </template>
 
 <style scoped>
-.bat-wrap { display: inline-flex; align-items: center; gap: 3px; flex: none; color: var(--faint); }
+.bat-wrap { display: inline-flex; align-items: center; flex: none; color: var(--faint); }
 .bat { display: block; flex: none; }
 .body { fill: none; stroke: currentColor; stroke-width: 1.3; }
 .nub, .charge { fill: currentColor; opacity: 0.8; }
 .bat-wrap.low { color: var(--del); }
 .bat-wrap.charged { color: var(--accent); }
 .bat-wrap.charged .charge { opacity: 0.3; }
-.pct { font-size: 10px; font-weight: 700; line-height: 1; }
 .bolt { fill: var(--accent); stroke: var(--panel); stroke-width: 0.7; paint-order: stroke; }
 </style>
