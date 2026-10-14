@@ -93,6 +93,14 @@ const chips = computed(() => {
   if (c?.deploy) out.push({ text: 'com deploy', tone: 'warn' })
   return out
 })
+/** Quatro quadradinhos pelas linhas alteradas: verdes para acréscimos, vermelhos para remoções, na proporção (ao menos um de cada quando há os dois) */
+const addSquares = computed(() => {
+  const f = props.a.files
+  if (!f) return 0
+  const total = f.add + f.del
+  if (!total) return 4
+  return Math.max(f.add ? 1 : 0, Math.min(4 - (f.del ? 1 : 0), Math.round((4 * f.add) / total)))
+})
 /** Rodapé: modo e esforço da conversa */
 const modeLabel = computed(() => MODES.find((m) => m.id === props.a.mode)?.label ?? '')
 const effortLabel = computed(() => EFFORT_LABEL[props.a.effort] ?? '')
@@ -283,10 +291,9 @@ async function saveRename() {
       <span v-if="a.floating" class="float" title="Em janela própria (clique no cartão para trazê-la à frente)"><Icon name="external" :size="11" /></span>
       <span class="gap" />
       <span v-if="checklist.length" class="steps mono" :title="`${doneCount} de ${checklist.length} etapas concluídas`"><Icon name="listChecks" :size="11" /> {{ doneCount }}/{{ checklist.length }}</span>
-      <span v-if="a.files?.count" class="stats mono" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'}`">
+      <span v-if="a.files?.count" class="stats mono" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'} · +${a.files.add} −${a.files.del} linhas`">
         <Icon name="pencil" :size="11" /> {{ a.files.count }}
-        <span v-if="a.files.add" class="add">+{{ a.files.add }}</span>
-        <span v-if="a.files.del" class="del">−{{ a.files.del }}</span>
+        <span class="sq" aria-hidden="true"><i v-for="k in 4" :key="k" :class="k <= addSquares ? 'add' : 'del'" /></span>
       </span>
     </div>
 
@@ -404,7 +411,8 @@ async function saveRename() {
 @keyframes blink { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .ring.indet > svg, .ring.waiting .in, .track-steps li.now, .detail.live::after, .pill.live .dot, .acard.waiting { animation: none; } }
 
-.status { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* nada sai do cartão: faltando largura, o "há 59 min" encolhe com reticências; os números da direita ficam inteiros */
+.status { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
 /* a bateria e o batimento nunca encolhem nem vazam: faltando largura, é o texto do modo que ganha reticências */
 .gap { flex: 1 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; background: var(--panel-2); color: var(--muted); flex: none; }
@@ -421,14 +429,15 @@ async function saveRename() {
 .detail.writing { color: var(--text); font-style: italic; }
 .acard.standby .num { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hunk) 35%, transparent); }
 .detail.standby { color: var(--muted); }
-.status small { font-size: 11.5px; white-space: nowrap; }
+.status small { font-size: 11.5px; white-space: nowrap; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .clock { font-size: 11.5px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .new { flex: none; font-size: 10px; padding: 1px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
 .float { flex: none; display: inline-flex; color: var(--faint); }
 .steps { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--hunk); flex: none; }
 .stats { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); flex: none; }
-.stats .add { color: var(--add); }
-.stats .del { color: var(--del); }
+.sq { display: inline-flex; gap: 2px; }
+.sq i { width: 6px; height: 6px; border-radius: 1.5px; background: var(--add); }
+.sq i.del { background: var(--del); }
 
 .say { height: calc(2 * 1.45 * 12.5px); overflow: hidden; }
 .detail { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
