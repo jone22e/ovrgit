@@ -4,13 +4,14 @@ import type { AgentContext } from '@shared/types'
 
 /**
  * Bateria de contexto: quanto da janela de contexto do agente ainda está livre. Cheia no começo, esvazia conforme
- * a conversa cresce; vermelha quando resta pouco; com o raio quando o CLI acabou de compactar a conversa (a bateria
- * "recarrega"). Fica ao lado do batimento, no rodapé do cartão.
+ * a conversa cresce. Com mais de 80% livre, ou logo depois de o CLI compactar a conversa (a bateria "recarrega"),
+ * fica na cor do tema com o raio; abaixo disso, cinza; vermelha quando resta pouco. Fica ao lado do batimento,
+ * no rodapé do cartão.
  */
 const props = defineProps<{ context: AgentContext }>()
 const usedFrac = computed(() => Math.min(1, Math.max(0, props.context.used / Math.max(1, props.context.window))))
 const left = computed(() => 1 - usedFrac.value)
-const tone = computed(() => (props.context.compacted ? 'charged' : left.value <= 0.15 ? 'low' : 'ok'))
+const tone = computed(() => (props.context.compacted || left.value > 0.8 ? 'charged' : left.value <= 0.15 ? 'low' : 'ok'))
 const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
 const title = computed(() => {
   const pct = Math.round(usedFrac.value * 100)
@@ -26,7 +27,7 @@ const fill = computed(() => (left.value <= 0 ? 0 : Math.max(1, Math.round(12 * l
     <rect class="body" x="0.75" y="0.75" width="15.5" height="10.5" rx="2.5" />
     <rect class="nub" x="17.25" y="3.5" width="2" height="5" rx="1" />
     <rect class="charge" x="2.5" y="2.5" :width="fill" height="7" rx="1" />
-    <path v-if="context.compacted" class="bolt" d="M9.5 1.5 6 7h2.4l-.9 3.5L11 5H8.6z" />
+    <path v-if="tone === 'charged'" class="bolt" d="M9.5 1.5 6 7h2.4l-.9 3.5L11 5H8.6z" />
   </svg>
 </template>
 
