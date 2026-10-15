@@ -1952,7 +1952,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <WindowGrid :model-value="shownGrid" :cells="gridCells" :limits="gridLimits" @update:model-value="setGridSize" @place="placeWindow" />
         </div>
       </div>
-      <button v-if="sessionId && turns.length" type="button" class="ghost icon head-btn pin" :class="{ pinned }" :title="pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click="togglePin">
+      <button v-if="sessionId && turns.length" type="button" class="ghost icon head-btn pin" :class="{ pinned }" :title="pinned ? 'Soltar a conversa (sai da lista ao fechar)' : 'Fixar a conversa (fica na lista mesmo depois de fechada)'" @click="togglePin">
         <Icon name="pin" :size="14" />
       </button>
       <button v-if="canGoBack" type="button" class="ghost icon head-btn back" title="Voltar à conversa anterior" @click="backToPrevious">

@@ -319,7 +319,7 @@ async function saveRename() {
         <Heartbeat v-if="hbTone !== 'idle'" :tone="hbTone" />
       </span>
       <span class="ctl">
-        <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa do topo da lista' : 'Fixar a conversa no topo da lista'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
+        <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa (sai da lista ao fechar)' : 'Fixar a conversa (fica na lista mesmo depois de fechada)'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
       </span>
     </div>
     <!-- encerrar: no canto superior direito, sempre visível -->
@@ -332,7 +332,7 @@ async function saveRename() {
         <button v-if="a.floating" type="button" class="item" @click="hostFromMenu('dock')"><Icon name="columns" :size="14" /><span class="nm">Trazer de volta para a área ao lado</span></button>
         <button v-else type="button" class="item" @click="hostFromMenu('popOut')"><Icon name="external" :size="14" /><span class="nm">Abrir em janela</span></button>
         <button type="button" class="item" @click="startRename"><Icon name="pencil" :size="14" /><span class="nm">Renomear…</span></button>
-        <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar do topo da lista' : 'Fixar no topo da lista' }}</span></button>
+        <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar a conversa' : 'Fixar a conversa (fica na lista ao fechar)' }}</span></button>
         <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
         <div class="sep" />
         <button type="button" class="item bad" @click="closeFromMenu"><Icon name="x" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Encerrar (interrompe o agente)' : 'Encerrar a conversa' }}</span></button>

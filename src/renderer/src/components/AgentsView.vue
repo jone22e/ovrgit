@@ -149,8 +149,9 @@ const idleShown = computed(() => idle.value.filter(pass))
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
 /** Todos, pela sua última interação: a conversa em que você mandou a mensagem mais recente (ou que acabou de abrir)
  * fica no topo e só sai de lá quando você interagir com outra; mudanças de situação não mexem na ordem, para você
- * não se perder. Fixadas primeiro. As barrinhas da barra de ferramentas mostram todos, filtrados ou não */
-const allOrder = computed(() => pinnedFirst(snaps.value, (a, b) => (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)))
+ * não se perder. Fixar não muda a posição: só garante que a conversa fique na lista depois de fechada. As barrinhas
+ * da barra de ferramentas mostram todos, filtrados ou não */
+const allOrder = computed(() => [...snaps.value].sort((a, b) => (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
 const order = computed(() => allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
