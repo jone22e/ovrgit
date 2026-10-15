@@ -355,6 +355,10 @@ async function saveRename() {
 .acard.waiting { background: linear-gradient(180deg, color-mix(in srgb, var(--mod) 9%, var(--panel)), var(--panel) 75%); }
 .acard.error { background: linear-gradient(180deg, color-mix(in srgb, var(--del) 9%, var(--panel)), var(--panel) 75%); }
 .acard.stalled { background: linear-gradient(180deg, color-mix(in srgb, var(--mod) 7%, var(--panel)), var(--panel) 75%); }
+/* trabalhando: o cartão inteiro levemente na cor do tema; concluído que você ainda não abriu: na cor de "feito" */
+.acard.live { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--panel)), color-mix(in srgb, var(--accent) 5%, var(--panel)) 75%); }
+.acard.fresh { background: linear-gradient(180deg, color-mix(in srgb, var(--add) 11%, var(--panel)), color-mix(in srgb, var(--add) 4%, var(--panel)) 75%); }
+.acard.fresh:not(.sel) { border-color: color-mix(in srgb, var(--add) 40%, var(--border)); }
 /* aguardando resposta: o cartão é um aviso e pulsa de leve até ser atendido */
 .acard.waiting:not(.sel) { border-color: color-mix(in srgb, var(--mod) 55%, var(--border)); animation: waiting 2.2s ease-in-out infinite; }
 @keyframes waiting { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mod) 22%, transparent); } }
