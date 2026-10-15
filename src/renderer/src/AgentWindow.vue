@@ -102,8 +102,17 @@ const running = ref(false)
 // tarefas em segundo plano do Claude Code (comando ou subagente) ainda rodando depois da resposta: a conversa segue
 // "em segundo plano" e o próprio CLI a retoma quando elas terminam
 const bgTasks = ref<BackgroundTask[]>([])
-const bgWaiting = computed(() => !running.value && bgTasks.value.length > 0)
+const bgWaiting = computed(() => !running.value && (bgTasks.value.length > 0 || resuming.value))
 let lastBg: { description: string; status: string } | null = null
+// a última tarefa terminou e o CLI está para retomar a conversa: continua "trabalhando" nesse meio tempo (sem isso o
+// cartão piscaria "concluído" por um segundo); se o CLI não retomar, desiste
+const resuming = ref(false)
+let resumeTimer: ReturnType<typeof setTimeout> | undefined
+function expectResume(on: boolean) {
+  clearTimeout(resumeTimer)
+  resuming.value = on
+  if (on) resumeTimer = setTimeout(() => (resuming.value = false), 20_000)
+}
 const sessionId = ref<string | null>(null)
 const known = ref<KnownModels | null>(null)
 /** Último modelo/esforço de cada IA, guardado pelo diálogo "Novo agente" (mesma origem: compartilhado) */
@@ -137,7 +146,7 @@ const retryGaveUp = ref(false)
  *  âmbar enquanto um cartão (perguntas do agente ou aprovação do plano) espera a resposta do usuário. */
 const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() => {
   if (running.value || designRunning.value) return 'live'
-  if (bgTasks.value.length) return 'live'
+  if (bgTasks.value.length || resuming.value) return 'live'
   if (!turns.length) return 'idle'
   // entre uma tentativa e outra da retomada automática o agente segue "trabalhando"
   if (retryIn.value !== null) return 'live'
@@ -600,7 +609,10 @@ function apply(ev: AgentChatEvent) {
   }
   if (ev.type === 'background') {
     bgTasks.value = ev.tasks
-    if (ev.finished) lastBg = ev.finished
+    if (ev.finished) {
+      lastBg = ev.finished
+      expectResume(true)
+    } else if (!ev.tasks.length && !lastBg) expectResume(false)
     return
   }
   // o CLI retomou a conversa sozinho (uma tarefa em segundo plano terminou): a resposta entra numa vez automática
@@ -608,6 +620,7 @@ function apply(ev: AgentChatEvent) {
     const fim = lastBg.status === 'completed' ? 'Terminou' : 'Parou'
     turns.push({ id: crypto.randomUUID(), user: `${fim} a tarefa em segundo plano: ${lastBg.description}`, auto: true, attachments: [], blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value })
     lastBg = null
+    expectResume(false)
     running.value = true
     scrollToEnd(true)
   }
@@ -1720,7 +1733,13 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     since: statusSince.value,
     lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
     error: last?.error,
-    activity: cur ? activityLabel(cur).replace(/…$/, '') : bgTasks.value.length ? `Em segundo plano: ${bgTasks.value.map((t) => t.description).join('; ')}`.slice(0, 140) : undefined,
+    activity: cur
+      ? activityLabel(cur).replace(/…$/, '')
+      : bgTasks.value.length
+        ? `Em segundo plano: ${bgTasks.value.map((t) => t.description).join('; ')}`.slice(0, 140)
+        : resuming.value
+          ? 'Retomando: a tarefa em segundo plano terminou'
+          : undefined,
     summary: last && !last.running ? firstLine(last) : undefined,
     files,
     paths: [...new Set(paths)].slice(0, 200),
@@ -2025,7 +2044,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
           <Icon v-else-if="statusKind === 'error'" name="x" :size="10" />
         </span>
-        <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small><small v-else-if="bgWaiting" class="status-took ellipsis">{{ bgTasks[0].description }}</small></span>
+        <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small><small v-else-if="bgWaiting" class="status-took ellipsis">{{ bgTasks[0]?.description ?? 'retomando…' }}</small></span>
       </span>
     </header>
 

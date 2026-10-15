@@ -113,7 +113,8 @@ function toMain(channel: string, ...args: unknown[]) {
 function startAgents() {
   agentWatch.startAgentWatch({
     onUpdate: (list) => toMain('agents:update', list),
-    onFinished: (s) => toMain('agents:finished', s),
+    // com tarefa em segundo plano pendente a conversa continua: o aviso de "terminou" fica para o fim de verdade
+    onFinished: (s) => !agentChat.sessionHasBackground(s.id) && toMain('agents:finished', s),
     onContext: (id, c) => agentChat.sessionContextChanged(id, c),
     // só as conversas do próprio app: as que têm janela aberta ou estão no histórico dele
     isOwn: (id) => agentChat.agentWindows().includes(id) || !!agentHistory.findHistory(id)

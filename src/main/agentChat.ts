@@ -2145,6 +2145,12 @@ export function sourceLinkPath(p: string): string | null {
   return s
 }
 
+/** A sessão do CLI tem tarefa em segundo plano pendente numa janela aberta (a conversa ainda não terminou de verdade) */
+export function sessionHasBackground(sessionId: string): boolean {
+  for (const w of wins.values()) if (w.info.sessionId === sessionId && w.bgTasks?.length) return true
+  return false
+}
+
 /** Repositórios dos arquivos de um card antigo (transcrição restaurada sem essa informação) */
 export function agentFileRepos(uid: string, paths: string[]): Promise<Record<string, FileRepo>> {
   const w = wins.get(uid)
