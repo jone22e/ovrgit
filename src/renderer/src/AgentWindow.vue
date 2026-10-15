@@ -299,6 +299,16 @@ const COPY_BTN = `<button type="button" class="copy" title="Copiar">${SVG('M10 8
 /** Cada bloco de código ganha um botão de copiar no canto (o clique é tratado em onMdClick) */
 const withCopy = (html: string) => html.replaceAll('<pre>', `<div class="code-wrap">${COPY_BTN}<pre>`).replaceAll('</pre>', '</pre></div>')
 async function onMdClick(e: MouseEvent) {
+  // link no texto: abre no navegador do sistema direto daqui, sem depender da navegação da página
+  const a = (e.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null
+  if (a) {
+    const href = a.getAttribute('href') ?? ''
+    if (/^https?:\/\//i.test(href)) {
+      e.preventDefault()
+      api.openExternal(href).catch(() => undefined)
+      return
+    }
+  }
   const btn = (e.target as HTMLElement).closest?.('button.copy') as HTMLButtonElement | null
   if (!btn) return
   const text = btn.parentElement?.querySelector('pre')?.textContent ?? ''
