@@ -130,6 +130,89 @@ const isShown = (n: FeatureNode) => !hidden.value.has(n.area) && (tune.value.orp
 const changed = computed(() => new Set((state.repo?.files ?? []).map((f) => f.path)))
 const touched = (n: FeatureNode) => n.files.some((p) => changed.value.has(p))
 
+// ---------- agentes trabalhando: os nós cujos arquivos um agente está mexendo acendem, como um neurônio ativo ----------
+/** Por quanto tempo um nó mantém a marca de "mexido há pouco" depois de o agente terminar */
+const RECENT_MS = 10 * 60_000
+const now = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | undefined
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+interface Worker {
+  uid: string
+  title: string
+  live: boolean
+  since: number
+  files: Set<string>
+}
+/** Caminho do agente relativo à raiz do mapa (null: fora do repositório) */
+function relToRoot(p: string, rootDir: string, cwd: string): string | null {
+  const norm = p.replace(/\\/g, '/')
+  if (norm.startsWith(`${rootDir}/`)) return norm.slice(rootDir.length + 1)
+  if (norm.startsWith('/')) return null
+  const rel = norm.replace(/^\.\//, '')
+  if (cwd === rootDir) return rel
+  if (cwd.startsWith(`${rootDir}/`)) return `${cwd.slice(rootDir.length + 1)}/${rel}`
+  return null
+}
+/** Agentes deste repositório rodando (ou concluídos há pouco) e os arquivos que tocaram na última resposta */
+const workers = computed<Worker[]>(() => {
+  const r = root.value?.replace(/\/+$/, '')
+  if (!r) return []
+  const out: Worker[] = []
+  for (const a of state.agentSnaps) {
+    const live = a.status === 'live'
+    if (!live && !(a.status === 'done' && now.value - a.since < RECENT_MS)) continue
+    const files = new Set<string>()
+    for (const p of a.paths ?? []) {
+      const rel = relToRoot(p, r, a.cwd.replace(/\/+$/, ''))
+      if (rel) files.add(rel)
+    }
+    if (files.size) out.push({ uid: a.uid, title: a.title, live, since: a.since, files })
+  }
+  return out
+})
+/** Nó → agentes nele (uma área herda os das suas funcionalidades). Recalculado só quando os resumos mudam. */
+const nodeWorkers = computed(() => {
+  const m = new Map<string, Worker[]>()
+  const g = graph.value
+  if (!g || !workers.value.length) return m
+  const byArea = new Map<string, Set<Worker>>()
+  for (const n of g.nodes) {
+    if (n.kind !== 'feature') continue
+    const ws = workers.value.filter((w) => n.files.some((f) => w.files.has(f)))
+    if (!ws.length) continue
+    m.set(n.id, ws)
+    const set = byArea.get(n.area) ?? new Set<Worker>()
+    for (const w of ws) set.add(w)
+    byArea.set(n.area, set)
+  }
+  for (const n of g.nodes) if (n.kind === 'area' && byArea.has(n.area)) m.set(n.id, [...byArea.get(n.area)!])
+  return m
+})
+const workersOf = (id: string) => nodeWorkers.value.get(id) ?? []
+/** Nós com agente rodando agora: é neles que o pulso anima */
+const activeIds = computed(() => new Set([...nodeWorkers.value].filter(([, ws]) => ws.some((w) => w.live)).map(([id]) => id)))
+const showAgent = (uid: string) => api.agentShow(uid).catch(() => undefined)
+/* o pulso só anima enquanto há agente ativo e o sistema não pede menos movimento: 2D redesenha a 20 quadros por
+   segundo, 3D recolore 5 vezes por segundo; fora disso o mapa só redesenha quando algo muda */
+let pulseTimer: ReturnType<typeof setInterval> | undefined
+function syncPulse() {
+  clearInterval(pulseTimer)
+  pulseTimer = undefined
+  const on = activeIds.value.size > 0 && !reducedMotion
+  if (on) pulseTimer = setInterval(() => (mode.value === '3d' ? refresh3d() : requestRender()), mode.value === '3d' ? 200 : 50)
+  requestRender()
+  refresh3d()
+}
+watch(nodeWorkers, () => {
+  requestRender()
+  refresh3d()
+})
+onMounted(() => (nowTimer = setInterval(() => (now.value = Date.now()), 30_000)))
+onUnmounted(() => {
+  clearInterval(nowTimer)
+  clearInterval(pulseTimer)
+})
+
 // ---------- cores (ângulo de ouro: áreas vizinhas com matizes bem diferentes; claras no escuro, escuras no claro) ----------
 const theme = ref({ bg: '#1e1e1e', text: '#ddd', accent: '#bd93f9', mod: '#e0a030', border: '#444', dark: true })
 function readTheme() {
@@ -492,6 +575,36 @@ function render() {
       ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
       ctx.stroke()
     }
+    // agente trabalhando aqui: anel na cor do tema com uma onda que se expande e some; terminou há pouco: anel tracejado
+    const ws = off ? undefined : nodeWorkers.value.get(n.id)
+    if (ws) {
+      const isArea = n.n.kind === 'area'
+      ctx.strokeStyle = t.accent
+      if (ws.some((w) => w.live)) {
+        if (!reducedMotion && !isArea) {
+          const ph = (performance.now() % 1500) / 1500
+          ctx.globalAlpha = 0.9 * (1 - ph)
+          ctx.lineWidth = 2 / view.k
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, r + (3 + 12 * ph) / view.k, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+        ctx.globalAlpha = isArea ? 0.4 : 0.95
+        ctx.lineWidth = (isArea ? 2 : 2.5) / view.k
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
+        ctx.stroke()
+      } else if (!isArea) {
+        ctx.globalAlpha = 0.5
+        ctx.lineWidth = 1.5 / view.k
+        ctx.setLineDash([3 / view.k, 3 / view.k])
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+      ctx.globalAlpha = 1
+    }
     if (n.id === focusId) {
       ctx.strokeStyle = t.accent
       ctx.lineWidth = 2 / view.k
@@ -686,6 +799,8 @@ interface L3 {
   why?: string
 }
 const mode = ref<'2d' | '3d'>(localStorage.getItem('ovseer.map.mode') === '3d' ? '3d' : '2d')
+// o pulso dos nós com agente acompanha o modo (2D redesenha; 3D recolore) e os agentes ativos
+watch([activeIds, mode], syncPulse)
 /** Giro automático (3D) */
 const spin = ref(false)
 const el3d = ref<HTMLElement>()
@@ -752,7 +867,8 @@ async function build3d() {
       })
       .nodeLabel((n) => {
         const a = n.n.kind === 'area' ? 'Área' : areaName(n.n.area)
-        return `<div class="tip3"><strong>${esc(n.n.name)}</strong>${n.n.description ? `<small>${esc(n.n.description)}</small>` : ''}<small class="faint">${esc(a)}${n.n.kind === 'feature' ? ` · ${n.n.files.length} ${n.n.files.length === 1 ? 'arquivo' : 'arquivos'}` : ''}</small></div>`
+        const who = workersLine(n.id)
+        return `<div class="tip3"><strong>${esc(n.n.name)}</strong>${n.n.description ? `<small>${esc(n.n.description)}</small>` : ''}${who ? `<small class="agent">${esc(who)}</small>` : ''}<small class="faint">${esc(a)}${n.n.kind === 'feature' ? ` · ${n.n.files.length} ${n.n.files.length === 1 ? 'arquivo' : 'arquivos'}` : ''}</small></div>`
       })
       .linkColor((l) => linkColor3(l))
       .linkWidth(() => (tune.value.linkWidth > 1.4 ? tune.value.linkWidth * 0.35 : 0))
@@ -797,7 +913,22 @@ function nodeColor3(n: N3): string {
   const q = search.value.trim().toLowerCase()
   const off = near ? !near.has(n.id) : q ? !`${n.n.name} ${n.n.description ?? ''}`.toLowerCase().includes(q) : false
   if (n.id === focusId) return theme.value.accent
-  return off ? colorOfA(n.ai, 0.12) : colorOf(n.ai)
+  if (off) return colorOfA(n.ai, 0.12)
+  // agente trabalhando: a cor do tema pulsando (fixa, com menos movimento); terminou há pouco: a cor do tema mais apagada
+  const ws = nodeWorkers.value.get(n.id)
+  if (ws && n.n.kind === 'feature') {
+    if (ws.some((w) => w.live)) return hexA(theme.value.accent, reducedMotion ? 1 : 0.55 + 0.45 * Math.sin(performance.now() / 240))
+    return hexA(theme.value.accent, 0.55)
+  }
+  return colorOf(n.ai)
+}
+/** Linha da dica: quem está (ou esteve há pouco) trabalhando no nó */
+function workersLine(id: string): string {
+  const ws = nodeWorkers.value.get(id) ?? []
+  if (!ws.length) return ''
+  const live = ws.filter((w) => w.live)
+  const names = (list: Worker[]) => list.map((w) => w.title).join(', ')
+  return live.length ? `Agente trabalhando aqui: ${names(live)}` : `Mexido há pouco: ${names(ws)}`
 }
 function linkColor3(l: L3): string {
   const t = theme.value
@@ -1064,6 +1195,7 @@ watch([search, changed], requestRender)
       <div v-if="mode === '2d' && hovered && hovered.id !== selectedId" class="tip" :style="{ left: `${Math.min(tip.x + 14, size.w - 290)}px`, top: `${Math.min(tip.y + 14, size.h - 100)}px` }">
         <strong class="ellipsis">{{ hovered.n.name }}</strong>
         <small v-if="hovered.n.description">{{ hovered.n.description }}</small>
+        <small v-if="workersOf(hovered.id).length" class="agent">{{ workersLine(hovered.id) }}</small>
         <small class="faint"><span class="sw" :style="{ background: areaColor(hovered.n.area) }" />{{ hovered.n.kind === 'area' ? `${children.length || areas.find((a) => a.id === hovered!.n.area)?.count} funcionalidades` : `${areaName(hovered.n.area)}${hovered.n.featureKind ? ` · ${kindLabel(hovered.n.featureKind)}` : ''} · ${hovered.n.files.length} ${hovered.n.files.length === 1 ? 'arquivo' : 'arquivos'}` }}</small>
       </div>
 
@@ -1095,6 +1227,13 @@ watch([search, changed], requestRender)
           <Icon name="sparkles" :size="13" /> {{ mapping ? 'Mapeando…' : 'Remapear esta área' }}
         </button>
         <div v-if="!(mapping && remapId === selected.n.area)" class="d-body">
+          <!-- agentes trabalhando (ou que mexeram há pouco) nos arquivos deste nó: o clique traz a conversa -->
+          <div v-if="workersOf(selected.id).length" class="d-sec">
+            <h6>Agentes aqui ({{ workersOf(selected.id).length }})</h6>
+            <button v-for="w in workersOf(selected.id)" :key="w.uid" class="ghost d-link" :title="`${w.title} · mostrar a conversa`" @click="showAgent(w.uid)">
+              <span class="pulse" :class="{ live: w.live }" /><span class="ellipsis">{{ w.title }}</span><small :class="w.live ? 'accent' : 'faint'">{{ w.live ? 'trabalhando' : 'há pouco' }}</small>
+            </button>
+          </div>
           <div v-if="children.length" class="d-sec">
             <h6>Funcionalidades ({{ children.length }})</h6>
             <button v-for="c in children" :key="c.id" class="ghost d-link" :title="c.n.description" @click="goTo(c.id)"><span class="ellipsis">{{ c.n.name }}</span><small v-if="touched(c.n)" class="warn">alterado</small></button>
@@ -1220,6 +1359,13 @@ canvas:active { cursor: grabbing; }
 .d-link { display: flex; align-items: center; gap: 6px; width: 100%; height: 24px; padding: 0 6px; justify-content: flex-start; font-size: 12px; color: var(--text); }
 .d-link small { font-size: 11px; margin-left: auto; max-width: 45%; flex: none; }
 .warn { color: var(--mod); }
+.accent { color: var(--accent); }
+.tip .agent, :global(.tip3 .agent) { color: var(--accent); }
+/* bolinha do agente no painel: pulsa enquanto trabalha */
+.pulse { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--faint); }
+.pulse.live { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .pulse.live { animation: none; } }
 .d-remap { align-self: flex-start; height: 26px; gap: 6px; font-size: 12px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-soft); }
 /* andamento do remapeamento da área, no lugar da lista */
 .d-prog { display: flex; flex-direction: column; gap: 8px; }
