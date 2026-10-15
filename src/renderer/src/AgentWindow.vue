@@ -5,7 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type {
   AgentHandoff, GridCell,
   AgentAction, AgentAsk, AgentSnapshot,
-  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings, RepoGroup
+  AgentAttachment, AgentBlock, AgentChatEvent, AgentEffort, BackgroundTask, AgentMode, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, GridPlacement, GridSize, KnownModels, Settings, RepoGroup
 } from '@shared/types'
 import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelLabel } from '@shared/models'
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
@@ -99,6 +99,11 @@ const attachError = ref<string | null>(null)
 const draft = ref('')
 
 const running = ref(false)
+// tarefas em segundo plano do Claude Code (comando ou subagente) ainda rodando depois da resposta: a conversa segue
+// "em segundo plano" e o próprio CLI a retoma quando elas terminam
+const bgTasks = ref<BackgroundTask[]>([])
+const bgWaiting = computed(() => !running.value && bgTasks.value.length > 0)
+let lastBg: { description: string; status: string } | null = null
 const sessionId = ref<string | null>(null)
 const known = ref<KnownModels | null>(null)
 /** Último modelo/esforço de cada IA, guardado pelo diálogo "Novo agente" (mesma origem: compartilhado) */
@@ -132,6 +137,7 @@ const retryGaveUp = ref(false)
  *  âmbar enquanto um cartão (perguntas do agente ou aprovação do plano) espera a resposta do usuário. */
 const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() => {
   if (running.value || designRunning.value) return 'live'
+  if (bgTasks.value.length) return 'live'
   if (!turns.length) return 'idle'
   // entre uma tentativa e outra da retomada automática o agente segue "trabalhando"
   if (retryIn.value !== null) return 'live'
@@ -140,10 +146,10 @@ const statusKind = computed<'idle' | 'live' | 'waiting' | 'done' | 'error'>(() =
   const conceptWaiting = arch.value?.phase === 'concept' && arch.value.design?.approved === undefined
   return showAsk.value || showPlanAsk.value || conceptWaiting ? 'waiting' : 'done'
 })
-const statusLabel = computed(() => ({ idle: 'sem conversa', live: 'trabalhando', waiting: 'aguardando resposta', done: 'concluído', error: 'falhou' })[statusKind.value])
+const statusLabel = computed(() => (bgWaiting.value ? 'em segundo plano' : { idle: 'sem conversa', live: 'trabalhando', waiting: 'aguardando resposta', done: 'concluído', error: 'falhou' }[statusKind.value]))
 /** Quanto tempo a última tarefa levou, mostrado discretamente ao lado do "concluído" */
 const statusTook = computed(() => (statusKind.value === 'done' ? took(turns[turns.length - 1]?.durationMs) : ''))
-const statusTitle = computed(() => ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', waiting: 'O agente está aguardando a sua resposta', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
+const statusTitle = computed(() => bgWaiting.value ? 'Uma tarefa em segundo plano ainda roda; a conversa continua sozinha quando ela terminar' : ({ idle: 'A conversa ainda não começou', live: 'O agente está trabalhando', waiting: 'O agente está aguardando a sua resposta', done: 'O agente terminou a última tarefa', error: 'A última tarefa terminou com erro' })[statusKind.value])
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
 const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[MODES.length - 1])
@@ -592,6 +598,19 @@ function apply(ev: AgentChatEvent) {
     if (handoff.value) handoff.value = handoffEdited.value ? { ...handoff.value, pending: false } : ev.handoff
     return
   }
+  if (ev.type === 'background') {
+    bgTasks.value = ev.tasks
+    if (ev.finished) lastBg = ev.finished
+    return
+  }
+  // o CLI retomou a conversa sozinho (uma tarefa em segundo plano terminou): a resposta entra numa vez automática
+  if (!current() && lastBg && (ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')) {
+    const fim = lastBg.status === 'completed' ? 'Terminou' : 'Parou'
+    turns.push({ id: crypto.randomUUID(), user: `${fim} a tarefa em segundo plano: ${lastBg.description}`, auto: true, attachments: [], blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), mode: mode.value })
+    lastBg = null
+    running.value = true
+    scrollToEnd(true)
+  }
   const t = current()
   if (!t) return
   if (ev.type === 'text') {
@@ -650,7 +669,9 @@ function apply(ev: AgentChatEvent) {
     t.blocks = t.blocks.filter((b) => b.kind !== 'text' || (b.text.trim() && !(ev.error && /^API Error/i.test(b.text.trim()))))
     if (!t.error) resetRetry()
     // falha passageira e nada na fila: a retomada sai sozinha, sem notificar (só avisa se as tentativas acabarem)
-    if (sendAfterStop || queue.length || !scheduleRetry(t)) notifyDone(t)
+    // com tarefa em segundo plano rodando a conversa ainda não acabou: o aviso fica para o fim de verdade
+    const retrying = !sendAfterStop && !queue.length && scheduleRetry(t)
+    if (!retrying && !bgTasks.value.length) notifyDone(t)
     nextTick(() => box.value?.focus())
     // interrompida para dar lugar a outra mensagem: não é erro
     if (sendAfterStop) {
@@ -1699,7 +1720,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     since: statusSince.value,
     lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
     error: last?.error,
-    activity: cur ? activityLabel(cur).replace(/…$/, '') : undefined,
+    activity: cur ? activityLabel(cur).replace(/…$/, '') : bgTasks.value.length ? `Em segundo plano: ${bgTasks.value.map((t) => t.description).join('; ')}`.slice(0, 140) : undefined,
     summary: last && !last.running ? firstLine(last) : undefined,
     files,
     paths: [...new Set(paths)].slice(0, 200),
@@ -1902,6 +1923,7 @@ onMounted(async () => {
     return
   }
   info.value = i
+  bgTasks.value = i.bgTasks ?? []
   provider.value = i.provider
   model.value = i.model
   effort.value = i.effort
@@ -2003,7 +2025,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon v-if="statusKind === 'done'" name="check" :size="10" />
           <Icon v-else-if="statusKind === 'error'" name="x" :size="10" />
         </span>
-        <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small></span>
+        <span class="status-text">{{ statusLabel }}<small v-if="statusTook" class="status-took">{{ statusTook }}</small><small v-else-if="bgWaiting" class="status-took ellipsis">{{ bgTasks[0].description }}</small></span>
       </span>
     </header>
 
@@ -2031,7 +2053,7 @@ onUnmounted(() => offs.forEach((f) => f()))
       </div>
 
       <article v-for="t in turns" :key="t.id" class="turn">
-        <div v-if="!t.silent" class="user">
+        <div v-if="!t.silent" class="user" :class="{ note: t.auto }">
           <div class="bubble">
             <div v-if="t.attachments.length" class="atts">
               <template v-for="a in t.attachments" :key="a.path">
@@ -2558,6 +2580,8 @@ onUnmounted(() => offs.forEach((f) => f()))
 .cl-foot span { flex: 1; min-width: 0; }
 .cl-foot .small { height: 28px; gap: 6px; flex: none; }
 .user { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+/* vez aberta pelo app (tarefa em segundo plano que terminou): uma nota, não uma mensagem sua */
+.user.note .bubble { background: transparent; border: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; }
 /* hora e copiar: aparecem ao passar o mouse na mensagem */
 .user-acts { display: flex; align-items: center; gap: 4px; height: 22px; opacity: 0; transition: opacity 0.12s; }
 .user:hover .user-acts, .user-acts.on, .user-acts:focus-within { opacity: 1; }

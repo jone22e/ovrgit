@@ -479,6 +479,8 @@ export interface AgentWindowInfo extends AgentChatOpen {
   /** Id da sessão do CLI (definido depois da primeira resposta) */
   sessionId: string | null
   running: boolean
+  /** Tarefas em segundo plano do Claude Code ainda rodando depois da resposta (a conversa continua quando terminarem) */
+  bgTasks?: BackgroundTask[]
   /** Título da conversa: dado pela IA depois da primeira resposta, ou pelo usuário */
   title: string
   /** O usuário renomeou: a IA não mexe mais */
@@ -525,6 +527,14 @@ export interface AgentSendOptions {
 }
 
 /** Evento da conversa, já traduzido do formato de cada CLI */
+/** Tarefa em segundo plano do Claude Code (comando ou subagente) que continua depois da resposta */
+export interface BackgroundTask {
+  id: string
+  description: string
+  /** `local_bash`, `local_agent`… como o CLI diz */
+  kind?: string
+}
+
 export type AgentChatEvent =
   | { type: 'session'; sessionId: string; model?: string }
   | { type: 'text'; delta: string }
@@ -540,6 +550,8 @@ export type AgentChatEvent =
   | { type: 'handoff'; handoff: AgentHandoff }
   /** O agente gravou o plano num arquivo dele (Claude Code, em ~/.claude/plans): `text` é o conteúdo, para aparecer na conversa */
   | { type: 'plan'; path: string; text?: string }
+  /** Tarefas em segundo plano ainda rodando (o processo fica vivo e a conversa continua quando terminarem); `finished`: a que acabou de terminar */
+  | { type: 'background'; tasks: BackgroundTask[]; finished?: { description: string; status: string; summary?: string } }
 
 /** Linhas acrescentadas e removidas num arquivo alterado pelo agente (null: binário ou fora do git) */
 export interface FileStat {

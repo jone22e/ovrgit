@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, Notification, screen, shell, WebContentsView, webContents as allWebContents } from 'electron'
-import type { AgentAction, AgentAttachment, AgentChatEvent, AgentContext, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, BackgroundTask, AgentContext, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -67,6 +67,11 @@ interface AgentWin {
   undocked?: WindowBounds
   /** Em janela própria por escolha do usuário ("Abrir em janela" no cartão): mostrar não a traz de volta para a área */
   floating?: boolean
+  /** Tarefas em segundo plano do Claude Code ainda rodando depois da resposta: o processo fica vivo (fechar o stdin o
+   * mataria junto com a tarefa) e o próprio CLI retoma a conversa quando a tarefa termina */
+  bgTasks?: BackgroundTask[]
+  /** A última tarefa terminou e o CLI não retomou: passado um tempo, o stdin fecha e o processo sai */
+  bgIdleTimer?: ReturnType<typeof setTimeout>
 }
 
 const wins = new Map<string, AgentWin>()
@@ -1353,6 +1358,8 @@ export interface ClaudeParseState {
   model?: string
   /** O CLI compactou a conversa nesta vez (vale até o fim dela) */
   compacted?: boolean
+  /** Tarefas em segundo plano (id → tarefa) que o CLI ainda não avisou que terminaram */
+  bg?: Map<string, BackgroundTask>
 }
 /** Tamanhos de janela aprendidos do `modelUsage` dos resultados, por modelo: valem para as conversas seguintes */
 const learnedWindows = new Map<string, number>()
@@ -1462,6 +1469,12 @@ export function friendlyClaudeError(msg: string): string {
   return msg.replace(/^API Error:\s*\d*\s*/i, '')
 }
 
+const bgTaskOf = (t: { task_id?: unknown; description?: unknown; task_type?: unknown }): BackgroundTask => ({
+  id: String(t.task_id),
+  description: String(t.description ?? '').trim() || 'tarefa em segundo plano',
+  kind: typeof t.task_type === 'string' ? t.task_type : undefined
+})
+
 export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEvent[] {
   let o: Record<string, unknown>
   try {
@@ -1479,6 +1492,25 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
   } else if (o.type === 'system' && o.subtype === 'compact_boundary') {
     // o CLI resumiu a conversa: a próxima mensagem traz o contexto já enxuto (a bateria "recarrega")
     st.compacted = true
+  } else if (o.type === 'system' && o.subtype === 'background_tasks_changed') {
+    // a lista completa das tarefas em segundo plano, do CLI; as "ambientes" (vigias internas) não são trabalho pendente
+    const list = (Array.isArray(o.tasks) ? o.tasks : []) as { task_id?: unknown; description?: unknown; task_type?: unknown; ambient?: unknown }[]
+    st.bg = new Map(list.filter((t) => t.task_id && !t.ambient).map((t) => [String(t.task_id), bgTaskOf(t)]))
+    out.push({ type: 'background', tasks: [...st.bg.values()] })
+  } else if (o.type === 'system' && o.subtype === 'task_started') {
+    // CLI sem a lista acima: a tarefa que nasce em segundo plano entra por aqui
+    if (o.is_backgrounded && o.task_id && !o.ambient && !st.bg?.has(String(o.task_id))) {
+      ;(st.bg ??= new Map()).set(String(o.task_id), bgTaskOf(o as { task_id?: unknown; description?: unknown; task_type?: unknown }))
+      out.push({ type: 'background', tasks: [...st.bg.values()] })
+    }
+  } else if (o.type === 'system' && o.subtype === 'task_notification') {
+    // a tarefa terminou (o CLI retoma a conversa sozinho em seguida)
+    const id = String(o.task_id ?? '')
+    const t = st.bg?.get(id)
+    if (t) {
+      st.bg!.delete(id)
+      out.push({ type: 'background', tasks: [...st.bg!.values()], finished: { description: t.description, status: String(o.status ?? 'completed'), summary: typeof o.summary === 'string' ? o.summary : undefined } })
+    }
   } else if (o.type === 'control_response') {
     // resposta ao pedido de uso de contexto: a janela exata do modelo e o que já está ocupado
     const r = o.response as { subtype?: string; request_id?: string; response?: Record<string, unknown> } | undefined
@@ -1768,6 +1800,19 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   if (!w) throw new Error('Janela do agente não encontrada.')
   if (w.child) {
     if (!w.turnDone) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
+    // tarefa em segundo plano ainda rodando: a mensagem vai pelo mesmo processo (um processo novo a mataria);
+    // modelo, esforço e modo só mudam na próxima vez que um processo nascer
+    if (w.info.provider === 'claude' && w.bgTasks?.length && w.child.stdin.writable) {
+      clearTimeout(w.bgIdleTimer)
+      w.info.handoff = null
+      w.handoffToken = undefined
+      const { prompt, inlineImages } = composeMessage('claude', text, attachments)
+      w.turnDone = false
+      w.info.running = true
+      w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
+      w.child.stdin.write(claudeContextRequest())
+      return
+    }
     await w.exited // a resposta acabou, mas o processo ainda está saindo
   }
   if (opts.provider && opts.provider !== w.info.provider) {
@@ -1907,10 +1952,28 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         broadcastSnapshots()
         continue
       }
+      if (ev.type === 'background') {
+        w.bgTasks = ev.tasks
+        w.info.bgTasks = ev.tasks.length ? ev.tasks : undefined
+        clearTimeout(w.bgIdleTimer)
+        // a última terminou: o CLI deveria retomar a conversa sozinho; se ficar parado, o processo pode sair
+        if (!ev.tasks.length && w.turnDone) {
+          w.bgIdleTimer = setTimeout(() => {
+            if (w.child === child && w.turnDone && !w.bgTasks?.length && child.stdin.writable) child.stdin.end()
+          }, 30_000)
+        }
+      }
+      // o CLI retomou a conversa por conta própria (uma tarefa em segundo plano terminou): a vez recomeça
+      if (w.turnDone && (ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')) {
+        w.turnDone = false
+        w.info.running = true
+        clearTimeout(w.bgIdleTimer)
+      }
       if (ev.type === 'done') {
         w.turnDone = true
-        // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair
-        if (provider === 'claude') child.stdin.end()
+        // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair. Com tarefa em
+        // segundo plano rodando, fica aberto: a tarefa vive no processo, e o CLI continua a conversa quando ela acabar
+        if (provider === 'claude' && !w.bgTasks?.length) child.stdin.end()
       }
       if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then(({ stats, repos }) => emit(w, { type: 'files', paths: ev.paths, stats, repos }))
       if (ev.type === 'done' && ev.ok && firstTurn && !w.info.renamed) {
@@ -1961,6 +2024,13 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     if (buf.trim()) handle(buf)
     w.child = null
     w.info.running = false
+    clearTimeout(w.bgIdleTimer)
+    // o processo saiu com tarefa em segundo plano pendente (interrompido, ou o CLI desistiu): ela não avisa mais
+    if (w.bgTasks?.length) {
+      w.bgTasks = undefined
+      w.info.bgTasks = undefined
+      emit(w, { type: 'background', tasks: [] })
+    }
     if (!isDone()) {
       const tail = stderr.trim().split('\n').filter(Boolean).slice(-3).join(' ')
       let error = tail || `${PROVIDER_NAME[provider]} saiu com código ${code}`

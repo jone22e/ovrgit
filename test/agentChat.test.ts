@@ -501,3 +501,23 @@ describe('sourceLinkPath', () => {
     expect(sourceLinkPath('')).toBeNull()
   })
 })
+
+describe('parseClaudeLine: tarefas em segundo plano', () => {
+  it('acompanha início e fim pela lista do CLI e avisa qual terminou', () => {
+    const st: ClaudeParseState = { cwd: '/p', streamed: 0, done: false }
+    const changed = parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'Build do sidecar' }, { task_id: 'amb', description: 'vigia', ambient: true }] }), st)
+    expect(changed).toEqual([{ type: 'background', tasks: [{ id: 'b1', description: 'Build do sidecar', kind: 'local_bash' }] }])
+    // o task_started da mesma tarefa não repete o aviso
+    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 'b1', description: 'Build do sidecar', is_backgrounded: true, task_type: 'local_bash' }), st)).toEqual([])
+    expect(parseClaudeLine(JSON.stringify({ type: 'result', subtype: 'success', is_error: false }), st)[0]).toMatchObject({ type: 'done', ok: true })
+    const fin = parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: 'b1', status: 'completed', summary: 'Background command "Build do sidecar" completed (exit code 0)' }), st)
+    expect(fin).toEqual([{ type: 'background', tasks: [], finished: { description: 'Build do sidecar', status: 'completed', summary: 'Background command "Build do sidecar" completed (exit code 0)' } }])
+    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_notification', task_id: 'desconhecida', status: 'completed' }), st)).toEqual([])
+  })
+  it('CLI sem a lista: o task_started em segundo plano basta, o de primeiro plano não conta', () => {
+    const st: ClaudeParseState = { cwd: '/p', streamed: 0, done: false }
+    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 'a1', description: 'Subagente', is_backgrounded: true, task_type: 'local_agent' }), st)).toEqual([{ type: 'background', tasks: [{ id: 'a1', description: 'Subagente', kind: 'local_agent' }] }])
+    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 's1', description: 'Em primeiro plano', is_backgrounded: false }), st)).toEqual([])
+    expect(st.bg?.size).toBe(1)
+  })
+})
