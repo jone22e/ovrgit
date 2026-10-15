@@ -249,6 +249,16 @@ function hexA(hex: string, a: number): string {
   const n = parseInt(m[1], 16)
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
 }
+/** Mistura de duas cores "#rrggbb": t = 0 é a primeira, 1 a segunda */
+function mixHex(a: string, b: string, t: number): string {
+  const pa = a.match(/^#([0-9a-f]{6})$/i)
+  const pb = b.match(/^#([0-9a-f]{6})$/i)
+  if (!pa || !pb) return a
+  const na = parseInt(pa[1], 16)
+  const nb = parseInt(pb[1], 16)
+  const ch = (sh: number) => Math.round(((na >> sh) & 255) * (1 - t) + ((nb >> sh) & 255) * t)
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`
+}
 
 // ---------- carregar e mapear ----------
 async function load() {
@@ -594,9 +604,10 @@ function render() {
       if (ws.some((w) => w.live)) {
         const tm = reducedMotion ? 0 : performance.now()
         const breath = reducedMotion ? 0.6 : 0.5 + 0.5 * Math.sin(tm / 350)
-        const haloR = r + (isArea ? 14 : 16 + 8 * breath) / view.k
+        const haloR = r + (isArea ? 14 : 24 + 12 * breath) / view.k
         const halo = ctx.createRadialGradient(n.x, n.y, r * 0.5, n.x, n.y, haloR)
-        halo.addColorStop(0, hexA(t.accent, isArea ? 0.3 : 0.4 + 0.3 * breath))
+        halo.addColorStop(0, hexA(t.accent, isArea ? 0.3 : 0.5 + 0.3 * breath))
+        halo.addColorStop(0.45, hexA(t.accent, isArea ? 0.12 : 0.2 + 0.15 * breath))
         halo.addColorStop(1, hexA(t.accent, 0))
         ctx.globalAlpha = 1
         ctx.fillStyle = halo
@@ -604,12 +615,12 @@ function render() {
         ctx.arc(n.x, n.y, haloR, 0, Math.PI * 2)
         ctx.fill()
         if (!reducedMotion && !isArea) {
-          for (let i = 0; i < 3; i++) {
-            const ph = (tm / 1800 + i / 3) % 1
+          for (let i = 0; i < 4; i++) {
+            const ph = (tm / 1800 + i / 4) % 1
             ctx.globalAlpha = 0.85 * Math.pow(1 - ph, 1.5)
-            ctx.lineWidth = (0.5 + 2 * (1 - ph)) / view.k
+            ctx.lineWidth = (0.5 + 2.5 * (1 - ph)) / view.k
             ctx.beginPath()
-            ctx.arc(n.x, n.y, r + (2 + 28 * ph) / view.k, 0, Math.PI * 2)
+            ctx.arc(n.x, n.y, r + (2 + 40 * ph) / view.k, 0, Math.PI * 2)
             ctx.stroke()
           }
         }
@@ -620,9 +631,9 @@ function render() {
         ctx.stroke()
         if (!isArea) {
           ctx.fillStyle = '#fff'
-          ctx.globalAlpha = 0.6 + 0.35 * breath
+          ctx.globalAlpha = 0.7 + 0.3 * breath
           ctx.beginPath()
-          ctx.arc(n.x, n.y, r * 0.45, 0, Math.PI * 2)
+          ctx.arc(n.x, n.y, r * 0.5, 0, Math.PI * 2)
           ctx.fill()
         }
       } else if (!isArea) {
@@ -661,13 +672,14 @@ function render() {
       ctx.moveTo(from.x, from.y)
       ctx.lineTo(to.x, to.y)
       ctx.stroke()
-      if (!reducedMotion) {
-        const ph = (tm / 1400 + ((i * 0.37) % 1)) % 1
+      for (let k = 0; k < (reducedMotion ? 0 : 2); k++) {
+        const ph = (tm / 1400 + ((i * 0.37) % 1) + k / 2) % 1
         const px = from.x + (to.x - from.x) * ph
         const py = from.y + (to.y - from.y) * ph
-        const tp = Math.max(0, ph - 0.12)
-        ctx.globalAlpha = 0.7
-        ctx.lineWidth = 2.2 / view.k
+        const tp = Math.max(0, ph - 0.14)
+        ctx.strokeStyle = t.accent
+        ctx.globalAlpha = 0.75
+        ctx.lineWidth = 2.4 / view.k
         ctx.beginPath()
         ctx.moveTo(from.x + (to.x - from.x) * tp, from.y + (to.y - from.y) * tp)
         ctx.lineTo(px, py)
@@ -675,7 +687,7 @@ function render() {
         ctx.fillStyle = '#fff'
         ctx.globalAlpha = 0.95
         ctx.beginPath()
-        ctx.arc(px, py, 2.4 / view.k, 0, Math.PI * 2)
+        ctx.arc(px, py, 2.6 / view.k, 0, Math.PI * 2)
         ctx.fill()
       }
       i++
@@ -940,10 +952,11 @@ async function build3d() {
           const base = n.r * tune.value.nodeSize
           glowTex ??= fxTexture('glow')
           ringTex ??= fxTexture('ring')
-          const glow = fxSprite(glowTex, base * 6, 0.7)
-          const rings = reducedMotion ? [] : [fxSprite(ringTex, base * 2, 0.8), fxSprite(ringTex, base * 2, 0.8)]
-          group.add(glow, ...rings)
-          fx3.set(n.id, { glow, rings, base })
+          const glow = fxSprite(glowTex, base * 8, 0.7)
+          const core = fxSprite(glowTex, base * 2.6, 0.8, '#ffffff')
+          const rings = reducedMotion ? [] : [0, 1, 2].map(() => fxSprite(ringTex, base * 2, 0.8))
+          group.add(glow, core, ...rings)
+          fx3.set(n.id, { glow, core, rings, base })
           return group as never
         }
         return label as never
@@ -983,8 +996,8 @@ async function build3d() {
     el.addEventListener('pointerdown', stopAutoFit)
     g3 = g
     // partículas correndo pelas ligações dos nós com agente (fora da cadeia acima: o tipo genérico se perde nela)
-    g.linkDirectionalParticles((l: L3) => (activeLink3(l) ? 4 : 0))
-    g.linkDirectionalParticleWidth(1.5)
+    g.linkDirectionalParticles((l: L3) => (activeLink3(l) ? 6 : 0))
+    g.linkDirectionalParticleWidth(2.2)
     g.linkDirectionalParticleSpeed(0.006)
     g.linkDirectionalParticleColor(() => theme.value.accent)
     applyForces3d()
@@ -1002,10 +1015,11 @@ function nodeColor3(n: N3): string {
   const off = near ? !near.has(n.id) : q ? !`${n.n.name} ${n.n.description ?? ''}`.toLowerCase().includes(q) : false
   if (n.id === focusId) return theme.value.accent
   if (off) return colorOfA(n.ai, 0.12)
-  // agente trabalhando: a cor do tema pulsando (fixa, com menos movimento); terminou há pouco: a cor do tema mais apagada
+  // agente trabalhando: a esfera esquenta da cor do tema até quase branco (fixa, com menos movimento); terminou há
+  // pouco: a cor do tema mais apagada
   const ws = nodeWorkers.value.get(n.id)
   if (ws && n.n.kind === 'feature') {
-    if (ws.some((w) => w.live)) return hexA(theme.value.accent, reducedMotion ? 1 : 0.55 + 0.45 * Math.sin(performance.now() / 240))
+    if (ws.some((w) => w.live)) return reducedMotion ? theme.value.accent : mixHex(theme.value.accent, '#ffffff', 0.3 + 0.3 * Math.sin(performance.now() / 240))
     return hexA(theme.value.accent, 0.55)
   }
   return colorOf(n.ai)
@@ -1055,7 +1069,7 @@ function threeFrom(SpriteText: any) {
 let glowTex: unknown = null
 let ringTex: unknown = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fx3 = new Map<string, { glow: any; rings: any[]; base: number }>()
+const fx3 = new Map<string, { glow: any; core: any; rings: any[]; base: number }>()
 /** Textura em canvas: um brilho radial ou um anel, brancos (a cor vem do material) */
 function fxTexture(kind: 'glow' | 'ring') {
   const c = document.createElement('canvas')
@@ -1070,15 +1084,15 @@ function fxTexture(kind: 'glow' | 'ring') {
     x.fillRect(0, 0, 128, 128)
   } else {
     x.strokeStyle = '#fff'
-    x.lineWidth = 7
+    x.lineWidth = 9
     x.beginPath()
-    x.arc(64, 64, 56, 0, Math.PI * 2)
+    x.arc(64, 64, 55, 0, Math.PI * 2)
     x.stroke()
   }
   return new THREE.CanvasTexture(c)
 }
-function fxSprite(tex: unknown, scale: number, opacity: number) {
-  const m = new THREE.SpriteMaterial({ map: tex, color: theme.value.accent, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false })
+function fxSprite(tex: unknown, scale: number, opacity: number, color = theme.value.accent) {
+  const m = new THREE.SpriteMaterial({ map: tex, color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false })
   const sp = new THREE.Sprite(m)
   sp.scale.set(scale, scale, 1)
   sp.renderOrder = 2
@@ -1092,12 +1106,13 @@ function animate3d() {
   const tm = performance.now()
   const breath = 0.5 + 0.5 * Math.sin(tm / 350)
   for (const f of fx3.values()) {
-    const gs = f.base * (5 + 2 * breath)
+    const gs = f.base * (7 + 3 * breath)
     f.glow.scale.set(gs, gs, 1)
-    f.glow.material.opacity = 0.45 + 0.4 * breath
+    f.glow.material.opacity = 0.55 + 0.35 * breath
+    f.core.material.opacity = 0.5 + 0.45 * breath
     f.rings.forEach((r, i) => {
-      const ph = (tm / 1800 + i / 2) % 1
-      const rs = f.base * (1.5 + 7 * ph)
+      const ph = (tm / 1800 + i / 3) % 1
+      const rs = f.base * (1.5 + 9 * ph)
       r.scale.set(rs, rs, 1)
       r.material.opacity = 0.9 * Math.pow(1 - ph, 1.3)
     })
