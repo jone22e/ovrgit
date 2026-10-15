@@ -1019,6 +1019,19 @@ function listenAgents() {
   api.onSettingsChanged((s) => (state.settings = s))
   api.queueList().then((q) => (state.queue = q)).catch(() => undefined)
   api.onQueueChange((q) => (state.queue = q))
+  // link de arquivo clicado numa conversa: troca de projeto se for preciso e abre o arquivo no editor
+  api.onSourceOpen(async ({ root, path }) => {
+    if (state.repo?.root !== root) {
+      try {
+        await openRepo(await api.loadProject(root))
+      } catch {
+        return
+      }
+    }
+    state.tab = 'changes'
+    setPane('files')
+    openSource(path)
+  })
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()
     const title = `${agentName(s)} terminou${where ? ` em ${where}` : ''}`

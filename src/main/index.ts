@@ -664,6 +664,19 @@ function registerIpc() {
   ipcMain.handle('agent:fileRepos', (_e, uid: string, paths: string[]) =>
     agentChat.agentFileRepos(String(uid), Array.isArray(paths) ? paths.map(String) : [])
   )
+  // link de arquivo clicado numa conversa: abre no editor da janela principal (fora de um repositório, no app do sistema)
+  ipcMain.handle('agent:openFile', async (_e, uid: string, p: string) => {
+    const r = await agentChat.resolveSourceFile(String(uid), String(p ?? ''))
+    if (!r) return 'missing'
+    if (r.root && win && !win.isDestroyed()) {
+      toMain('source:open', { root: r.root, path: path.relative(r.root, r.file).split(path.sep).join('/') })
+      win.show()
+      win.focus()
+      return 'editor'
+    }
+    await shell.openPath(r.file)
+    return 'system'
+  })
   ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
   ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))

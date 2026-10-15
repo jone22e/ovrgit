@@ -2043,6 +2043,38 @@ export async function fileRepos(cwd: string, paths: string[]): Promise<{ repos: 
   return { repos, groups }
 }
 
+/**
+ * Arquivo citado num link da conversa, resolvido contra a pasta do agente (aceita `file://`, caminho absoluto ou
+ * relativo, com `:linha` no fim), e o repositório que o contém, para abrir no editor da janela principal.
+ */
+export async function resolveSourceFile(uid: string, p: string): Promise<{ file: string; root: string | null } | null> {
+  const w = wins.get(uid)
+  const s = sourceLinkPath(p)
+  if (!w || !s) return null
+  const file = realAbs(w.info.cwd, s)
+  try {
+    if (!statSync(file).isFile()) return null
+  } catch {
+    return null
+  }
+  return { file, root: await gitTop(path.dirname(file)) }
+}
+
+/** O caminho de um link de arquivo: `file://` decodificado, sem `?`/`#` nem `:linha:coluna`; outro esquema (http, vscode) não é arquivo */
+export function sourceLinkPath(p: string): string | null {
+  let s = p.trim()
+  if (/^file:\/\//i.test(s)) {
+    try {
+      s = decodeURIComponent(s.replace(/^file:\/\/(localhost)?/i, ''))
+    } catch {
+      return null
+    }
+  }
+  s = s.replace(/[?#].*$/, '').replace(/(:\d+){1,2}$/, '')
+  if (!s || /^[a-z][a-z0-9+.-]*:/i.test(s)) return null
+  return s
+}
+
 /** Repositórios dos arquivos de um card antigo (transcrição restaurada sem essa informação) */
 export function agentFileRepos(uid: string, paths: string[]): Promise<Record<string, FileRepo>> {
   const w = wins.get(uid)

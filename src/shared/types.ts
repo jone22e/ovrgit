@@ -1128,6 +1128,8 @@ export interface OvseerApi {
   setWatchAgents(on: boolean): Promise<void>
   onAgents(cb: (list: AgentSession[]) => void): () => void
   onAgentFinished(cb: (s: AgentSession) => void): () => void
+  /** A janela principal deve abrir este arquivo no editor (link de arquivo clicado numa conversa) */
+  onSourceOpen(cb: (o: { root: string; path: string }) => void): () => void
   setWindowTheme(background: string, symbols: string): void
   /** Arrasto manual da janela: `begin` marca a posição inicial; depois, deslocamentos em pixels desde o clique */
   windowDrag(dx: number, dy: number, begin?: boolean): void
@@ -1162,6 +1164,8 @@ export interface OvseerApi {
   agentSaveTranscript(uid: string, turns: AgentTurn[]): Promise<void>
   /** Repositório de cada arquivo fora do projeto da janela (para cards de transcrições antigas, sem essa informação) */
   agentFileRepos(uid: string, paths: string[]): Promise<Record<string, FileRepo>>
+  /** Link de arquivo clicado na conversa: abre no editor da janela principal (fora de um repositório, no app do sistema) */
+  agentOpenFile(uid: string, p: string): Promise<'editor' | 'system' | 'missing'>
   agentLoadTranscript(sessionId: string): Promise<AgentTurn[] | null>
   agentForget(sessionId: string): Promise<void>
   /** Fixa (ou solta) a conversa no topo da lista */

@@ -267,6 +267,10 @@ const MARKERS = /^[ \t]*(?:\[(?:ok|x|concluído|concluido|done|falhou|erro|faile
  */
 const mdCache = new Map<string, string>()
 const MD_CACHE_MAX = 1500
+/** Os links que o DOMPurify deixa passar: os de sempre e `file://` (link de arquivo, que abre no editor) */
+const MD_URIS = /^(?:(?:(?:f|ht)tps?|file|mailto|tel|callto|sms|cid|xmpp|matrix):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+/** Texto em código que parece um caminho de arquivo (`src/a.ts`, `/abs/b.sql`, `c.vue:12`): o clique abre no editor */
+const FILE_LIKE = /^(?:~\/|\/|\.{1,2}\/)?(?:[\w@.-]+\/)*[\w@.-]+\.[a-z][a-z0-9]{0,7}(?::\d+){0,2}$/i
 function md(text: string, card: boolean, stable = true) {
   const key = (card ? '1' : '0') + text
   if (stable) {
@@ -275,7 +279,7 @@ function md(text: string, card: boolean, stable = true) {
   }
   const { text: rest, questions: qs } = splitQuestions(stripArchMarkers(text.replace(MARKERS, '')))
   const plain = card ? '' : qs.map((q) => `\n\n**${q.text}**\n${q.options.map((o) => `- ${o.label}${o.detail ? ` — ${o.detail}` : ''}`).join('\n')}`).join('')
-  const html = withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false })))
+  const html = withCopy(DOMPurify.sanitize(marked.parse(rest + plain, { async: false, gfm: true, breaks: false }), { ALLOWED_URI_REGEXP: MD_URIS }))
   if (stable) {
     // o mais antigo sai quando enche (o Map guarda a ordem de inserção)
     if (mdCache.size >= MD_CACHE_MAX) mdCache.delete(mdCache.keys().next().value as string)
@@ -298,8 +302,17 @@ const SVG = (d: string) =>
 const COPY_BTN = `<button type="button" class="copy" title="Copiar">${SVG('M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4')}${SVG('M20 6 9 17l-5-5')}</button>`
 /** Cada bloco de código ganha um botão de copiar no canto (o clique é tratado em onMdClick) */
 const withCopy = (html: string) => html.replaceAll('<pre>', `<div class="code-wrap">${COPY_BTN}<pre>`).replaceAll('</pre>', '</pre></div>')
+/** Link ou código com caminho de arquivo: a janela principal abre no editor; não achou, o texto avisa por um instante */
+async function openFileLink(p: string, el: HTMLElement) {
+  const r = await api.agentOpenFile(uid, p).catch(() => 'missing' as const)
+  if (r !== 'missing') return
+  el.classList.add('missing')
+  el.title = 'Arquivo não encontrado na pasta do agente'
+  setTimeout(() => el.classList.remove('missing'), 1600)
+}
 async function onMdClick(e: MouseEvent) {
-  // link no texto: abre no navegador do sistema direto daqui, sem depender da navegação da página
+  // link no texto: abre no navegador do sistema direto daqui, sem depender da navegação da página; link de arquivo
+  // (caminho ou file://) abre no editor da janela principal
   const a = (e.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null
   if (a) {
     const href = a.getAttribute('href') ?? ''
@@ -308,6 +321,17 @@ async function onMdClick(e: MouseEvent) {
       api.openExternal(href).catch(() => undefined)
       return
     }
+    if (href && !/^(mailto|tel):/i.test(href) && !href.startsWith('#')) {
+      e.preventDefault()
+      void openFileLink(href, a)
+      return
+    }
+  }
+  // caminho de arquivo em código no meio do texto (`src/a.ts`): também abre
+  const code = (e.target as HTMLElement).closest?.('code') as HTMLElement | null
+  if (code && !code.closest('pre') && FILE_LIKE.test(code.textContent?.trim() ?? '')) {
+    void openFileLink(code.textContent!.trim(), code)
+    return
   }
   const btn = (e.target as HTMLElement).closest?.('button.copy') as HTMLButtonElement | null
   if (!btn) return
@@ -2565,6 +2589,7 @@ onUnmounted(() => offs.forEach((f) => f()))
   display: grid; place-items: center; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer;
 }
 .thumb-rm:hover { background: rgba(0, 0, 0, 0.85); }
+.md :is(a, code).missing { color: var(--del); text-decoration: line-through; }
 .flash-ring { position: fixed; inset: 0; z-index: 90; pointer-events: none; border: 5px solid var(--accent); border-radius: 10px; box-shadow: inset 0 0 24px color-mix(in srgb, var(--accent) 35%, transparent); }
 .flash-enter-active { transition: opacity 0.12s ease-out; }
 .flash-leave-active { transition: opacity 0.5s ease-in; }

@@ -219,6 +219,11 @@ const api: OvseerApi = {
     ipcRenderer.on('agents:finished', h)
     return () => ipcRenderer.off('agents:finished', h)
   },
+  onSourceOpen: (cb) => {
+    const h = (_e: unknown, o: { root: string; path: string }) => cb(o)
+    ipcRenderer.on('source:open', h)
+    return () => ipcRenderer.off('source:open', h)
+  },
   setWindowTheme: (background, symbols) => ipcRenderer.send('window:theme', background, symbols),
   windowDrag: (dx, dy, begin) => ipcRenderer.send('window:drag', dx, dy, !!begin),
   agentOpen: (opts) => ipcRenderer.invoke('agent:open', opts),
@@ -234,6 +239,7 @@ const api: OvseerApi = {
   agentHistory: (cwd) => ipcRenderer.invoke('agent:history', cwd),
   agentSaveTranscript: (uid, turns) => ipcRenderer.invoke('agent:saveTranscript', uid, turns),
   agentFileRepos: (uid, paths) => ipcRenderer.invoke('agent:fileRepos', uid, paths),
+  agentOpenFile: (uid, p) => ipcRenderer.invoke('agent:openFile', uid, p),
   agentLoadTranscript: (sessionId) => ipcRenderer.invoke('agent:loadTranscript', sessionId),
   agentForget: (sessionId) => ipcRenderer.invoke('agent:forget', sessionId),
   agentPin: (sessionId, pinned) => ipcRenderer.invoke('agent:pin', sessionId, pinned),

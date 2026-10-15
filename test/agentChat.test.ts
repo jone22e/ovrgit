@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, sourceLinkPath, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -482,5 +482,22 @@ describe('janela de contexto do Claude Code', () => {
     parseClaudeLine(j({ type: 'result', is_error: false, modelUsage: {} }), s)
     const b = parseClaudeLine(j({ type: 'assistant', context_usage: { total_tokens: 31_000, raw_max_tokens: 200_000 }, message: { content: [] } }), s)
     expect(b[0]).toEqual({ type: 'context', context: { used: 31_000, window: 200_000 } })
+  })
+})
+
+describe('sourceLinkPath', () => {
+  it('aceita caminho relativo, absoluto e file://, tirando linha e coluna', () => {
+    expect(sourceLinkPath('backend/migrations/a.sql')).toBe('backend/migrations/a.sql')
+    expect(sourceLinkPath('/Users/x/p/src/a.ts:12')).toBe('/Users/x/p/src/a.ts')
+    expect(sourceLinkPath('src/a.ts:12:3')).toBe('src/a.ts')
+    expect(sourceLinkPath('file:///Users/x/p/caminho%20com%20espa%C3%A7o.vue')).toBe('/Users/x/p/caminho com espaço.vue')
+    expect(sourceLinkPath('file://localhost/tmp/b.md#L4')).toBe('/tmp/b.md')
+    expect(sourceLinkPath(' ./c.ts?x=1 ')).toBe('./c.ts')
+  })
+  it('recusa outros esquemas e vazio', () => {
+    expect(sourceLinkPath('https://example.com/a.ts')).toBeNull()
+    expect(sourceLinkPath('vscode://file/a.ts')).toBeNull()
+    expect(sourceLinkPath('mailto:a@b.c')).toBeNull()
+    expect(sourceLinkPath('')).toBeNull()
   })
 })
