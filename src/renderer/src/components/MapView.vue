@@ -191,21 +191,31 @@ const nodeWorkers = computed(() => {
 const workersOf = (id: string) => nodeWorkers.value.get(id) ?? []
 /** Nós com agente rodando agora: é neles que o pulso anima */
 const activeIds = computed(() => new Set([...nodeWorkers.value].filter(([, ws]) => ws.some((w) => w.live)).map(([id]) => id)))
+/** Só as funcionalidades (as áreas herdam o agente, mas não disparam sinais pelas ligações) */
+const activeFeatureIds = computed(() => new Set([...activeIds.value].filter((id) => graph.value?.nodes.find((n) => n.id === id)?.kind === 'feature')))
 const showAgent = (uid: string) => api.agentShow(uid).catch(() => undefined)
-/* o pulso só anima enquanto há agente ativo e o sistema não pede menos movimento: 2D redesenha a 20 quadros por
-   segundo, 3D recolore 5 vezes por segundo; fora disso o mapa só redesenha quando algo muda */
+/* o pulso só anima enquanto há agente ativo e o sistema não pede menos movimento, a 30 quadros por segundo: em 2D
+   redesenha o quadro; em 3D move os sprites de brilho e ondas (e recolore os nós a cada 6 quadros). Fora disso o
+   mapa só redesenha quando algo muda */
 let pulseTimer: ReturnType<typeof setInterval> | undefined
+let pulseTick = 0
 function syncPulse() {
   clearInterval(pulseTimer)
   pulseTimer = undefined
   const on = activeIds.value.size > 0 && !reducedMotion
-  if (on) pulseTimer = setInterval(() => (mode.value === '3d' ? refresh3d() : requestRender()), mode.value === '3d' ? 200 : 50)
+  if (on)
+    pulseTimer = setInterval(() => {
+      if (mode.value === '3d') {
+        animate3d()
+        if (++pulseTick % 6 === 0) refresh3d()
+      } else requestRender()
+    }, 33)
   requestRender()
-  refresh3d()
+  refreshFx3()
 }
 watch(nodeWorkers, () => {
   requestRender()
-  refresh3d()
+  refreshFx3()
 })
 onMounted(() => (nowTimer = setInterval(() => (now.value = Date.now()), 30_000)))
 onUnmounted(() => {
@@ -575,25 +585,46 @@ function render() {
       ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
       ctx.stroke()
     }
-    // agente trabalhando aqui: anel na cor do tema com uma onda que se expande e some; terminou há pouco: anel tracejado
+    // agente trabalhando aqui, como um neurônio disparando: brilho que respira, três ondas defasadas se expandindo,
+    // anel e núcleo claro; a área dele, um brilho discreto. Terminou há pouco: anel tracejado
     const ws = off ? undefined : nodeWorkers.value.get(n.id)
     if (ws) {
       const isArea = n.n.kind === 'area'
       ctx.strokeStyle = t.accent
       if (ws.some((w) => w.live)) {
+        const tm = reducedMotion ? 0 : performance.now()
+        const breath = reducedMotion ? 0.6 : 0.5 + 0.5 * Math.sin(tm / 350)
+        const haloR = r + (isArea ? 14 : 16 + 8 * breath) / view.k
+        const halo = ctx.createRadialGradient(n.x, n.y, r * 0.5, n.x, n.y, haloR)
+        halo.addColorStop(0, hexA(t.accent, isArea ? 0.3 : 0.4 + 0.3 * breath))
+        halo.addColorStop(1, hexA(t.accent, 0))
+        ctx.globalAlpha = 1
+        ctx.fillStyle = halo
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, haloR, 0, Math.PI * 2)
+        ctx.fill()
         if (!reducedMotion && !isArea) {
-          const ph = (performance.now() % 1500) / 1500
-          ctx.globalAlpha = 0.9 * (1 - ph)
-          ctx.lineWidth = 2 / view.k
-          ctx.beginPath()
-          ctx.arc(n.x, n.y, r + (3 + 12 * ph) / view.k, 0, Math.PI * 2)
-          ctx.stroke()
+          for (let i = 0; i < 3; i++) {
+            const ph = (tm / 1800 + i / 3) % 1
+            ctx.globalAlpha = 0.85 * Math.pow(1 - ph, 1.5)
+            ctx.lineWidth = (0.5 + 2 * (1 - ph)) / view.k
+            ctx.beginPath()
+            ctx.arc(n.x, n.y, r + (2 + 28 * ph) / view.k, 0, Math.PI * 2)
+            ctx.stroke()
+          }
         }
-        ctx.globalAlpha = isArea ? 0.4 : 0.95
+        ctx.globalAlpha = isArea ? 0.5 : 1
         ctx.lineWidth = (isArea ? 2 : 2.5) / view.k
         ctx.beginPath()
         ctx.arc(n.x, n.y, r + 3 / view.k, 0, Math.PI * 2)
         ctx.stroke()
+        if (!isArea) {
+          ctx.fillStyle = '#fff'
+          ctx.globalAlpha = 0.6 + 0.35 * breath
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, r * 0.45, 0, Math.PI * 2)
+          ctx.fill()
+        }
       } else if (!isArea) {
         ctx.globalAlpha = 0.5
         ctx.lineWidth = 1.5 / view.k
@@ -611,6 +642,43 @@ function render() {
       ctx.beginPath()
       ctx.arc(n.x, n.y, r + 5 / view.k, 0, Math.PI * 2)
       ctx.stroke()
+    }
+  }
+  // sinais: dos nós com agente, pontos de luz correm pelas ligações, como disparos de um neurônio
+  if (activeFeatureIds.value.size) {
+    const tm = reducedMotion ? 0 : performance.now()
+    let i = 0
+    for (const l of links) {
+      const from = activeFeatureIds.value.has(l.source.id) ? l.source : activeFeatureIds.value.has(l.target.id) ? l.target : null
+      if (!from) continue
+      const to = from === l.source ? l.target : l.source
+      if (dimmed(from.id) || dimmed(to.id)) continue
+      ctx.setLineDash([])
+      ctx.strokeStyle = t.accent
+      ctx.globalAlpha = 0.35
+      ctx.lineWidth = 1.4 / view.k
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.lineTo(to.x, to.y)
+      ctx.stroke()
+      if (!reducedMotion) {
+        const ph = (tm / 1400 + ((i * 0.37) % 1)) % 1
+        const px = from.x + (to.x - from.x) * ph
+        const py = from.y + (to.y - from.y) * ph
+        const tp = Math.max(0, ph - 0.12)
+        ctx.globalAlpha = 0.7
+        ctx.lineWidth = 2.2 / view.k
+        ctx.beginPath()
+        ctx.moveTo(from.x + (to.x - from.x) * tp, from.y + (to.y - from.y) * tp)
+        ctx.lineTo(px, py)
+        ctx.stroke()
+        ctx.fillStyle = '#fff'
+        ctx.globalAlpha = 0.95
+        ctx.beginPath()
+        ctx.arc(px, py, 2.4 / view.k, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      i++
     }
   }
   // rótulos: áreas sempre; funcionalidades em destaque, na busca ou as mais ligadas, mais conforme o zoom
@@ -841,6 +909,7 @@ async function build3d() {
   const el = el3d.value
   if (!el) return
   const [{ default: ForceGraph3D }, { default: SpriteText }] = await Promise.all([import('3d-force-graph'), import('three-spritetext')])
+  THREE ??= threeFrom(SpriteText)
   if (!el3d.value || mode.value !== '3d') return
   if (!g3) {
     const t = theme.value
@@ -857,12 +926,26 @@ async function build3d() {
       .nodeThreeObject((n: N3) => {
         // rótulo flutuando sobre a esfera: as áreas em destaque, as funcionalidades menores
         const area = n.n.kind === 'area'
+        fx3.delete(n.id)
         const label = new SpriteText(n.n.name, area ? 7 : 3.4, theme.value.text) as InstanceType<typeof SpriteText> & { material: { depthWrite: boolean }; position: { y: number } }
         label.fontFace = 'system-ui, -apple-system, sans-serif'
         label.fontWeight = area ? 'bold' : 'normal'
         label.backgroundColor = false
         label.material.depthWrite = false
         label.position.y = n.r + (area ? 7 : 4)
+        // agente trabalhando: brilho que respira e duas ondas se expandindo, em mistura aditiva, em volta da esfera
+        if (!area && activeIds.value.has(n.id) && THREE) {
+          const group = new THREE.Object3D()
+          group.add(label)
+          const base = n.r * tune.value.nodeSize
+          glowTex ??= fxTexture('glow')
+          ringTex ??= fxTexture('ring')
+          const glow = fxSprite(glowTex, base * 6, 0.7)
+          const rings = reducedMotion ? [] : [fxSprite(ringTex, base * 2, 0.8), fxSprite(ringTex, base * 2, 0.8)]
+          group.add(glow, ...rings)
+          fx3.set(n.id, { glow, rings, base })
+          return group as never
+        }
         return label as never
       })
       .nodeLabel((n) => {
@@ -899,6 +982,11 @@ async function build3d() {
     el.addEventListener('wheel', stopAutoFit, { passive: true })
     el.addEventListener('pointerdown', stopAutoFit)
     g3 = g
+    // partículas correndo pelas ligações dos nós com agente (fora da cadeia acima: o tipo genérico se perde nela)
+    g.linkDirectionalParticles((l: L3) => (activeLink3(l) ? 4 : 0))
+    g.linkDirectionalParticleWidth(1.5)
+    g.linkDirectionalParticleSpeed(0.006)
+    g.linkDirectionalParticleColor(() => theme.value.accent)
     applyForces3d()
     applySpin()
   }
@@ -947,6 +1035,79 @@ function linkColor3(l: L3): string {
 function refresh3d() {
   if (!g3) return
   g3.nodeColor(g3.nodeColor()).linkColor(g3.linkColor())
+}
+// ---------- 3D: os efeitos dos nós com agente ----------
+/* O three vem junto com o 3d-force-graph, sem tipos e sem import próprio: as classes que os efeitos precisam saem
+   do rótulo que o mapa já cria (um SpriteText é um Sprite, que é um Object3D; o material e a textura vêm dele) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let THREE: any = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function threeFrom(SpriteText: any) {
+  const Sprite = Object.getPrototypeOf(SpriteText.prototype).constructor
+  const Object3D = Object.getPrototypeOf(Sprite.prototype).constructor
+  const probe = new SpriteText('x')
+  const SpriteMaterial = probe.material.constructor
+  const CanvasTexture = probe.material.map.constructor
+  probe.material.map.dispose()
+  probe.material.dispose()
+  return { Sprite, Object3D, SpriteMaterial, CanvasTexture, AdditiveBlending: 2 }
+}
+let glowTex: unknown = null
+let ringTex: unknown = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fx3 = new Map<string, { glow: any; rings: any[]; base: number }>()
+/** Textura em canvas: um brilho radial ou um anel, brancos (a cor vem do material) */
+function fxTexture(kind: 'glow' | 'ring') {
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const x = c.getContext('2d')!
+  if (kind === 'glow') {
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.35, 'rgba(255,255,255,0.55)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    x.fillStyle = g
+    x.fillRect(0, 0, 128, 128)
+  } else {
+    x.strokeStyle = '#fff'
+    x.lineWidth = 7
+    x.beginPath()
+    x.arc(64, 64, 56, 0, Math.PI * 2)
+    x.stroke()
+  }
+  return new THREE.CanvasTexture(c)
+}
+function fxSprite(tex: unknown, scale: number, opacity: number) {
+  const m = new THREE.SpriteMaterial({ map: tex, color: theme.value.accent, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false })
+  const sp = new THREE.Sprite(m)
+  sp.scale.set(scale, scale, 1)
+  sp.renderOrder = 2
+  return sp
+}
+/** Ligação que sai (ou chega) de um nó com agente: ganha partículas correndo */
+const activeLink3 = (l: L3) => activeFeatureIds.value.has(idOf(l.source)) || activeFeatureIds.value.has(idOf(l.target))
+/** Um quadro da animação: o brilho respira e as ondas se expandem e somem */
+function animate3d() {
+  if (!fx3.size) return
+  const tm = performance.now()
+  const breath = 0.5 + 0.5 * Math.sin(tm / 350)
+  for (const f of fx3.values()) {
+    const gs = f.base * (5 + 2 * breath)
+    f.glow.scale.set(gs, gs, 1)
+    f.glow.material.opacity = 0.45 + 0.4 * breath
+    f.rings.forEach((r, i) => {
+      const ph = (tm / 1800 + i / 2) % 1
+      const rs = f.base * (1.5 + 7 * ph)
+      r.scale.set(rs, rs, 1)
+      r.material.opacity = 0.9 * Math.pow(1 - ph, 1.3)
+    })
+  }
+}
+/** Os agentes mudaram: refaz os objetos dos nós (brilho entra ou sai) e as partículas das ligações; recolore */
+function refreshFx3() {
+  if (!g3) return
+  g3.nodeThreeObject(g3.nodeThreeObject()).linkDirectionalParticles(g3.linkDirectionalParticles())
+  refresh3d()
 }
 /** Voa até o nó: a câmera se aproxima dele, olhando para ele */
 function flyTo(id: string) {
