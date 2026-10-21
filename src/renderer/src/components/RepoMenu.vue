@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { RepoGroup } from '@shared/types'
-import { groupMatches, groupMembers, groupOf, hasWords, repoName, saveGroup, searchWords } from '@shared/repoGroups'
+import { groupMatches, groupMembers, groupOf, repoMatches, repoName, saveGroup, searchWords } from '@shared/repoGroups'
 import Icon from './Icon.vue'
 
 /**
@@ -52,11 +52,11 @@ function place() {
 const projects = ref<string[]>([])
 const icons = reactive(new Map<string, string | null>())
 
-/* busca: filtra grupos (nome ou pastas) e repositórios (caminho); todas as palavras, em qualquer ordem */
+/* busca: filtra grupos e pastas pelo nome; consultas com / ou \\ procuram no caminho */
 const query = ref('')
 const searchInput = ref<HTMLInputElement>()
 const words = computed(() => searchWords(query.value))
-const shownProjects = computed(() => projects.value.filter((p) => hasWords(words.value, p)))
+const shownProjects = computed(() => projects.value.filter((p) => repoMatches(words.value, p)))
 const base = repoName
 const dir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
 

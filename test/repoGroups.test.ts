@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyGroup, groupMatches, groupMembers, groupOf, hasWords, repoName, sameRepos, saveGroup, searchWords } from '../src/shared/repoGroups'
+import { applyGroup, groupMatches, groupMembers, groupOf, hasWords, repoMatches, repoName, sameRepos, saveGroup, searchWords } from '../src/shared/repoGroups'
 
 const g = { id: '1', name: 'SmartConnect', dirs: ['/w/gateway', '/w/receiver', '/w/reader'] }
 
@@ -71,5 +71,13 @@ describe('busca', () => {
     expect(groupMatches(searchWords('smart'), g)).toBe(true)
     expect(groupMatches(searchWords('reader'), g)).toBe(true)
     expect(groupMatches(searchWords('outro'), g)).toBe(false)
+  })
+  it('não confunde o nome da pasta com um diretório ancestral compartilhado', () => {
+    const root = '/Users/jone/Flexi'
+    expect(repoMatches(searchWords('flexi'), `${root}/flexi2`)).toBe(true)
+    expect(repoMatches(searchWords('flexi'), `${root}/printer-laser`)).toBe(false)
+    expect(groupMatches(searchWords('flexi'), { id: '2', name: 'SmartConnect', dirs: [`${root}/gateway`, `${root}/smartconnect`] })).toBe(false)
+    expect(groupMatches(searchWords('flexi'), { id: '3', name: 'WMS', dirs: [`${root}/flexi2`, `${root}/separador`] })).toBe(true)
+    expect(repoMatches(searchWords('/Flexi/printer'), `${root}/printer-laser`)).toBe(true)
   })
 })

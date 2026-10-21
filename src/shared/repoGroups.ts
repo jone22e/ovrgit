@@ -35,8 +35,12 @@ export function hasWords(words: string[], ...texts: string[]): boolean {
   const t = fold(texts.join(' '))
   return words.every((w) => t.includes(w))
 }
-/** O grupo bate com a busca pelo nome ou pelas pastas que reúne */
-export const groupMatches = (words: string[], g: RepoGroup) => hasWords(words, g.name, ...g.dirs)
+/** Busca normal pelo nome da pasta; com separador, pelo caminho completo */
+const pathQuery = (words: string[]) => words.some((w) => /[\\/]/.test(w))
+export const repoMatches = (words: string[], path: string) => hasWords(words, pathQuery(words) ? path : repoName(path))
+/** O grupo bate pelo nome ou pelos nomes das pastas que reúne */
+export const groupMatches = (words: string[], g: RepoGroup) =>
+  hasWords(words, g.name, ...(pathQuery(words) ? g.dirs : g.dirs.map(repoName)))
 
 /**
  * Espaço de trabalho ao aplicar um grupo. Com a conversa ainda sem começar (`switchable`) e o principal fora do
