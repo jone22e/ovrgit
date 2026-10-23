@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentStatus, QueueTask } from '../shared/types'
+import type { AgentSnapshot, AgentStatus, QueueTask } from '../shared/types'
 import { assign, clearlyRelated, move as moveTask, parsePick, pickPrompt, rankRelated, reasoningPrompt, taskPrompt, type AgentContext } from '../shared/queue'
 import * as agentChat from './agentChat'
 import { getSettings } from './settings'
@@ -9,7 +9,7 @@ import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
 
 /**
- * Fila de tarefas para os agentes em espera, com raciocínio opcional. Se passar pelo raciocínio, um agente
+ * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
  * só de leitura analisa do que se trata e anexa a análise; cada observação do usuário faz a análise ser revista, em
  * segundo plano. Quando o raciocínio está formado, o usuário move a tarefa para a execução. Também pode enviá-la direto à execução. Lá ela vai para um agente
  * em espera livre, como mensagem, com a análise e as observações junto. A escolha olha o contexto: um agente que já terminou uma tarefa do mesmo assunto continua a mesma
@@ -48,27 +48,78 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
     tasks = []
   }
   // o app fechou com tarefas rodando: voltam para a fila; com análises no meio: recomeçam
-  for (const t of tasks) if (t.status === 'running') (t.status = 'queued'), (t.uid = undefined), (t.startedAt = undefined)
+  for (const t of tasks) if (t.status === 'running' || (t.managed && t.status === 'queued')) (t.status = 'queued'), (t.uid = undefined), (t.sessionId = undefined), (t.startedAt = undefined)
   for (const t of tasks) if (t.analyzing) t.analyzing = false
   agentChat.onAgentStatus(onStatus)
   agentChat.onAgentGone(onGone)
+  agentChat.onAgentSnapshot(() => {
+    if (tasks.some((t) => t.managed && t.status === 'queued' && !t.uid)) void dispatch()
+  })
   for (const t of tasks) if (t.stage === 'reasoning' && !t.analysis) analyze(t.id)
+}
+
+/** Só encaminha depois que as janelas anteriores tiverem sido restauradas. */
+export function resume() {
+  void dispatch()
 }
 
 export const list = (): QueueTask[] => tasks
 
 /** Tarefa nova: inicia no raciocínio ou vai direto para a fila de execução */
-export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready' }): QueueTask[] {
+export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
+  if (task.managed && (!task.cwd || !existsSync(task.cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
   const extraDirs = task.cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== task.cwd) : undefined
-  const stage = task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', ...(stage ? { stage } : {}), createdAt: Date.now() }
+  const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (stage) analyze(t.id)
   else void dispatch()
   return tasks
+}
+
+/** Tarefa anterior revisada pelo usuário: passa a ser encaminhada pelo gerenciador. */
+export function manage(id: string, cwd?: string, extraDirs?: string[]): QueueTask[] {
+  const task = tasks.find((t) => t.id === id)
+  if (!task || task.status !== 'queued') return tasks
+  if (!task.cwd && cwd) {
+    task.cwd = cwd
+    task.extraDirs = extraDirs?.filter((d) => d !== cwd)
+  }
+  if (!task.cwd || !existsSync(task.cwd)) throw new Error('Escolha um repositório válido para esta tarefa.')
+  task.managed = true
+  delete task.stage
+  task.analyzing = false
+  save()
+  void dispatch()
+  return tasks
+}
+
+/** Confirma o início quando a própria janela envia o pedido ao CLI. */
+export function started(id: string, uid: string): void {
+  const task = tasks.find((t) => t.id === id && t.managed && t.status === 'queued')
+  const agent = agentChat.agentInfo(uid)
+  if (!task || !agent || agent.cwd !== task.cwd || (task.uid && task.uid !== uid)) throw new Error('Este pedido não pertence à conversa do agente.')
+  task.uid = uid
+  task.status = 'running'
+  task.startedAt = Date.now()
+  task.agentTitle = agent.title || task.agentTitle || 'Novo agente'
+  save()
+}
+
+export function finished(id: string, uid: string, success: boolean): void {
+  const task = tasks.find((t) => t.id === id && t.managed && t.uid === uid && t.status === 'running')
+  if (!task) return
+  task.status = success ? 'done' : 'failed'
+  if (!success) task.reason = agentChat.agentSnapshots().find((a) => a.uid === uid)?.error?.slice(0, 300) || 'O agente encerrou o pedido com erro.'
+  task.finishedAt = Date.now()
+  const agent = agentChat.agentInfo(uid)
+  task.sessionId = agent?.sessionId ?? undefined
+  task.agentTitle = agent?.title || task.agentTitle
+  save()
+  void dispatch()
 }
 
 /** Observação do usuário numa tarefa em raciocínio: fica anexada e a análise é revista com ela */
@@ -142,8 +193,8 @@ async function runAnalysis(id: string): Promise<void> {
 }
 
 export function remove(id: string): QueueTask[] {
-  // uma tarefa rodando não sai: a conversa já está com o agente
-  tasks = tasks.filter((t) => t.id !== id || t.status === 'running')
+  // uma tarefa entregue não sai: ela já pode estar na fila local da conversa
+  tasks = tasks.filter((t) => t.id !== id || t.status === 'running' || (t.managed && !!t.uid && t.status === 'queued'))
   save()
   return tasks
 }
@@ -159,6 +210,8 @@ export function retry(id: string): QueueTask[] {
   if (t && t.status === 'failed') {
     t.status = 'queued'
     t.uid = undefined
+    t.sessionId = undefined
+    t.agentTitle = undefined
     t.startedAt = undefined
     t.finishedAt = undefined
     t.via = undefined
@@ -182,6 +235,90 @@ function contextOf(a: agentChat.AvailableAgent): AgentContext {
   return { uid: a.uid, cwd: a.cwd, title: a.title, fresh: a.fresh, context: parts.filter(Boolean).join('. ') }
 }
 
+function managedContextOf(a: AgentSnapshot): AgentContext {
+  const done = tasks.filter((t) => t.status === 'done' && t.uid === a.uid).map((t) => t.text)
+  return {
+    uid: a.uid, cwd: a.cwd, title: a.title || 'Novo agente',
+    fresh: a.status === 'idle' && !a.lastUser && !a.summary && !done.length,
+    context: [a.title, a.activity, a.summary, a.lastUser ? `Último pedido: ${a.lastUser}` : '', done.length ? `Tarefas feitas: ${done.join(' | ')}` : '', a.paths?.length ? `Arquivos: ${a.paths.slice(0, 12).join(' ')}` : ''].filter(Boolean).join('. ')
+  }
+}
+
+/** Procura continuidade no mesmo repositório, inclusive numa conversa ocupada. */
+async function routeManaged(task: QueueTask): Promise<void> {
+  if (!task.cwd || !existsSync(task.cwd)) {
+    task.status = 'failed'
+    task.reason = 'A pasta do projeto não existe mais.'
+    save()
+    return
+  }
+  const snapshots = agentChat.agentSnapshots()
+  const available = snapshots.filter((a) => a.cwd === task.cwd && a.status !== 'error')
+  const visible = new Set(snapshots.map((a) => a.uid))
+  if (agentChat.agentWindowInfos().some((a) => a.cwd === task.cwd && !visible.has(a.uid))) return
+  const contexts = available.map(managedContextOf)
+  const related = rankRelated(task.text, contexts)
+  let chosen: AgentContext | undefined
+  if (related.length && clearlyRelated(related[0])) chosen = related[0].agent
+  else {
+    const ordered = [...related.map((r) => r.agent), ...contexts.filter((c) => !c.fresh).reverse()]
+    const candidates = ordered.filter((c, i) => ordered.findIndex((x) => x.uid === c.uid) === i).slice(0, 8)
+    if (candidates.length) {
+      try {
+        const base = available.find((a) => a.uid === candidates[0].uid)
+        if (!base) throw new Error('A conversa candidata foi fechada.')
+        const answer = await quickAsk(base.provider, pickPrompt(task.text, candidates))
+        const pick = parsePick(answer, candidates.length)
+        if (pick && pick > 0) chosen = candidates[pick - 1]
+      } catch (e) {
+        console.error('Gerenciador: não consegui comparar as conversas:', (e as Error).message)
+      }
+    }
+  }
+  if (!tasks.includes(task) || task.status !== 'queued' || task.uid) return
+  if (chosen && !agentChat.agentSnapshots().some((a) => a.uid === chosen!.uid && a.cwd === task.cwd && a.status !== 'error')) chosen = undefined
+  if (!chosen) chosen = contexts.find((c) => c.fresh && agentChat.agentInfo(c.uid))
+  if (chosen) {
+    try {
+      if (task.extraDirs?.length) {
+        const current = agentChat.agentInfo(chosen.uid)?.extraDirs ?? []
+        agentChat.setExtraDirs(chosen.uid, [...new Set([...current, ...task.extraDirs])])
+      }
+      task.uid = chosen.uid
+      task.agentTitle = chosen.title
+      task.via = chosen.fresh ? 'fresh' : 'related'
+      task.reason = chosen.fresh ? 'Conversa disponível no projeto' : `Continua a conversa "${chosen.title}"`
+      save()
+      agentChat.actOnAgent(chosen.uid, { type: 'enqueue', taskId: task.id, text: taskPrompt(task) })
+      return
+    } catch (e) {
+      task.uid = undefined
+      task.via = undefined
+      task.reason = undefined
+      console.error('Gerenciador: não consegui entregar à conversa:', (e as Error).message)
+    }
+  }
+  try {
+    const base = agentChat.agentBase()
+    const settings = getSettings()
+    const configured = settings.provider
+    const provider = base?.provider ?? (configured === 'claude' || configured === 'codex' || configured === 'agy' ? configured : null)
+    if (!provider) throw new Error('Defina um provedor de agentes nas configurações.')
+    const model = base?.model ?? (provider === 'claude' ? settings.claudeModel : provider === 'codex' ? settings.codexModel : settings.agyModel)
+    const agent = await agentChat.openAgentWindow({ provider, model, effort: base?.effort ?? 'high', mode: 'full', cwd: task.cwd, extraDirs: task.extraDirs, firstMessage: taskPrompt(task), managerTaskId: task.id, quiet: true })
+    task.uid = agent.uid
+    task.agentTitle = agent.title || 'Novo agente'
+    task.via = 'new'
+    task.reason = 'Criei um novo agente para este pedido'
+    save()
+  } catch (e) {
+    task.status = 'failed'
+    task.reason = `Não consegui criar o agente: ${String((e as Error).message).slice(0, 250)}`
+    task.finishedAt = Date.now()
+    save()
+  }
+}
+
 let dispatching = false
 let again = false
 
@@ -195,10 +332,14 @@ async function dispatch() {
   try {
     for (const task of [...tasks]) {
       if (task.status !== 'queued' || task.stage === 'reasoning') continue
+      if (task.managed) {
+        if (!task.uid) await routeManaged(task)
+        continue
+      }
       const reuse = getSettings().queueReuse
       const all = agentChat
         .availableStandby()
-        .filter((a) => !busy.has(a.uid) && !resetting.has(a.uid) && (!task.cwd || a.cwd === task.cwd) && (reuse || a.fresh))
+        .filter((a) => !busy.has(a.uid) && !resetting.has(a.uid) && !tasks.some((t) => t.managed && t.uid === a.uid && (t.status === 'queued' || t.status === 'running')) && (!task.cwd || a.cwd === task.cwd) && (reuse || a.fresh))
       if (!all.length) continue
       const contexts = all.map(contextOf)
       // 1. uma conversa do mesmo assunto continua (clara pelas palavras; na dúvida, a IA decide)
@@ -309,7 +450,12 @@ function onStatus(uid: string, status: AgentStatus) {
   const task = tasks.find((t) => t.status === 'running' && t.uid === uid)
   console.log(`Fila: agente ${uid.slice(0, 8)} → ${status}${task ? ` (tarefa ${task.id.slice(0, 8)})` : ''}`)
   if (status === 'idle') resetting.delete(uid)
-  if (task) {
+  if (task?.managed && status === 'idle') {
+    task.status = 'failed'
+    task.finishedAt = Date.now()
+    task.reason = 'A conversa foi reiniciada antes de concluir o pedido.'
+    save()
+  } else if (task && !task.managed) {
     if (status === 'live') {
       busy.delete(uid)
       clearTimeout(pending.get(uid))
@@ -336,9 +482,10 @@ function onGone(uid: string) {
   resetting.delete(uid)
   let changed = false
   for (const t of tasks) {
-    if (t.status === 'running' && t.uid === uid) {
+    if ((t.status === 'running' || (t.managed && t.status === 'queued')) && t.uid === uid) {
       t.status = 'queued'
       t.uid = undefined
+      t.sessionId = undefined
       t.startedAt = undefined
       t.via = undefined
       t.reason = undefined

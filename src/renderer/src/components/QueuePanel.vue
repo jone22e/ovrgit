@@ -1,306 +1,151 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { QueueTask } from '@shared/types'
-import { api, state, toast } from '../store'
 import { groupOf } from '@shared/repoGroups'
-import { ago } from '../ago'
+import { api, state, toast } from '../store'
 import Icon from './Icon.vue'
 import RepoSelect from './RepoSelect.vue'
 
-/**
- * Fila de tarefas em duas etapas opcionais. Uma tarefa pode entrar no raciocínio: um agente só de leitura analisa do
- * que se trata e anexa a análise; cada observação sua faz a análise ser revista, em segundo plano. "Mover para execução"
- * a põe na fila de execução. Ou ela já entra na execução, onde um agente em espera livre (do repositório da tarefa, se houver) a pega,
- * com o raciocínio junto. A tarefa rodando aponta o agente; a concluída guarda a conversa para reabrir; a que
- * falhou pode voltar à fila.
- */
-const emit = defineEmits<{ standby: [] }>()
 const text = ref('')
-const stage = ref<'reasoning' | 'ready'>('reasoning')
 const cwd = ref(state.repo?.root ?? '')
 const extraDirs = ref<string[]>([])
-const name = (p: string) => p.slice(p.lastIndexOf('/') + 1)
-/** Onde a tarefa roda: o nome do grupo, quando é um; senão o repositório */
-const where = (t: QueueTask) => (t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : '')
-const showWhere = (t: QueueTask) => !!t.cwd && (!!t.extraDirs?.length || t.cwd !== state.repo?.root)
-
+const sending = ref(false)
+const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
-const reasoning = computed(() => tasks.value.filter((t) => t.status === 'queued' && t.stage === 'reasoning'))
-const queued = computed(() => tasks.value.filter((t) => t.status === 'queued' && t.stage !== 'reasoning'))
-const running = computed(() => tasks.value.filter((t) => t.status === 'running'))
-const finished = computed(() => tasks.value.filter((t) => t.status === 'done' || t.status === 'failed').slice().reverse())
-/** Agentes em espera livres agora */
-const standby = computed(() => state.agentSnaps.filter((a) => a.standby && a.status === 'idle').length)
-
-const now = ref(Date.now())
-onMounted(() => setInterval(() => (now.value = Date.now()), 5000))
+const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
+const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Sem projeto'
+const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
+const agentName = (t: QueueTask) => agentOf(t)?.title || t.agentTitle || 'agente'
+const liveAgent = (t: QueueTask) => !!t.uid && state.agentSnaps.some((a) => a.uid === t.uid)
 
 async function add() {
-  const t = text.value.trim()
-  if (!t) return
+  const request = text.value.trim()
+  if (!request || sending.value) return
+  if (!cwd.value) return toast('Escolha um repositório para o pedido.')
+  sending.value = true
   try {
-    await api.queueAdd({ text: t, cwd: cwd.value || undefined, extraDirs: cwd.value && extraDirs.value.length ? [...extraDirs.value] : undefined, stage: stage.value })
+    await api.queueAdd({ text: request, cwd: cwd.value, extraDirs: [...extraDirs.value], managed: true })
     text.value = ''
+  } catch (e) {
+    state.error = String((e as Error).message)
+  } finally {
+    sending.value = false
+  }
+}
+async function manage(t: QueueTask) {
+  try {
+    await api.queueManage(t.id, t.cwd ? undefined : cwd.value, t.cwd ? undefined : [...extraDirs.value])
   } catch (e) {
     state.error = String((e as Error).message)
   }
 }
-const remove = (t: QueueTask) => api.queueRemove(t.id).catch(() => undefined)
-const move = (t: QueueTask, dir: -1 | 1) => api.queueMove(t.id, dir).catch(() => undefined)
-const retry = (t: QueueTask) => api.queueRetry(t.id).catch(() => undefined)
-const clear = () => api.queueClearFinished().catch(() => undefined)
-
-// ---------- raciocínio: análise, observações e a passagem para a execução ----------
-const drafts = reactive<Record<string, string>>({})
-/** Análises abertas por inteiro (recolhidas mostram só o começo) */
-const expanded = reactive(new Set<string>())
-const html = (md: string) => DOMPurify.sanitize(marked.parse(md, { async: false, gfm: true }) as string)
-async function comment(t: QueueTask) {
-  const note = (drafts[t.id] ?? '').trim()
-  if (!note) return
-  drafts[t.id] = ''
-  await api.queueComment(t.id, note).catch((e) => (state.error = String((e as Error).message)))
-}
-const promote = (t: QueueTask) => api.queueStage(t.id, 'ready').catch(() => undefined)
-const demote = (t: QueueTask) => api.queueStage(t.id, 'reasoning').catch(() => undefined)
-const reanalyze = (t: QueueTask) => api.queueAnalyze(t.id).catch(() => undefined)
-const toggle = (t: QueueTask) => (expanded.has(t.id) ? expanded.delete(t.id) : expanded.add(t.id))
-/** Situação da análise, em palavras */
-function analysisLabel(t: QueueTask): string {
-  if (t.analyzing) return t.analysis ? 'Revendo a análise com a sua observação…' : 'Analisando no repositório…'
-  if (t.analysisError) return `A análise falhou: ${t.analysisError}`
-  if (t.analyzedAt) return `Análise de há ${ago(now.value, t.analyzedAt)}`
-  return 'Sem análise ainda'
-}
-/** Abre a conversa em que a tarefa rodou (a janela, se ainda estiver aberta; senão, pelo histórico) */
 async function openTask(t: QueueTask) {
-  // rodando: a conversa ainda está no agente que a pegou
-  if (t.status === 'running' && t.uid && state.agentSnaps.some((a) => a.uid === t.uid)) return api.agentShow(t.uid).catch(() => undefined)
+  if (t.uid && liveAgent(t)) return api.agentShow(t.uid).catch(() => undefined)
   if (!t.sessionId) return toast('A conversa dessa tarefa não foi guardada.')
   if (await api.agentFocus(t.sessionId).catch(() => false)) return
   const h = (await api.agentHistory().catch(() => [])).find((x) => x.sessionId === t.sessionId)
   if (!h) return toast('A conversa dessa tarefa não está mais no histórico.')
   await api.agentOpen({ provider: h.provider, model: h.model, effort: h.effort, mode: h.mode, cwd: h.cwd, resumeId: h.sessionId }).catch(() => undefined)
 }
-const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
-
+const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = feed.value.scrollHeight })
+onMounted(scrollEnd)
+watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
+watch(() => state.repo?.root, (next, previous) => {
+  if (!cwd.value || cwd.value === previous) {
+    cwd.value = next ?? ''
+    extraDirs.value = []
+  }
+})
 </script>
 
 <template>
-  <section class="queue">
-    <header class="q-head">
-      <strong><Icon name="listTodo" :size="14" /> Fila de tarefas</strong>
-      <span class="gap" />
+  <section class="manager">
+    <header class="manager-head">
+      <span class="avatar"><Icon name="bot" :size="19" /></span>
+      <span><strong>Gerenciador de agentes</strong><small>Encaminha cada pedido no projeto certo</small></span>
     </header>
-
-    <!-- os números da fila -->
-    <div class="stats">
-      <div class="stat think" :class="{ on: reasoning.length }"><b class="mono">{{ reasoning.length }}</b><small>raciocínio</small></div>
-      <div class="stat" :class="{ on: queued.length }"><b class="mono">{{ queued.length }}</b><small>execução</small></div>
-      <div class="stat live" :class="{ on: running.length }"><b class="mono">{{ running.length }}</b><small>rodando</small></div>
-      <button class="stat standby" :class="{ on: standby, zero: !standby }" title="Agentes em espera livres. Clique para deixar mais um em espera" @click="emit('standby')"><b class="mono">{{ standby }}</b><small>em espera</small></button>
-    </div>
-
-    <!-- nova tarefa: o campo, o repositório e o botão, como no composer da conversa -->
-    <div class="q-add" :class="{ ready: text.trim() }">
-      <textarea v-model="text" rows="3" placeholder="O que precisa ser feito?" spellcheck="false" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
-      <div class="q-stage" role="group" aria-label="Destino da tarefa">
-        <button type="button" :class="{ on: stage === 'reasoning' }" :aria-pressed="stage === 'reasoning'" title="Um agente de leitura analisa a tarefa antes da execução" @click="stage = 'reasoning'"><Icon name="sparkles" :size="12" /> Raciocínio</button>
-        <button type="button" :class="{ on: stage === 'ready' }" :aria-pressed="stage === 'ready'" title="Vai direto para o agente em espera mais adequado" @click="stage = 'ready'"><Icon name="zap" :size="12" /> Direto ao agente</button>
+    <div ref="feed" class="feed">
+      <div v-if="!tasks.length" class="intro">
+        <Icon name="bot" :size="28" />
+        <strong>O que precisa ser feito?</strong>
+        <p>Vou encontrar uma conversa relacionada neste projeto ou criar um agente para o pedido.</p>
       </div>
-      <div class="q-add-row">
-        <RepoSelect v-model="cwd" v-model:extra="extraDirs" any class="q-repo" />
+      <article v-for="t in tasks" :key="t.id" class="exchange">
+        <div class="user-message"><p>{{ t.text }}</p><small>{{ where(t) }}</small></div>
+        <div class="manager-message" :class="t.status">
+          <span class="message-avatar"><Icon :name="t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
+          <div class="message-body">
+            <template v-if="t.managed">
+              <p v-if="t.status === 'queued' && !t.uid">Estou procurando o agente mais adequado em {{ where(t) }}…</p>
+              <p v-else-if="t.status === 'queued'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) : 'Encaminhei para ' + agentName(t) }}. O pedido aguarda a vez dele.</p>
+              <p v-else-if="t.status === 'running'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) + '.' : 'Encaminhei para ' + agentName(t) + '.' }} {{ agentOf(t)?.status === 'waiting' ? 'Ele aguarda sua resposta.' : 'Ele está trabalhando agora.' }}</p>
+              <p v-else-if="t.status === 'done'">{{ agentName(t) }} concluiu o pedido.</p>
+              <p v-else>{{ t.reason || agentName(t) + ' não conseguiu concluir o pedido.' }}</p>
+            </template>
+            <template v-else>
+              <p v-if="t.status === 'queued'">Pedido da fila anterior{{ t.stage === 'reasoning' ? ' em raciocínio' : '' }}. Você pode encaminhá-lo pelo gerenciador.</p>
+              <p v-else-if="t.status === 'running'">Pedido da fila anterior em execução com {{ agentName(t) }}.</p>
+              <p v-else-if="t.status === 'done'">Pedido da fila anterior concluído por {{ agentName(t) }}.</p>
+              <p v-else>Pedido da fila anterior falhou com {{ agentName(t) }}.</p>
+              <details v-if="t.analysis" class="analysis"><summary>Ver raciocínio anterior</summary><pre>{{ t.analysis }}</pre></details>
+            </template>
+            <div class="message-actions">
+              <button v-if="!t.managed && t.status === 'queued'" class="ghost link" :disabled="t.analyzing" @click="manage(t)">{{ t.analyzing ? 'Analisando…' : 'Encaminhar com gerenciador' }}</button>
+              <button v-if="t.uid && (liveAgent(t) || t.sessionId)" class="ghost link" @click="openTask(t)">Abrir conversa</button>
+              <button v-if="t.status === 'failed'" class="ghost link" @click="api.queueRetry(t.id)">Tentar de novo</button>
+              <button v-if="t.status === 'done' || t.status === 'failed'" class="ghost link faint" @click="api.queueRemove(t.id)">Remover</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+    <div class="composer" :class="{ ready: text.trim() }">
+      <textarea v-model="text" rows="3" placeholder="Peça algo ao gerenciador…" spellcheck="false" @keydown.enter.exact.prevent="add" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
+      <div class="composer-row">
+        <RepoSelect v-model="cwd" v-model:extra="extraDirs" class="repo" />
         <span class="gap" />
-        <small class="faint kbd">⌘↵</small>
-        <button class="primary icon q-send" :disabled="!text.trim()" :title="stage === 'reasoning' ? 'Adicionar ao raciocínio (⌘Enter)' : 'Enviar para execução (⌘Enter)'" @click="add"><Icon name="plus" :size="15" /></button>
+        <button class="primary icon send" :disabled="!text.trim() || !cwd || sending" title="Enviar pedido" @click="add"><Icon name="send" :size="15" /></button>
       </div>
     </div>
-
-    <div v-if="queued.length && !standby && !running.length" class="hint">
-      <p><Icon name="alert" :size="13" /> Nenhum agente em espera: a fila só anda quando houver um.</p>
-      <button class="ghost link" @click="emit('standby')">Deixar um agente em espera →</button>
-    </div>
-
-    <div v-if="!tasks.length" class="q-empty">
-      <Icon name="listTodo" :size="26" class="faint" />
-      <p class="faint">Escreva uma tarefa acima e escolha: formar o raciocínio antes, ou enviar direto ao agente em espera mais adequado.</p>
-    </div>
-
-    <!-- raciocínio: a análise do agente de leitura, as suas observações e a passagem para a execução -->
-    <template v-if="reasoning.length">
-      <h6 class="q-sec think">Raciocínio <small class="faint">{{ reasoning.length }}</small></h6>
-      <ol class="q-list">
-        <li v-for="t in reasoning" :key="t.id" class="q-card think" :class="{ open: expanded.has(t.id) }">
-          <Icon name="sparkles" :size="13" class="st think-ic" />
-          <div class="q-body">
-            <p class="q-text full">{{ t.text }}</p>
-            <small v-if="showWhere(t)" class="chip">{{ where(t) }}</small>
-            <small class="faint who" :class="{ bad: t.analysisError && !t.analyzing }"><span v-if="t.analyzing" class="spinner tiny" />{{ analysisLabel(t) }}</small>
-            <div v-if="t.analysis" class="analysis-wrap">
-              <div class="analysis" v-html="html(t.analysis)" />
-              <button class="ghost link more" @click="toggle(t)">{{ expanded.has(t.id) ? 'Mostrar menos' : 'Mostrar tudo' }}</button>
-            </div>
-            <ol v-if="t.notes?.length" class="notes">
-              <li v-for="n in t.notes" :key="n.at"><Icon name="pencil" :size="10" /><span>{{ n.text }}</span><small class="faint">{{ ago(now, n.at) }}</small></li>
-            </ol>
-            <div class="note-add">
-              <input v-model="drafts[t.id]" type="text" placeholder="Comentar: uma dúvida, um detalhe, uma decisão…" spellcheck="false" @keydown.enter.prevent="comment(t)" />
-              <button class="ghost icon small" :disabled="!(drafts[t.id] ?? '').trim()" title="Enviar a observação (o agente revê a análise)" @click="comment(t)"><Icon name="send" :size="12" /></button>
-            </div>
-            <div class="think-acts">
-              <button class="primary small" title="Raciocínio formado: vai para a fila de execução, com a análise e as observações junto" @click="promote(t)">Mover para execução →</button>
-              <button class="ghost link" :disabled="t.analyzing" title="Refaz a análise do zero no repositório" @click="reanalyze(t)">Analisar de novo</button>
-            </div>
-          </div>
-          <button class="ghost icon small rm q-x" title="Descartar" @click.stop="remove(t)"><Icon name="x" :size="12" /></button>
-        </li>
-      </ol>
-    </template>
-
-    <template v-if="queued.length">
-      <h6 class="q-sec">Execução <small class="faint">{{ queued.length }}</small></h6>
-      <ol class="q-list">
-        <li v-for="(t, i) in queued" :key="t.id" class="q-card">
-          <span class="n mono">{{ i + 1 }}</span>
-          <div class="q-body">
-            <p class="q-text">{{ t.text }}</p>
-            <small v-if="showWhere(t)" class="chip">{{ where(t) }}</small>
-          </div>
-          <span class="q-acts">
-            <button class="ghost icon small" :disabled="i === 0" title="Subir" @click="move(t, -1)"><Icon name="chevron" :size="12" class="up" /></button>
-            <button class="ghost icon small" :disabled="i === queued.length - 1" title="Descer" @click="move(t, 1)"><Icon name="chevron" :size="12" class="down" /></button>
-            <button class="ghost icon small" title="Voltar ao raciocínio" @click="demote(t)"><Icon name="undo" :size="12" /></button>
-            <button class="ghost icon small rm" title="Tirar da fila" @click="remove(t)"><Icon name="x" :size="12" /></button>
-          </span>
-        </li>
-      </ol>
-    </template>
-
-    <template v-if="running.length">
-      <h6 class="q-sec live">Rodando <small class="faint">{{ running.length }}</small></h6>
-      <ol class="q-list">
-        <li v-for="t in running" :key="t.id" class="q-card run" title="Abrir a conversa" @click="openTask(t)">
-          <span class="spinner tiny" />
-          <div class="q-body">
-            <p class="q-text">{{ t.text }}</p>
-            <small class="faint who" :title="t.reason"><Icon name="bot" :size="11" /> {{ agentOf(t)?.title ?? t.agentTitle ?? 'agente' }}<template v-if="t.startedAt"> · {{ ago(now, t.startedAt) }}</template></small>
-            <small v-if="t.via === 'related'" class="via">↳ continua uma conversa do mesmo assunto</small>
-          </div>
-        </li>
-      </ol>
-    </template>
-
-    <template v-if="finished.length">
-      <h6 class="q-sec">Concluídas <small class="faint">{{ finished.length }}</small><span class="gap" /><button class="ghost link" @click="clear">Limpar</button></h6>
-      <ol class="q-list">
-        <li v-for="t in finished" :key="t.id" class="q-card fin" :class="t.status" title="Abrir a conversa" @click="openTask(t)">
-          <Icon :name="t.status === 'done' ? 'check' : 'x'" :size="12" class="st" />
-          <div class="q-body">
-            <p class="q-text">{{ t.text }}</p>
-            <small class="faint who" :title="t.reason">{{ t.agentTitle ?? '' }}<template v-if="t.finishedAt"> · há {{ ago(now, t.finishedAt) }}</template><template v-if="t.via === 'related'"> · continuou a conversa</template></small>
-            <button v-if="t.status === 'failed'" class="ghost link retry" @click.stop="retry(t)">Tentar de novo</button>
-          </div>
-          <button class="ghost icon small rm q-x" title="Tirar da lista" @click.stop="remove(t)"><Icon name="x" :size="12" /></button>
-        </li>
-      </ol>
-    </template>
   </section>
 </template>
 
 <style scoped>
-.queue { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 20px; min-height: 100%; box-sizing: border-box; }
-.q-head { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
-.q-head strong { display: inline-flex; align-items: center; gap: 7px; }
+.manager { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--text); }
+.manager-head { display: flex; align-items: center; gap: 10px; padding: 15px 14px; border-bottom: 1px solid var(--border); flex: none; }
+.manager-head > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.manager-head strong { font-size: 13px; }
+.manager-head small { color: var(--faint); font-size: 10.5px; }
+.avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
+.avatar { width: 34px; height: 34px; border-radius: 11px; }
+.feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 12px; }
+.intro { margin: auto 4px; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; color: var(--muted); }
+.intro > svg { color: var(--accent); }
+.intro strong { color: var(--text); font-size: 13px; }
+.intro p { margin: 0; font-size: 12px; line-height: 1.5; }
+.exchange { display: flex; flex-direction: column; gap: 10px; }
+.user-message { align-self: flex-end; max-width: 92%; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 12px 12px 3px 12px; background: var(--accent-soft); overflow-wrap: anywhere; }
+.user-message p { margin: 0 0 5px; white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; }
+.user-message small { color: var(--muted); font-size: 10px; }
+.manager-message { display: flex; align-items: flex-start; gap: 7px; }
+.message-avatar { width: 22px; height: 22px; border-radius: 7px; }
+.manager-message.done .message-avatar { color: var(--add); background: color-mix(in srgb, var(--add) 15%, transparent); }
+.manager-message.failed .message-avatar { color: var(--del); background: color-mix(in srgb, var(--del) 15%, transparent); }
+.message-body { min-width: 0; flex: 1; padding-top: 2px; }
+.message-body p { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.message-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+.message-actions:empty { display: none; }
+.link { min-height: 22px; padding: 0; color: var(--accent); font-size: 11px; }
+.link.faint { color: var(--faint); }
+.analysis { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.analysis pre { max-height: 170px; overflow: auto; white-space: pre-wrap; font: inherit; line-height: 1.4; }
+.composer { flex: none; margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.composer:focus-within, .composer.ready { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.composer textarea { width: 100%; box-sizing: border-box; min-height: 66px; resize: vertical; padding: 10px 11px 5px; border: 0; outline: none; box-shadow: none; color: var(--text); background: transparent; font: inherit; font-size: 12.5px; line-height: 1.45; }
+.composer textarea:focus { outline: none; box-shadow: none; }
+.composer-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px 7px; }
+.repo { max-width: 230px; }
+.repo :deep(.sel) { height: 28px; font-size: 11px; background: var(--panel); }
 .gap { flex: 1; }
-.via { font-size: 11px; color: var(--hunk); }
-/* os quatro números em duas linhas de dois: lado a lado não cabiam na coluna de 340 px */
-.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.stat { min-width: 0; overflow: hidden; }
-.stat small { white-space: nowrap; }
-.stat.think.on b { color: var(--hunk); }
-/* os três iguais, mesmo sendo o terceiro um botão (zera o estilo padrão de botão) */
-.stat { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; height: auto; min-height: 54px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--faint); text-align: left; font: inherit; line-height: 1.1; }
-.stat b { font-size: 18px; line-height: 1.1; color: var(--muted); font-variant-numeric: tabular-nums; }
-.stat small { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
-.stat.on b { color: var(--text); }
-.stat.live.on b { color: var(--accent); }
-.stat.standby { cursor: pointer; }
-.stat.standby:hover { border-color: color-mix(in srgb, var(--hunk) 50%, var(--border)); }
-.stat.standby.on b { color: var(--hunk); }
-.stat.standby.zero { border-style: dashed; }
-/* composer da tarefa */
-.q-add { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); transition: border-color 0.12s; }
-.q-add:focus-within, .q-add.ready { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
-/* a caixa já marca o foco pela própria borda: o campo dentro dela não ganha o halo global */
-.q-add textarea:focus { box-shadow: none; outline: none; }
-.q-add textarea { width: 100%; box-sizing: border-box; resize: none; min-height: 72px; padding: 10px 12px 4px; border: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.45; font-family: inherit; outline: none; }
-.q-stage { display: flex; gap: 4px; margin: 0 8px; padding: 3px; border-radius: 8px; background: var(--panel); }
-.q-stage button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 27px; padding: 3px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.q-stage button:hover { color: var(--text); }
-.q-stage button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.q-add-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; }
-.q-repo { max-width: 180px; }
-.q-repo :deep(.sel) { height: 28px; font-size: 12px; background: var(--panel); }
-.kbd { font-size: 11px; font-family: var(--mono); }
-.q-send { width: 30px; height: 30px; border-radius: 8px; }
-.hint { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 10px; border-radius: 10px; font-size: 12px; color: var(--mod); background: color-mix(in srgb, var(--mod) 10%, transparent); }
-.hint p { margin: 0; display: flex; align-items: flex-start; gap: 6px; line-height: 1.4; }
-.hint .link { margin-left: 19px; padding: 0; }
-.link { height: 22px; padding: 0 6px; font-size: 11.5px; color: var(--accent); }
-.q-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 24px 12px; text-align: center; }
-.q-empty p { margin: 0; font-size: 12.5px; line-height: 1.5; max-width: 260px; }
-.q-sec { display: flex; align-items: center; gap: 6px; margin: 4px 0 -6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
-.q-sec.live { color: var(--accent); }
-.q-sec.think { color: var(--hunk); }
-/* cartão em raciocínio: a análise recolhida mostra só o começo */
-.q-card.think { border-color: color-mix(in srgb, var(--hunk) 35%, var(--border)); }
-.think-ic { color: var(--hunk); }
-.q-text.full { display: block; -webkit-line-clamp: unset; }
-.who.bad { color: var(--del); }
-.analysis-wrap { position: relative; }
-.analysis { position: relative; max-height: 150px; overflow: hidden; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-size: 12px; line-height: 1.5; color: var(--muted); }
-.q-card.open .analysis { max-height: none; }
-.analysis :deep(p), .analysis :deep(ul), .analysis :deep(ol) { margin: 0 0 6px; }
-.analysis :deep(ul), .analysis :deep(ol) { padding-left: 18px; }
-.analysis :deep(strong) { color: var(--text); }
-.analysis :deep(code) { font-family: var(--mono); font-size: 11px; }
-.analysis-wrap:not(.open) .analysis::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--bg)); }
-.q-card.open .analysis::after { display: none; }
-.more { align-self: flex-start; padding: 0 4px; height: 20px; }
-.notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.notes li { display: flex; align-items: baseline; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--text); }
-.notes li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.notes li > svg { flex: none; color: var(--hunk); align-self: center; }
-.note-add { display: flex; align-items: center; gap: 4px; }
-.note-add input { flex: 1; min-width: 0; height: 28px; padding: 0 9px; font-size: 12px; }
-.think-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.think-acts .small { height: 26px; font-size: 12px; }
-.q-sec small { text-transform: none; letter-spacing: 0; }
-.q-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-/* cartão da tarefa */
-.q-card { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); min-width: 0; }
-.q-card.run, .q-card.fin { cursor: pointer; }
-.q-card.run:hover, .q-card.fin:hover { border-color: color-mix(in srgb, var(--text) 22%, var(--border)); }
-.q-card.run { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
-.n { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 6px; font-size: 11px; font-weight: 700; color: var(--muted); background: var(--panel-2); flex: none; margin-top: 1px; }
-.q-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-.q-text { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.q-card.fin .q-text { color: var(--muted); }
-.chip { align-self: flex-start; font-size: 10.5px; padding: 1px 6px; border-radius: 5px; background: var(--panel-2); color: var(--muted); }
-.who { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; min-width: 0; }
-.q-acts { position: absolute; right: 6px; top: 6px; display: inline-flex; gap: 1px; opacity: 0; background: var(--panel); border-radius: 8px; }
-.q-card:hover .q-acts { opacity: 1; }
-.up { transform: rotate(-90deg); }
-.down { transform: rotate(90deg); }
-.rm:hover { color: var(--del); }
-.spinner.tiny { margin-top: 3px; }
-.st { flex: none; margin-top: 3px; }
-.q-card.done .st { color: var(--add); }
-.q-card.failed .st { color: var(--del); }
-.q-card.failed { border-color: color-mix(in srgb, var(--del) 35%, var(--border)); }
-.retry { align-self: flex-start; padding: 0; }
-.q-x { position: absolute; right: 6px; top: 6px; opacity: 0; }
-.q-card:hover .q-x { opacity: 1; }
+.send { width: 30px; height: 30px; border-radius: 8px; }
 </style>

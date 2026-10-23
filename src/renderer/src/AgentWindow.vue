@@ -60,6 +60,7 @@ interface Shown extends AgentAttachment {
 
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
+let activeManagerTaskId: string | null = null
 // Modo Arquiteto: declarados cedo porque a situação da janela (lida por observadores imediatos) depende deles
 /** Estado do Modo Arquiteto desta conversa (fica na vez em que a descoberta começou) */
 const arch = computed<ArchState | null>(() => turns.find((t) => t.arch)?.arch ?? null)
@@ -691,7 +692,11 @@ function apply(ev: AgentChatEvent) {
       t.superseded = true
       if (t.error === 'Interrompido.') t.error = undefined
     }
-    flushQueue()
+    if (activeManagerTaskId && !retrying && !bgTasks.value.length && !showAsk.value && !showPlanAsk.value) {
+      const taskId = activeManagerTaskId
+      activeManagerTaskId = null
+      void api.queueFinished(taskId, uid, !t.error && !sendAfterStop).catch((e) => console.error('Gerenciador: não consegui concluir o pedido:', e)).finally(flushQueue)
+    } else flushQueue()
   }
 }
 
@@ -883,6 +888,7 @@ const sizeOf = (n: number) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.r
 interface Payload {
   id: string
   body: string
+  managerTaskId?: string
   /** Pedido do app (ex.: o aviso de pressa): vai para o agente sem aparecer como mensagem na conversa */
   silent?: boolean
   /** Instruções do app que acompanham a mensagem: vão para o agente, não aparecem na conversa */
@@ -939,6 +945,10 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   running.value = true
   scrollToEnd(true)
   try {
+    if (p.managerTaskId) {
+      await api.queueStarted(p.managerTaskId, uid)
+      activeManagerTaskId = p.managerTaskId
+    }
     await api.agentSend(
       uid,
       [carried, p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
@@ -952,7 +962,11 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
     turn.thinking = false
     turn.error = clean(e)
     running.value = false
-    flushQueue()
+    if (activeManagerTaskId) {
+      const taskId = activeManagerTaskId
+      activeManagerTaskId = null
+      void api.queueFinished(taskId, uid, false).catch((error) => console.error('Gerenciador: não consegui registrar a falha:', error)).finally(flushQueue)
+    } else flushQueue()
   }
 }
 
@@ -1191,9 +1205,10 @@ const dictation = useDictation((text) => {
 })
 
 /** Agente livre: envia; ocupado: entra na fila (sai sozinha quando a resposta atual terminar). */
-async function send(text = draft.value) {
+async function send(text = draft.value, managerTaskId?: string) {
   const p = takePayload(text)
   if (!p || !info.value) return
+  p.managerTaskId = managerTaskId
   if (running.value) queue.push(p)
   else await dispatch(p)
 }
@@ -1254,7 +1269,7 @@ async function sendAfter(p: Payload) {
 }
 /** Chamado quando uma resposta termina: primeiro o "enviar agora", depois a fila. */
 function flushQueue() {
-  if (running.value) return
+  if (running.value || bgTasks.value.length || resuming.value || showAsk.value || showPlanAsk.value) return
   const next = sendAfterStop ?? queue.shift()
   // "agora" interrompeu a resposta anterior: o contador continua de onde ela começou
   const prev = sendAfterStop ? turns[turns.length - 1] : undefined
@@ -1264,7 +1279,10 @@ function flushQueue() {
 /** Interrompe a resposta atual e manda esta mensagem em seguida (a fila continua depois dela).
  * Campo vazio (sem texto, colagens nem anexos) e fila com mensagens: manda agora a última que entrou na fila. */
 function sendNow() {
-  if (!draft.value.trim() && !pastes.length && !pending.length && queue.length) return sendQueuedNow(queue.length - 1)
+  if (!draft.value.trim() && !pastes.length && !pending.length) {
+    const i = queue.findLastIndex((p) => !p.managerTaskId)
+    if (i >= 0) return sendQueuedNow(i)
+  }
   const p = takePayload()
   if (p) sendAfter(p)
 }
@@ -1868,6 +1886,13 @@ function onAct(a: AgentAction) {
     const cur = current()
     if (cur) hurry(cur)
   }
+  else if (a.type === 'enqueue') {
+    const body = a.text.trim()
+    if (!body) return
+    const p: Payload = { id: crypto.randomUUID(), body, managerTaskId: a.taskId, attachments: [] }
+    if (running.value || showAsk.value || showPlanAsk.value) queue.push(p)
+    else dispatch(p)
+  }
   else if (a.type === 'reply') {
     const text = a.text.trim()
     // reativo desde já: a prévia da imagem chega depois (loadPreview) e precisa aparecer no balão
@@ -1979,7 +2004,7 @@ onMounted(async () => {
     }
   }
   ready.value = true
-  if ((i.firstMessage || firstFiles) && !turns.length) send(i.firstMessage ?? '')
+  if ((i.firstMessage || firstFiles) && !turns.length) send(i.firstMessage ?? '', i.managerTaskId)
 })
 onUnmounted(() => offs.forEach((f) => f()))
 </script>
@@ -2292,7 +2317,7 @@ onUnmounted(() => offs.forEach((f) => f()))
           <Icon name="list" :size="12" class="faint" />
           <span class="q-text ellipsis">{{ q.body }}</span>
           <small class="faint">na fila{{ q.attachments.length ? ` · ${q.attachments.length} anexo${q.attachments.length === 1 ? '' : 's'}` : '' }}</small>
-          <span class="q-acts">
+          <span v-if="!q.managerTaskId" class="q-acts">
             <button type="button" class="ghost qa now" :title="`Enviar esta agora: ${nowVerb}`" @click="sendQueuedNow(i)"><Icon name="zap" :size="12" /></button>
             <button type="button" class="ghost qa" title="Voltar para o campo, para editar" @click="editQueued(i)"><Icon name="pencil" :size="11" /></button>
             <button type="button" class="ghost qa" title="Descartar" @click="discardQueued(i)"><Icon name="x" :size="12" /></button>

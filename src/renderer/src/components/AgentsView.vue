@@ -358,7 +358,7 @@ function pick(a: AgentSnapshot) {
     <div class="toolbar">
       <button class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="plus" :size="14" /> Novo agente</button>
       <button class="ghost tool" :disabled="!state.repo" title="Agente em espera: nasce pronto, sem conversa, e pega tarefas da fila" @click="state.showStandby = true"><Icon name="hourglass" :size="14" /><span class="lbl">Em espera</span></button>
-      <button class="ghost tool" :class="{ on: state.showQueue }" title="Fila de tarefas para os agentes em espera" @click="state.showQueue = !state.showQueue">
+      <button class="ghost tool" :class="{ on: state.showQueue }" title="Conversar com o gerenciador de agentes" @click="state.showQueue = !state.showQueue">
         <Icon name="listTodo" :size="14" /><span class="lbl">Fila</span><span v-if="queuedCount" class="cnt">{{ queuedCount }}</span>
       </button>
       <span class="gap" />
@@ -367,7 +367,7 @@ function pick(a: AgentSnapshot) {
     <div class="body">
     <!-- a fila de tarefas é uma coluna própria, antes dos cartões -->
     <aside v-if="state.showQueue" class="queue-col">
-      <QueuePanel @standby="state.showStandby = true" />
+      <QueuePanel />
     </aside>
     <div class="scroll">
       <!-- os contadores filtram a lista por situação; "agentes" (ou o filtro de novo) mostra todos -->
@@ -456,7 +456,7 @@ function pick(a: AgentSnapshot) {
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
 .body { flex: 1; display: flex; min-height: 0; min-width: 0; }
-.queue-col { flex: none; width: 340px; min-width: 0; overflow: hidden auto; border-right: 1px solid var(--border); background: var(--panel); }
+.queue-col { flex: none; width: 360px; min-width: 0; overflow: hidden; border-right: 1px solid var(--border); background: var(--panel); }
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
 .new-agent { height: 28px; gap: 6px; font-size: 12.5px; }

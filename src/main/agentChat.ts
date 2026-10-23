@@ -822,6 +822,14 @@ export function agentSnapshots(): AgentSnapshot[] {
     }))
 }
 
+/** Janelas já criadas, inclusive as que ainda estão carregando o primeiro resumo. */
+export function agentWindowInfos(): AgentWindowInfo[] {
+  return [...wins.values()].filter((w) => !w.win.isDestroyed()).map((w) => w.info)
+}
+
+const snapshotListeners = new Set<() => void>()
+export const onAgentSnapshot = (fn: () => void) => void snapshotListeners.add(fn)
+
 /** O observador leu a janela de contexto de uma sessão (Codex): a janela dona dela atualiza o cartão */
 export function sessionContextChanged(sessionId: string, context: AgentContext) {
   const w = [...wins.values()].find((x) => x.info.sessionId === sessionId && !x.win.isDestroyed())
@@ -847,6 +855,7 @@ export function reportSnapshot(uid: string, snap: AgentSnapshot) {
   const was = w.snap
   w.snap = { ...snap, uid }
   broadcastSnapshots()
+  for (const fn of snapshotListeners) fn()
   // passou a esperar por você: notificação com as opções como botões e um campo de resposta
   if (snap.status === 'waiting' && snap.ask && (was?.status !== 'waiting' || !was.ask)) notifyWaiting(w, w.snap)
 }

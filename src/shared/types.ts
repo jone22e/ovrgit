@@ -424,6 +424,8 @@ export interface AgentChatOpen {
   extraDirs?: string[]
   /** Primeira tarefa, enviada assim que a janela abrir */
   firstMessage?: string
+  /** Tarefa enviada pelo gerenciador ao criar este agente */
+  managerTaskId?: string
   /** Arquivos que vão junto com a primeira tarefa (caminhos; os temporários ganham uma cópia da conversa) */
   firstFiles?: string[]
   /** Começa escondida: a conversa roda sem janela na tela, em segundo plano (o gerenciador e o mascote a mostram quando pedido) */
@@ -452,6 +454,8 @@ export interface QueueTask {
   /** Outros repositórios do espaço de trabalho (um grupo): o agente que pegar a tarefa vê todos */
   extraDirs?: string[]
   status: 'queued' | 'running' | 'done' | 'failed'
+  /** Pedido da conversa do gerenciador: pode ir a qualquer agente relacionado, ou abrir um novo */
+  managed?: boolean
   /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
   stage?: 'reasoning'
   /** Análise do agente de raciocínio (markdown), quando e se está sendo refeita */
@@ -470,7 +474,7 @@ export interface QueueTask {
   startedAt?: number
   finishedAt?: number
   /** Como o agente foi escolhido: continuou uma conversa relacionada, ou começou do zero */
-  via?: 'related' | 'fresh'
+  via?: 'related' | 'fresh' | 'new'
   /** Explicação curta da escolha (ex.: o título da conversa continuada) */
   reason?: string
 }
@@ -778,6 +782,8 @@ export type AgentAction =
   | { type: 'nav'; index: number }
   /** Mensagem nova (ou resposta ao cartão); modelo, esforço e modo trocam os da janela quando vêm */
   | { type: 'reply'; text: string; model?: string; effort?: AgentEffort; mode?: AgentMode; attachments?: AgentAttachment[] }
+  /** Pedido do gerenciador: sempre entra como mensagem nova, após o trabalho atual */
+  | { type: 'enqueue'; taskId: string; text: string }
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
   | { type: 'nudge' }
@@ -1263,7 +1269,13 @@ export interface OvseerApi {
   agentDocked(uid: string): Promise<boolean>
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
-  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready' }): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean }): Promise<QueueTask[]>
+  /** A janela começou a executar um pedido do gerenciador */
+  queueStarted(id: string, uid: string): Promise<void>
+  /** A janela terminou o pedido; separa tarefas consecutivas da mesma conversa */
+  queueFinished(id: string, uid: string, success: boolean): Promise<void>
+  /** Encaminha uma tarefa da fila antiga pelo gerenciador */
+  queueManage(id: string, cwd?: string, extraDirs?: string[]): Promise<QueueTask[]>
   queueRemove(id: string): Promise<QueueTask[]>
   /** Sobe ou desce uma tarefa na fila */
   queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>
