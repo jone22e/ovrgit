@@ -724,7 +724,7 @@ function registerIpc() {
   ipcMain.handle('agent:docked', (_e, uid: string) => agentChat.isDocked(String(uid)))
   // fila de tarefas para os agentes em espera
   ipcMain.handle('queue:list', () => taskQueue.list())
-  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[] }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined }))
+  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready' }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined, stage: task?.stage === 'ready' ? 'ready' : 'reasoning' }))
   ipcMain.handle('queue:remove', (_e, id: string) => taskQueue.remove(String(id)))
   ipcMain.handle('queue:move', (_e, id: string, dir: number) => taskQueue.move(String(id), dir < 0 ? -1 : 1))
   ipcMain.handle('queue:retry', (_e, id: string) => taskQueue.retry(String(id)))

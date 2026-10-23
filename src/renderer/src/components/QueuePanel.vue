@@ -10,14 +10,15 @@ import Icon from './Icon.vue'
 import RepoSelect from './RepoSelect.vue'
 
 /**
- * Fila de tarefas em duas etapas. Uma tarefa nova entra no raciocínio: um agente só de leitura analisa do que se
- * trata e anexa a análise; cada observação sua faz a análise ser revista, em segundo plano. "Mover para execução"
- * a põe na fila de execução, onde o próximo agente em espera livre (do repositório da tarefa, se houver) a pega,
+ * Fila de tarefas em duas etapas opcionais. Uma tarefa pode entrar no raciocínio: um agente só de leitura analisa do
+ * que se trata e anexa a análise; cada observação sua faz a análise ser revista, em segundo plano. "Mover para execução"
+ * a põe na fila de execução. Ou ela já entra na execução, onde um agente em espera livre (do repositório da tarefa, se houver) a pega,
  * com o raciocínio junto. A tarefa rodando aponta o agente; a concluída guarda a conversa para reabrir; a que
  * falhou pode voltar à fila.
  */
 const emit = defineEmits<{ standby: [] }>()
 const text = ref('')
+const stage = ref<'reasoning' | 'ready'>('reasoning')
 const cwd = ref(state.repo?.root ?? '')
 const extraDirs = ref<string[]>([])
 const name = (p: string) => p.slice(p.lastIndexOf('/') + 1)
@@ -39,8 +40,12 @@ onMounted(() => setInterval(() => (now.value = Date.now()), 5000))
 async function add() {
   const t = text.value.trim()
   if (!t) return
-  await api.queueAdd({ text: t, cwd: cwd.value || undefined, extraDirs: cwd.value && extraDirs.value.length ? [...extraDirs.value] : undefined }).catch((e) => (state.error = String((e as Error).message)))
-  text.value = ''
+  try {
+    await api.queueAdd({ text: t, cwd: cwd.value || undefined, extraDirs: cwd.value && extraDirs.value.length ? [...extraDirs.value] : undefined, stage: stage.value })
+    text.value = ''
+  } catch (e) {
+    state.error = String((e as Error).message)
+  }
 }
 const remove = (t: QueueTask) => api.queueRemove(t.id).catch(() => undefined)
 const move = (t: QueueTask, dir: -1 | 1) => api.queueMove(t.id, dir).catch(() => undefined)
@@ -100,12 +105,16 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 
     <!-- nova tarefa: o campo, o repositório e o botão, como no composer da conversa -->
     <div class="q-add" :class="{ ready: text.trim() }">
-      <textarea v-model="text" rows="3" placeholder="O que precisa ser feito? Entra primeiro no raciocínio." spellcheck="false" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
+      <textarea v-model="text" rows="3" placeholder="O que precisa ser feito?" spellcheck="false" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
+      <div class="q-stage" role="group" aria-label="Destino da tarefa">
+        <button type="button" :class="{ on: stage === 'reasoning' }" :aria-pressed="stage === 'reasoning'" title="Um agente de leitura analisa a tarefa antes da execução" @click="stage = 'reasoning'"><Icon name="sparkles" :size="12" /> Raciocínio</button>
+        <button type="button" :class="{ on: stage === 'ready' }" :aria-pressed="stage === 'ready'" title="Vai direto para o agente em espera mais adequado" @click="stage = 'ready'"><Icon name="zap" :size="12" /> Direto ao agente</button>
+      </div>
       <div class="q-add-row">
         <RepoSelect v-model="cwd" v-model:extra="extraDirs" any class="q-repo" />
         <span class="gap" />
         <small class="faint kbd">⌘↵</small>
-        <button class="primary icon q-send" :disabled="!text.trim()" title="Adicionar ao raciocínio (⌘Enter)" @click="add"><Icon name="plus" :size="15" /></button>
+        <button class="primary icon q-send" :disabled="!text.trim()" :title="stage === 'reasoning' ? 'Adicionar ao raciocínio (⌘Enter)' : 'Enviar para execução (⌘Enter)'" @click="add"><Icon name="plus" :size="15" /></button>
       </div>
     </div>
 
@@ -116,7 +125,7 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 
     <div v-if="!tasks.length" class="q-empty">
       <Icon name="listTodo" :size="26" class="faint" />
-      <p class="faint">Escreva uma tarefa acima. Ela entra no raciocínio: um agente de leitura analisa do que se trata e você comenta até o raciocínio estar formado. Daí "Mover para execução", e o próximo agente em espera livre a pega sozinho.</p>
+      <p class="faint">Escreva uma tarefa acima e escolha: formar o raciocínio antes, ou enviar direto ao agente em espera mais adequado.</p>
     </div>
 
     <!-- raciocínio: a análise do agente de leitura, as suas observações e a passagem para a execução -->
@@ -227,6 +236,10 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 /* a caixa já marca o foco pela própria borda: o campo dentro dela não ganha o halo global */
 .q-add textarea:focus { box-shadow: none; outline: none; }
 .q-add textarea { width: 100%; box-sizing: border-box; resize: none; min-height: 72px; padding: 10px 12px 4px; border: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.45; font-family: inherit; outline: none; }
+.q-stage { display: flex; gap: 4px; margin: 0 8px; padding: 3px; border-radius: 8px; background: var(--panel); }
+.q-stage button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 27px; padding: 3px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.q-stage button:hover { color: var(--text); }
+.q-stage button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .q-add-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; }
 .q-repo { max-width: 180px; }
 .q-repo :deep(.sel) { height: 28px; font-size: 12px; background: var(--panel); }

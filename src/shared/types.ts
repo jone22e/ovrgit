@@ -1263,7 +1263,7 @@ export interface OvseerApi {
   agentDocked(uid: string): Promise<boolean>
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
-  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[] }): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready' }): Promise<QueueTask[]>
   queueRemove(id: string): Promise<QueueTask[]>
   /** Sobe ou desce uma tarefa na fila */
   queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>

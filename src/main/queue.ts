@@ -9,9 +9,9 @@ import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
 
 /**
- * Fila de tarefas para os agentes em espera, em duas etapas. Uma tarefa nova entra na fila de raciocínio: um agente
+ * Fila de tarefas para os agentes em espera, com raciocínio opcional. Se passar pelo raciocínio, um agente
  * só de leitura analisa do que se trata e anexa a análise; cada observação do usuário faz a análise ser revista, em
- * segundo plano. Quando o raciocínio está formado, o usuário move a tarefa para a execução, e ela vai para um agente
+ * segundo plano. Quando o raciocínio está formado, o usuário move a tarefa para a execução. Também pode enviá-la direto à execução. Lá ela vai para um agente
  * em espera livre, como mensagem, com a análise e as observações junto. A escolha olha o contexto: um agente que já terminou uma tarefa do mesmo assunto continua a mesma
  * conversa (aproveita o que já leu e decidiu); quando a relação não é óbvia, uma IA rápida decide; sem relação, a
  * tarefa vai para um agente zerado (ou um terminado abre uma conversa nova). A fila sobrevive ao fechar do app
@@ -57,15 +57,17 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
 
 export const list = (): QueueTask[] => tasks
 
-/** Tarefa nova: entra na fila de raciocínio, e a análise começa */
-export function add(task: { text: string; cwd?: string; extraDirs?: string[] }): QueueTask[] {
+/** Tarefa nova: inicia no raciocínio ou vai direto para a fila de execução */
+export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready' }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
   const extraDirs = task.cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== task.cwd) : undefined
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', stage: 'reasoning', createdAt: Date.now() }
+  const stage = task.stage === 'ready' ? undefined : 'reasoning'
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', ...(stage ? { stage } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
-  analyze(t.id)
+  if (stage) analyze(t.id)
+  else void dispatch()
   return tasks
 }
 
