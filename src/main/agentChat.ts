@@ -382,8 +382,8 @@ function loadHost(win: BrowserWindow, uid: string) {
     console.error(`Renderer da janela do agente caiu (${details.reason})`)
     if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.webContents.reload()
   })
-  win.webContents.on('console-message', (_e, level, message) => {
-    if (level >= 3) console.error(`[janela do agente ${uid.slice(0, 8)}] ${message}`)
+  win.webContents.on('console-message', (details) => {
+    if (details.level === 'error') console.error(`[janela do agente ${uid.slice(0, 8)}] ${details.message}`)
   })
   load().catch((e) => console.error('Janela do agente não carregou:', e))
 }
