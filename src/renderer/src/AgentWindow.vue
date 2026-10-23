@@ -1286,8 +1286,9 @@ function flushQueue() {
  * Campo vazio (sem texto, colagens nem anexos) e fila com mensagens: manda agora a última que entrou na fila. */
 function sendNow() {
   if (!draft.value.trim() && !pastes.length && !pending.length) {
-    const i = queue.findLastIndex((p) => !p.managerTaskId)
-    if (i >= 0) return sendQueuedNow(i)
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (!queue[i].managerTaskId) return sendQueuedNow(i)
+    }
   }
   const p = takePayload()
   if (p) sendAfter(p)
