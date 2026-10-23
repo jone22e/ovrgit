@@ -9,7 +9,6 @@ import FeatureDialog from './components/FeatureDialog.vue'
 import FileList from './components/FileList.vue'
 import AgentsView from './components/AgentsView.vue'
 import MapView from './components/MapView.vue'
-import StandbyAgentDialog from './components/StandbyAgentDialog.vue'
 import HistoryView from './components/HistoryView.vue'
 import SourceEditor from './components/SourceEditor.vue'
 import SourceTree from './components/SourceTree.vue'
@@ -224,7 +223,6 @@ onUnmounted(() => {
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
     <PlanDialog />
     <NewTaskDialog v-if="state.showNewTask" @close="state.showNewTask = false" />
-    <StandbyAgentDialog v-if="state.showStandby" @close="state.showStandby = false" />
     <NewAgentDialog v-if="state.showNewAgent" @close="(state.showNewAgent = false), (state.newAgentTask = null), (state.newAgentBrief = null)" />
     <DeliveryDialog v-if="state.deliveryTask" @close="state.deliveryTask = null" />
     <SshDialog v-if="state.sshEdit" @close="state.sshEdit = null" />

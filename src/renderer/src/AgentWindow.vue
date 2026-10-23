@@ -889,6 +889,9 @@ interface Payload {
   id: string
   body: string
   managerTaskId?: string
+  model?: string
+  effort?: AgentEffort
+  mode?: AgentMode
   /** Pedido do app (ex.: o aviso de pressa): vai para o agente sem aparecer como mensagem na conversa */
   silent?: boolean
   /** Instruções do app que acompanham a mensagem: vão para o agente, não aparecem na conversa */
@@ -930,6 +933,9 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistItem[]) {
   if (!info.value) return
+  if (p.model !== undefined) model.value = p.model
+  if (p.effort) effort.value = p.effort
+  if (p.mode) setMode(p.mode)
   if (p.auto) clearRetryTimer()
   else resetRetry()
   const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
@@ -1889,7 +1895,9 @@ function onAct(a: AgentAction) {
   else if (a.type === 'enqueue') {
     const body = a.text.trim()
     if (!body) return
-    const p: Payload = { id: crypto.randomUUID(), body, managerTaskId: a.taskId, attachments: [] }
+    const attachments: Shown[] = reactive((a.attachments ?? []).map((x) => ({ ...x })))
+    attachments.forEach((x) => loadPreview(x))
+    const p: Payload = { id: crypto.randomUUID(), body, managerTaskId: a.taskId, model: a.model, effort: a.effort, mode: a.mode, attachments }
     if (running.value || showAsk.value || showPlanAsk.value) queue.push(p)
     else dispatch(p)
   }
@@ -1996,7 +2004,8 @@ onMounted(async () => {
     for (const p of i.firstFiles) {
       try {
         const kept = await api.agentKeepFile(uid, p)
-        pushPending({ ...kept, preview: isImage(kept.mime, kept.name) ? ((await api.agentImage(kept.path).catch(() => null)) ?? undefined) : undefined })
+        const name = i.firstAttachments?.find((a) => a.path === p)?.name ?? kept.name
+        pushPending({ ...kept, name, preview: isImage(kept.mime, name) ? ((await api.agentImage(kept.path).catch(() => null)) ?? undefined) : undefined })
         firstFiles++
       } catch (e) {
         attachError.value = clean(e)

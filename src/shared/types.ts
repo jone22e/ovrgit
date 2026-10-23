@@ -428,6 +428,8 @@ export interface AgentChatOpen {
   managerTaskId?: string
   /** Arquivos que vão junto com a primeira tarefa (caminhos; os temporários ganham uma cópia da conversa) */
   firstFiles?: string[]
+  /** Metadados dos anexos quando a primeira tarefa veio do gerenciador */
+  firstAttachments?: AgentAttachment[]
   /** Começa escondida: a conversa roda sem janela na tela, em segundo plano (o gerenciador e o mascote a mostram quando pedido) */
   hidden?: boolean
   /** Continuar uma conversa já existente (id da sessão do CLI) */
@@ -453,6 +455,9 @@ export interface QueueTask {
   cwd?: string
   /** Outros repositórios do espaço de trabalho (um grupo): o agente que pegar a tarefa vê todos */
   extraDirs?: string[]
+  /** Anexos e configuração escolhidos na conversa do gerenciador */
+  attachments?: AgentAttachment[]
+  config?: Pick<AgentChatOpen, 'provider' | 'model' | 'effort' | 'mode'>
   status: 'queued' | 'running' | 'done' | 'failed'
   /** Pedido da conversa do gerenciador: pode ir a qualquer agente relacionado, ou abrir um novo */
   managed?: boolean
@@ -783,7 +788,7 @@ export type AgentAction =
   /** Mensagem nova (ou resposta ao cartão); modelo, esforço e modo trocam os da janela quando vêm */
   | { type: 'reply'; text: string; model?: string; effort?: AgentEffort; mode?: AgentMode; attachments?: AgentAttachment[] }
   /** Pedido do gerenciador: sempre entra como mensagem nova, após o trabalho atual */
-  | { type: 'enqueue'; taskId: string; text: string }
+  | { type: 'enqueue'; taskId: string; text: string; attachments?: AgentAttachment[]; model?: string; effort?: AgentEffort; mode?: AgentMode }
   | { type: 'retry' }
   /** Agente parado há tempo: avisa que há pressa (o mesmo do Acelerar) */
   | { type: 'nudge' }
@@ -1269,7 +1274,11 @@ export interface OvseerApi {
   agentDocked(uid: string): Promise<boolean>
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
-  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean }): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): Promise<QueueTask[]>
+  /** Anexos do compositor do gerenciador, antes de escolher o agente */
+  queuePickFiles(cwd?: string): Promise<AgentAttachment[]>
+  queueKeepFile(path: string): Promise<AgentAttachment>
+  queueSaveBlob(file: { name: string; type: string; data: ArrayBuffer }): Promise<AgentAttachment>
   /** A janela começou a executar um pedido do gerenciador */
   queueStarted(id: string, uid: string): Promise<void>
   /** A janela terminou o pedido; separa tarefas consecutivas da mesma conversa */

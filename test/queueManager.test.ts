@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -19,6 +19,7 @@ vi.mock('../src/main/reasoner', () => ({ reasonAbout: vi.fn() }))
 vi.mock('../src/main/agentChat', () => ({
   agentSnapshots: () => fake.snapshots,
   agentWindowInfos: () => [...fake.snapshots, ...fake.opened],
+  describeFile: (file: string) => ({ name: path.basename(file), path: file, mime: 'image/png', size: 3, kind: 'image' }),
   agentInfo: (uid: string) => [...fake.snapshots, ...fake.opened].find((a) => a.uid === uid) ?? null,
   agentBase: () => ({ provider: 'codex', model: '', effort: 'high', mode: 'full', cwd: project }),
   actOnAgent: (uid: string, action: any) => fake.actions.push({ uid, action }),
@@ -41,19 +42,27 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   )
   const queue = await import('../src/main/queue')
   queue.setupQueue(() => undefined)
+  const image = queue.saveBlob({ name: 'captura.png', type: 'image/png', data: new Uint8Array([1, 2, 3]) })
+  expect(existsSync(image.path)).toBe(true)
+  expect(image.name).toBe('captura.png')
+  const config = { provider: 'codex' as const, model: 'gpt-6-sol', effort: 'high' as const, mode: 'full' as const }
 
-  const first = queue.add({ text: 'Ajustar mensagem de acesso negado no login', cwd: project, managed: true }).at(-1)!
+  const first = queue.add({ text: 'Ajustar mensagem de acesso negado no login', cwd: project, managed: true, attachments: [image], config }).at(-1)!
   await vi.waitFor(() => expect(fake.actions).toHaveLength(1))
-  expect(fake.actions[0]).toMatchObject({ uid: 'related', action: { type: 'enqueue', taskId: first.id } })
+  expect(fake.actions[0]).toMatchObject({ uid: 'related', action: { type: 'enqueue', taskId: first.id, attachments: [{ path: image.path }], model: 'gpt-6-sol', effort: 'high', mode: 'full' } })
   expect(first.status).toBe('queued')
   queue.started(first.id, 'related')
   expect(first.status).toBe('running')
   queue.finished(first.id, 'related', true)
   expect(first.status).toBe('done')
 
-  const second = queue.add({ text: 'Criar exportação em PDF', cwd: project, managed: true }).at(-1)!
+  const second = queue.add({ text: 'Criar exportação em PDF', cwd: project, managed: true, attachments: [image], config }).at(-1)!
   await vi.waitFor(() => expect(fake.opened).toHaveLength(1))
-  expect(fake.opened[0]).toMatchObject({ cwd: project, firstMessage: second.text, managerTaskId: second.id, quiet: true })
+  expect(fake.opened[0]).toMatchObject({ cwd: project, firstMessage: second.text, firstFiles: [image.path], firstAttachments: [{ name: image.name, path: image.path }], managerTaskId: second.id, model: 'gpt-6-sol', quiet: true })
   expect(second.via).toBe('new')
   expect(fake.actions).toHaveLength(1)
+
+  queue.add({ text: 'Ajustar login de novo', cwd: project, managed: true, config: { ...config, provider: 'claude', model: 'sonnet' } })
+  await vi.waitFor(() => expect(fake.opened).toHaveLength(2))
+  expect(fake.opened[1]).toMatchObject({ provider: 'claude', model: 'sonnet' })
 })

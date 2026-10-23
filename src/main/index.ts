@@ -10,7 +10,7 @@ import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
   AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds,
-  HandoffMaterial,
+  HandoffMaterial, QueueTask,
   Service
 } from '../shared/types'
 import { findBinary, runCli } from './cli'
@@ -722,9 +722,17 @@ function registerIpc() {
   ipcMain.handle('agent:act', (_e, uid: string, action: AgentAction) => agentChat.actOnAgent(String(uid), action))
   ipcMain.handle('agent:show', (_e, uid: string) => agentChat.showAgentWindow(String(uid)))
   ipcMain.handle('agent:docked', (_e, uid: string) => agentChat.isDocked(String(uid)))
-  // fila de tarefas para os agentes em espera
+  // pedidos do gerenciador e compatibilidade com tarefas da fila anterior
   ipcMain.handle('queue:list', () => taskQueue.list())
-  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined, stage: task?.stage === 'ready' ? 'ready' : 'reasoning', managed: task?.managed === true }))
+  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined, stage: task?.stage === 'ready' ? 'ready' : 'reasoning', managed: task?.managed === true, attachments: Array.isArray(task?.attachments) ? task.attachments.filter((a) => typeof a?.path === 'string').slice(0, 20) : undefined, config: task?.config && (task.config.provider === 'claude' || task.config.provider === 'codex' || task.config.provider === 'agy') ? { provider: task.config.provider, model: String(task.config.model ?? '').slice(0, 80), effort: task.config.effort, mode: agentChat.normalizeMode(task.config.mode) } : undefined }))
+  ipcMain.handle('queue:pick', async (e, cwd?: string) => {
+    const owner = BrowserWindow.fromWebContents(e.sender) ?? win
+    const opts: Electron.OpenDialogOptions = { title: 'Anexar arquivos', defaultPath: typeof cwd === 'string' && existsSync(cwd) ? cwd : undefined, properties: ['openFile', 'multiSelections'] }
+    const result = owner ? await dialog.showOpenDialog(owner, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled ? [] : result.filePaths.slice(0, 20).map(taskQueue.keepFile)
+  })
+  ipcMain.handle('queue:keepFile', (_e, path: string) => taskQueue.keepFile(String(path)))
+  ipcMain.handle('queue:blob', (_e, file: { name: string; type: string; data: ArrayBuffer }) => taskQueue.saveBlob({ name: String(file?.name ?? 'anexo').slice(0, 120), type: String(file?.type ?? ''), data: new Uint8Array(file.data) }))
   ipcMain.handle('queue:started', (_e, id: string, uid: string) => taskQueue.started(String(id), String(uid)))
   ipcMain.handle('queue:finished', (_e, id: string, uid: string, success: boolean) => taskQueue.finished(String(id), String(uid), success === true))
   ipcMain.handle('queue:manage', (_e, id: string, cwd?: string, extraDirs?: string[]) => taskQueue.manage(String(id), typeof cwd === 'string' ? cwd : undefined, Array.isArray(extraDirs) ? extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined))

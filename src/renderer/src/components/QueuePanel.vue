@@ -1,37 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import type { QueueTask } from '@shared/types'
+import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
+import { MODES, PROVIDER_LABEL } from '@shared/models'
 import { api, state, toast } from '../store'
 import Icon from './Icon.vue'
+import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
 
-const text = ref('')
 const cwd = ref(state.repo?.root ?? '')
 const extraDirs = ref<string[]>([])
-const sending = ref(false)
+const known = ref<KnownModels | null>(null)
 const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
 const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Sem projeto'
 const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 const agentName = (t: QueueTask) => agentOf(t)?.title || t.agentTitle || 'agente'
+const configLabel = (t: QueueTask) => t.config ? [PROVIDER_LABEL[t.config.provider], t.config.model || 'modelo padrão', MODES.find((m) => m.id === t.config?.mode)?.label].filter(Boolean).join(' · ') : ''
 const liveAgent = (t: QueueTask) => !!t.uid && state.agentSnaps.some((a) => a.uid === t.uid)
 
-async function add() {
-  const request = text.value.trim()
-  if (!request || sending.value) return
-  if (!cwd.value) return toast('Escolha um repositório para o pedido.')
-  sending.value = true
-  try {
-    await api.queueAdd({ text: request, cwd: cwd.value, extraDirs: [...extraDirs.value], managed: true })
-    text.value = ''
-  } catch (e) {
-    state.error = String((e as Error).message)
-  } finally {
-    sending.value = false
-  }
-}
 async function manage(t: QueueTask) {
   try {
     await api.queueManage(t.id, t.cwd ? undefined : cwd.value, t.cwd ? undefined : [...extraDirs.value])
@@ -49,6 +37,7 @@ async function openTask(t: QueueTask) {
 }
 const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = feed.value.scrollHeight })
 onMounted(scrollEnd)
+onMounted(() => api.knownModels().then((models) => (known.value = models)).catch(() => undefined))
 watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
 watch(() => state.repo?.root, (next, previous) => {
   if (!cwd.value || cwd.value === previous) {
@@ -71,7 +60,11 @@ watch(() => state.repo?.root, (next, previous) => {
         <p>Vou encontrar uma conversa relacionada neste projeto ou criar um agente para o pedido.</p>
       </div>
       <article v-for="t in tasks" :key="t.id" class="exchange">
-        <div class="user-message"><p>{{ t.text }}</p><small>{{ where(t) }}</small></div>
+        <div class="user-message">
+          <p>{{ t.text }}</p>
+          <div v-if="t.attachments?.length" class="sent-attachments"><span v-for="a in t.attachments" :key="a.path" :title="a.path"><Icon name="paperclip" :size="11" />{{ a.name }}</span></div>
+          <small>{{ where(t) }}<template v-if="t.config"> · {{ configLabel(t) }}</template></small>
+        </div>
         <div class="manager-message" :class="t.status">
           <span class="message-avatar"><Icon :name="t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
           <div class="message-body">
@@ -99,13 +92,10 @@ watch(() => state.repo?.root, (next, previous) => {
         </div>
       </article>
     </div>
-    <div class="composer" :class="{ ready: text.trim() }">
-      <textarea v-model="text" rows="3" placeholder="Peça algo ao gerenciador…" spellcheck="false" @keydown.enter.exact.prevent="add" @keydown.meta.enter.prevent="add" @keydown.ctrl.enter.prevent="add" />
-      <div class="composer-row">
-        <RepoSelect v-model="cwd" v-model:extra="extraDirs" class="repo" />
-        <span class="gap" />
-        <button class="primary icon send" :disabled="!text.trim() || !cwd || sending" title="Enviar pedido" @click="add"><Icon name="send" :size="15" /></button>
-      </div>
+    <div class="manager-composer">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" placeholder="Peça algo ao gerenciador…">
+        <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" class="repo" /></div></template>
+      </MiniComposer>
     </div>
   </section>
 </template>
@@ -127,6 +117,8 @@ watch(() => state.repo?.root, (next, previous) => {
 .user-message { align-self: flex-end; max-width: 92%; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 12px 12px 3px 12px; background: var(--accent-soft); overflow-wrap: anywhere; }
 .user-message p { margin: 0 0 5px; white-space: pre-wrap; font-size: 12.5px; line-height: 1.45; }
 .user-message small { color: var(--muted); font-size: 10px; }
+.sent-attachments { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
+.sent-attachments span { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 5px; border-radius: 5px; background: var(--panel); font-size: 10px; overflow-wrap: anywhere; }
 .manager-message { display: flex; align-items: flex-start; gap: 7px; }
 .message-avatar { width: 22px; height: 22px; border-radius: 7px; }
 .manager-message.done .message-avatar { color: var(--add); background: color-mix(in srgb, var(--add) 15%, transparent); }
@@ -139,13 +131,8 @@ watch(() => state.repo?.root, (next, previous) => {
 .link.faint { color: var(--faint); }
 .analysis { margin-top: 6px; font-size: 11px; color: var(--muted); }
 .analysis pre { max-height: 170px; overflow: auto; white-space: pre-wrap; font: inherit; line-height: 1.4; }
-.composer { flex: none; margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
-.composer:focus-within, .composer.ready { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
-.composer textarea { width: 100%; box-sizing: border-box; min-height: 66px; resize: vertical; padding: 10px 11px 5px; border: 0; outline: none; box-shadow: none; color: var(--text); background: transparent; font: inherit; font-size: 12.5px; line-height: 1.45; }
-.composer textarea:focus { outline: none; box-shadow: none; }
-.composer-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px 7px; }
+.manager-composer { flex: none; margin: 0 12px 12px; }
+.project-scope { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 .repo { max-width: 230px; }
 .repo :deep(.sel) { height: 28px; font-size: 11px; background: var(--panel); }
-.gap { flex: 1; }
-.send { width: 30px; height: 30px; border-radius: 8px; }
 </style>

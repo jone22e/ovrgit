@@ -38,10 +38,9 @@ export const state = reactive({
   tab: 'agents' as 'changes' | 'history' | 'agents' | 'map',
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
   agentPick: null as { n: number; at: number } | null,
-  /** Fila de tarefas dos agentes em espera, e se o painel dela está aberto; diálogo "Agente em espera" */
+  /** Pedidos do gerenciador e tarefas antigas da fila; conversa do gerenciador aberta */
   queue: [] as QueueTask[],
   showQueue: false,
-  showStandby: false,
   message: '',
   messageEdited: false,
   busy: null as Busy,

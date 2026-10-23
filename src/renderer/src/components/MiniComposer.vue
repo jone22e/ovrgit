@@ -1,34 +1,49 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { AgentAttachment, AgentEffort, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
+import type { AgentAttachment, AgentEffort, AgentMode, AgentSnapshot, CliProvider, KnownModels } from '@shared/types'
 import { MODES } from '@shared/models'
+import { readAgentPrefs, AGENT_PREFS, type AgentPrefs } from '../agentPrefs'
+import { useDictation } from '../dictation'
 import Icon from './Icon.vue'
 import ModelPicker from './ModelPicker.vue'
 
 /**
  * Campo de instrução do gerenciador de agentes, com a cara e os recursos do composer da janela do agente: texto
  * de várias linhas, anexos (botão, arrastar, colar), texto grande colado como cartão, modelo e esforço, modo e o
- * botão redondo de enviar. Começa com o que a janela está usando; o que for trocado aqui vale para a janela também.
+ * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
-const props = defineProps<{ agent: AgentSnapshot; known: KnownModels | null; placeholder?: string }>()
+const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string }>()
 const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]] }>()
 const api = window.ovseer
+const prefs = readAgentPrefs()
+const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
 
 const text = ref('')
 const box = ref<HTMLTextAreaElement>()
-const provider = ref(props.agent.provider)
-const model = ref(props.agent.modelId)
-const effort = ref<AgentEffort>(props.agent.effort)
-const mode = ref<AgentMode>(props.agent.mode)
+const provider = ref(props.agent?.provider ?? prefs.provider)
+const model = ref(props.agent?.modelId ?? prefs.model[prefs.provider])
+const effort = ref<AgentEffort>(props.agent?.effort ?? prefs.effort[prefs.provider])
+const mode = ref<AgentMode>(props.agent?.mode ?? prefs.mode)
 // a janela mudou de modelo/modo (ou é outro agente): o campo acompanha
 watch(
-  () => [props.agent.uid, props.agent.modelId, props.agent.effort, props.agent.mode] as const,
-  ([, m, e, md]) => ((model.value = m), (effort.value = e), (mode.value = md))
+  () => props.agent ? [props.agent.uid, props.agent.modelId, props.agent.effort, props.agent.mode] as const : null,
+  (current) => {
+    if (!current) return
+    model.value = current[1]
+    effort.value = current[2]
+    mode.value = current[3]
+  }
 )
 const modeOpen = ref(false)
 const modeRoot = ref<HTMLElement>()
 const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MODES[MODES.length - 1])
 const canSend = computed(() => !!(text.value.trim() || pending.length || pastes.length))
+const sending = ref(false)
+const canDictate = api.platform === 'darwin'
+const dictation = useDictation((words) => {
+  text.value = text.value.trim() ? text.value.replace(/\s+$/, '') + ' ' + words : words
+  nextTick(() => { autosize(); box.value?.focus() })
+})
 
 // ---------- anexos: os mesmos caminhos da janela do agente (os arquivos ficam guardados para a janela `uid`) ----------
 type Shown = AgentAttachment & { preview?: string }
@@ -50,7 +65,7 @@ function pushPending(a: Shown) {
 async function pickFiles() {
   attachError.value = null
   try {
-    for (const a of await api.agentPickFiles(props.agent.uid)) {
+    for (const a of props.manager ? await api.queuePickFiles(props.cwd) : await api.agentPickFiles(props.agent!.uid)) {
       pushPending(a)
       const added = pending.find((x) => x.path === a.path)
       if (added && added.kind === 'image' && !added.preview) api.agentImage(a.path).then((url) => url && (added.preview = url)).catch(() => undefined)
@@ -66,10 +81,11 @@ async function addFiles(files: File[]) {
     try {
       const preview = isImage(f.type, f.name) && f.size <= PREVIEW_MAX ? URL.createObjectURL(new Blob([await f.arrayBuffer()], { type: f.type || 'image/png' })) : undefined
       const real = api.filePath(f)
-      if (real) pushPending({ ...(await api.agentKeepFile(props.agent.uid, real)), preview })
+      if (real) pushPending({ ...(props.manager ? await api.queueKeepFile(real) : await api.agentKeepFile(props.agent!.uid, real)), preview })
       else {
         const name = f.name && f.name !== 'image.png' ? f.name : `colado-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`
-        pushPending({ ...(await api.agentSaveBlob(props.agent.uid, { name, type: f.type, data: await f.arrayBuffer() })), preview })
+        const blob = { name, type: f.type, data: await f.arrayBuffer() }
+        pushPending({ ...(props.manager ? await api.queueSaveBlob(blob) : await api.agentSaveBlob(props.agent!.uid, blob)), preview })
       }
     } catch (e) {
       attachError.value = clean(e)
@@ -111,13 +127,30 @@ function autosize() {
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`
 }
-function send() {
-  if (!canSend.value) return
-  const pasted = pastes.splice(0, pastes.length).map((p) => p.text.trim()).filter(Boolean)
+async function send() {
+  if (!canSend.value || sending.value) return
+  const pasted = pastes.map((p) => p.text.trim()).filter(Boolean)
   const t = [text.value.trim(), ...pasted].filter(Boolean).join('\n\n')
   // a prévia é só desta tela; a ação vai para a outra janela sem ela
-  const attachments = pending.splice(0, pending.length).map(({ preview: _p, ...a }) => a)
-  emit('send', t, { model: model.value, effort: effort.value, mode: mode.value }, attachments)
+  const attachments = pending.map(({ preview: _p, ...a }) => a)
+  if (props.manager) {
+    if (!props.cwd) return void (attachError.value = 'Escolha um repositório para o pedido.')
+    sending.value = true
+    try {
+      await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
+      try {
+        localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs))
+      } catch { /* preferência local indisponível: o pedido já foi salvo */ }
+    } catch (e) {
+      attachError.value = clean(e)
+      return
+    } finally {
+      sending.value = false
+    }
+  } else emit('send', t, { model: model.value, effort: effort.value, mode: mode.value }, attachments)
+  for (const a of pending) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
+  pending.splice(0)
+  pastes.splice(0)
   text.value = ''
   attachError.value = null
   nextTick(autosize)
@@ -132,7 +165,10 @@ const onDoc = (e: MouseEvent) => {
   if (modeOpen.value && modeRoot.value && !modeRoot.value.contains(e.target as Node)) modeOpen.value = false
 }
 onMounted(() => document.addEventListener('mousedown', onDoc))
-onUnmounted(() => document.removeEventListener('mousedown', onDoc))
+onUnmounted(() => {
+  document.removeEventListener('mousedown', onDoc)
+  for (const a of pending) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
+})
 </script>
 
 <template>
@@ -157,10 +193,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       </span>
     </div>
     <p v-if="attachError" class="att-err">{{ attachError }}</p>
+    <p v-if="dictation.error.value" class="att-err">{{ dictation.error.value }}</p>
     <textarea ref="box" v-model="text" rows="1" :placeholder="placeholder ?? 'Próxima instrução para este agente…'" maxlength="4000" @input="autosize" @keydown="onKey" @paste="onPaste" />
+    <slot name="scope" />
     <div class="row">
       <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole aqui)" @click="pickFiles"><Icon name="paperclip" :size="15" /></button>
-      <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers lock-provider :known="known" />
+      <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!agent" :known="known" :defaults="pickerDefaults" />
       <div ref="modeRoot" class="mode-menu">
         <button type="button" class="chip mode-chip" :class="[`m-${mode}`, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
           <Icon :name="currentMode.icon" :size="13" />
@@ -174,8 +212,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         </div>
       </div>
       <slot name="actions" />
+      <div v-if="canDictate" class="dictate">
+        <button v-if="dictation.phase.value === 'recording'" type="button" class="ghost icon" title="Descartar gravação" @click="dictation.cancel"><Icon name="x" :size="12" /></button>
+        <button type="button" class="ghost icon" :disabled="dictation.phase.value === 'transcribing'" :title="dictation.phase.value === 'recording' ? 'Terminar e transcrever' : 'Ditar'" @click="dictation.toggle"><Icon :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="15" /></button>
+      </div>
       <span class="spacer" />
-      <button type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canSend" @click="send"><Icon name="up" :size="16" /></button>
+      <button type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canSend || sending || (manager && !cwd)" @click="send"><Icon name="up" :size="16" /></button>
     </div>
   </div>
 </template>
@@ -190,6 +232,7 @@ textarea { border: 0; background: transparent; padding: 4px 6px 2px; font-size: 
 textarea:focus { box-shadow: none; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .spacer { flex: 1 1 auto; }
+.dictate { display: flex; align-items: center; flex: none; }
 .chip { height: 30px; padding: 0 10px; gap: 6px; border-radius: 999px; font-size: 12px; color: var(--muted); flex: none; }
 .chip.mode-chip { width: 30px; padding: 0; justify-content: center; }
 .chip.m-full { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 45%, var(--border)); }

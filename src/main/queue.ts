@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentSnapshot, AgentStatus, QueueTask } from '../shared/types'
+import type { AgentAttachment, AgentSnapshot, AgentStatus, QueueTask } from '../shared/types'
 import { assign, clearlyRelated, move as moveTask, parsePick, pickPrompt, rankRelated, reasoningPrompt, taskPrompt, type AgentContext } from '../shared/queue'
 import * as agentChat from './agentChat'
 import { getSettings } from './settings'
@@ -29,6 +29,28 @@ const START_TIMEOUT = 30_000
 let notify: (tasks: QueueTask[]) => void = () => undefined
 
 const file = () => path.join(app.getPath('userData'), 'queue.json')
+const attachmentsDir = () => path.join(app.getPath('userData'), 'queue-attachments')
+
+/** Guarda anexos temporários antes de o gerenciador escolher a conversa que vai recebê-los. */
+export function keepFile(filePath: string): AgentAttachment {
+  const size = statSync(filePath).size
+  if (size > 50 * 1024 * 1024) throw new Error('Arquivo grande demais (máx. 50 MB).')
+  if (!agentChat.isTemporaryPath(filePath)) return agentChat.describeFile(filePath)
+  mkdirSync(attachmentsDir(), { recursive: true })
+  const saved = path.join(attachmentsDir(), `${crypto.randomUUID()}-${path.basename(filePath).replace(/[^\w.\-() ]+/g, '_')}`)
+  copyFileSync(filePath, saved)
+  return { ...agentChat.describeFile(saved), name: path.basename(filePath) }
+}
+
+export function saveBlob(file: { name: string; type: string; data: Uint8Array }): AgentAttachment {
+  if (file.data.byteLength > 50 * 1024 * 1024) throw new Error('Arquivo grande demais (máx. 50 MB).')
+  mkdirSync(attachmentsDir(), { recursive: true })
+  const base = (file.name || 'anexo').replace(/[^\w.\-() ]+/g, '_').replace(/^\.+/, '') || 'anexo'
+  const ext = path.extname(base) ? '' : file.type === 'image/png' ? '.png' : file.type === 'image/jpeg' ? '.jpg' : ''
+  const saved = path.join(attachmentsDir(), `${crypto.randomUUID()}-${base}${ext}`)
+  writeFileSync(saved, file.data)
+  return { ...agentChat.describeFile(saved), name: file.name || `${base}${ext}` }
+}
 
 function save() {
   try {
@@ -66,13 +88,17 @@ export function resume() {
 export const list = (): QueueTask[] => tasks
 
 /** Tarefa nova: inicia no raciocínio ou vai direto para a fila de execução */
-export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean }): QueueTask[] {
+export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
   if (task.managed && (!task.cwd || !existsSync(task.cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
+  const attachments = (task.attachments ?? []).slice(0, 20).map((a) => {
+    if (!existsSync(a.path)) throw new Error(`Anexo não encontrado: ${a.name}`)
+    return { ...agentChat.describeFile(a.path), name: String(a.name || path.basename(a.path)).slice(0, 120) }
+  })
   const extraDirs = task.cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== task.cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, status: 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (stage) analyze(t.id)
@@ -253,9 +279,9 @@ async function routeManaged(task: QueueTask): Promise<void> {
     return
   }
   const snapshots = agentChat.agentSnapshots()
-  const available = snapshots.filter((a) => a.cwd === task.cwd && a.status !== 'error')
+  const available = snapshots.filter((a) => a.cwd === task.cwd && a.status !== 'error' && (!task.config || a.provider === task.config.provider))
   const visible = new Set(snapshots.map((a) => a.uid))
-  if (agentChat.agentWindowInfos().some((a) => a.cwd === task.cwd && !visible.has(a.uid))) return
+  if (agentChat.agentWindowInfos().some((a) => a.cwd === task.cwd && (!task.config || a.provider === task.config.provider) && !visible.has(a.uid))) return
   const contexts = available.map(managedContextOf)
   const related = rankRelated(task.text, contexts)
   let chosen: AgentContext | undefined
@@ -289,7 +315,7 @@ async function routeManaged(task: QueueTask): Promise<void> {
       task.via = chosen.fresh ? 'fresh' : 'related'
       task.reason = chosen.fresh ? 'Conversa disponível no projeto' : `Continua a conversa "${chosen.title}"`
       save()
-      agentChat.actOnAgent(chosen.uid, { type: 'enqueue', taskId: task.id, text: taskPrompt(task) })
+      agentChat.actOnAgent(chosen.uid, { type: 'enqueue', taskId: task.id, text: taskPrompt(task), attachments: task.attachments, model: task.config?.model, effort: task.config?.effort, mode: task.config?.mode })
       return
     } catch (e) {
       task.uid = undefined
@@ -302,10 +328,10 @@ async function routeManaged(task: QueueTask): Promise<void> {
     const base = agentChat.agentBase()
     const settings = getSettings()
     const configured = settings.provider
-    const provider = base?.provider ?? (configured === 'claude' || configured === 'codex' || configured === 'agy' ? configured : null)
+    const provider = task.config?.provider ?? base?.provider ?? (configured === 'claude' || configured === 'codex' || configured === 'agy' ? configured : null)
     if (!provider) throw new Error('Defina um provedor de agentes nas configurações.')
-    const model = base?.model ?? (provider === 'claude' ? settings.claudeModel : provider === 'codex' ? settings.codexModel : settings.agyModel)
-    const agent = await agentChat.openAgentWindow({ provider, model, effort: base?.effort ?? 'high', mode: 'full', cwd: task.cwd, extraDirs: task.extraDirs, firstMessage: taskPrompt(task), managerTaskId: task.id, quiet: true })
+    const model = task.config?.model ?? (base?.provider === provider ? base.model : undefined) ?? (provider === 'claude' ? settings.claudeModel : provider === 'codex' ? settings.codexModel : settings.agyModel)
+    const agent = await agentChat.openAgentWindow({ provider, model, effort: task.config?.effort ?? (base?.provider === provider ? base.effort : 'high'), mode: task.config?.mode ?? 'full', cwd: task.cwd, extraDirs: task.extraDirs, firstMessage: taskPrompt(task), firstFiles: task.attachments?.map((a) => a.path), firstAttachments: task.attachments, managerTaskId: task.id, quiet: true })
     task.uid = agent.uid
     task.agentTitle = agent.title || 'Novo agente'
     task.via = 'new'
