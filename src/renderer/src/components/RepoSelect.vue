@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { api, loadProjectIcon, projectIcons, state } from '../store'
+import { api, loadProjectIcon, projectIcons, saveSettings, state } from '../store'
 import { groupMembers, groupOf } from '@shared/repoGroups'
 import type { RepoGroup } from '@shared/types'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
+import RepoIconPicker from './RepoIconPicker.vue'
 
 /**
  * Seletor de repositório: o ícone do projeto e o nome num botão; a lista (grupos salvos, projeto aberto e recentes,
@@ -45,6 +47,31 @@ const options = computed(() => [...new Set([state.repo?.root ?? '', ...projects.
 const name = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 const dir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
 const icon = (p: string) => projectIcons.get(p) ?? null
+const custom = (p: string) => state.settings?.repoIcons?.[p] ?? null
+const editingIcon = ref<{ kind: 'repo' | 'group'; id: string; name: string } | null>(null)
+function editIcon(kind: 'repo' | 'group', id: string, name: string) {
+  open.value = false
+  editingIcon.value = { kind, id, name }
+}
+const currentIcon = computed(() => editingIcon.value?.kind === 'group' ? groups.value.find((g) => g.id === editingIcon.value?.id)?.icon : editingIcon.value ? custom(editingIcon.value.id) : null)
+async function chooseIcon(icon: string | null) {
+  const target = editingIcon.value
+  if (!target) return
+  try {
+    const s = await api.getSettings()
+    if (target.kind === 'group') {
+      await saveSettings({ repoGroups: s.repoGroups.map((g) => g.id === target.id ? { ...g, icon: icon ?? undefined } : g) })
+    } else {
+      const repoIcons = { ...(s.repoIcons ?? {}) }
+      if (icon) repoIcons[target.id] = icon
+      else delete repoIcons[target.id]
+      await saveSettings({ repoIcons })
+    }
+    editingIcon.value = null
+  } catch (e) {
+    state.error = String((e as Error).message)
+  }
+}
 
 onMounted(async () => {
   projects.value = await api.agentProjects().catch(() => [])
@@ -86,12 +113,11 @@ onUnmounted(() => {
   <span ref="root" class="repo-select" :class="{ on: open }">
     <button type="button" class="sel" :title="group ? [model, ...extra].join('\n') : model || (props.any ? 'Qualquer repositório' : '')" @click="toggle">
       <template v-if="group">
-        <Icon name="layers" :size="14" class="grp" />
+        <RepoIcon :icon="group.icon" group :size="16" />
         <span class="ellipsis">{{ group.name }}</span>
       </template>
       <template v-else-if="model">
-        <img v-if="icon(model)" :src="icon(model)!" class="fav" alt="" />
-        <Icon v-else name="folder" :size="14" class="faint" />
+        <RepoIcon :icon="custom(model)" :favicon="icon(model)" :size="16" />
         <span class="ellipsis">{{ name(model) }}</span>
       </template>
       <template v-else>
@@ -111,20 +137,22 @@ onUnmounted(() => {
       <template v-if="groups.length">
         <h6>Grupos</h6>
         <button v-for="g in groups" :key="g.id" type="button" class="ghost opt" :class="{ cur: group?.id === g.id }" :title="g.dirs.join('\n')" @click="chooseGroup(g)">
-          <Icon name="layers" :size="14" :class="group?.id === g.id ? 'ok' : 'faint'" />
+          <RepoIcon :icon="g.icon" group :size="17" />
           <span class="txt"><span class="nm ellipsis">{{ g.name }}</span><small class="faint ellipsis">{{ groupMembers(g) }}</small></span>
+          <span class="edit" role="button" tabindex="0" :title="g.icon ? 'Trocar ícone do grupo' : 'Escolher ícone do grupo'" @click.stop="editIcon('group', g.id, g.name)" @keydown.enter.stop.prevent="editIcon('group', g.id, g.name)"><Icon name="sparkles" :size="12" /></span>
           <Icon v-if="group?.id === g.id" name="check" :size="13" class="ok" />
         </button>
         <h6>Repositórios</h6>
       </template>
       <button v-for="p in options" :key="p" type="button" class="ghost opt" :class="{ cur: p === model && !group }" :title="p" @click="choose(p)">
-        <img v-if="icon(p)" :src="icon(p)!" class="fav" alt="" />
-        <Icon v-else name="folder" :size="14" class="faint" />
+        <RepoIcon :icon="custom(p)" :favicon="icon(p)" :size="17" />
         <span class="txt"><span class="nm ellipsis">{{ name(p) }}</span><small class="faint ellipsis">{{ dir(p) }}</small></span>
+        <span class="edit" role="button" tabindex="0" :title="custom(p) ? 'Trocar ícone' : 'Escolher ícone'" @click.stop="editIcon('repo', p, name(p))" @keydown.enter.stop.prevent="editIcon('repo', p, name(p))"><Icon name="sparkles" :size="12" /></span>
         <Icon v-if="p === model && !group" name="check" :size="13" class="ok" />
       </button>
     </div>
     </Teleport>
+    <RepoIconPicker v-if="editingIcon" :title="editingIcon.name" :current="currentIcon" @close="editingIcon = null" @choose="chooseIcon" />
   </span>
 </template>
 
@@ -145,5 +173,7 @@ onUnmounted(() => {
 .txt small { font-size: 11px; }
 .ok { color: var(--accent); flex: none; }
 .grp { color: var(--accent); flex: none; }
+.edit { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--faint); flex: none; cursor: pointer; }
+.edit:hover, .edit:focus-visible { color: var(--accent); background: var(--accent-soft); }
 h6 { margin: 6px 10px 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
 </style>

@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type { RepoGroup } from '@shared/types'
 import { groupMatches, groupMembers, groupOf, repoMatches, repoName, saveGroup, searchWords } from '@shared/repoGroups'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
+import RepoIconPicker from './RepoIconPicker.vue'
 
 /**
  * Repositórios da conversa do agente: um chip em destaque com a pasta principal e, se houver, os outros do
@@ -51,6 +53,40 @@ function place() {
 }
 const projects = ref<string[]>([])
 const icons = reactive(new Map<string, string | null>())
+const customIcons = ref<Record<string, string>>({})
+const custom = (p: string) => customIcons.value[p] ?? null
+function loadIcon(p: string) {
+  if (icons.has(p)) return
+  icons.set(p, null)
+  api.projectIcon(p).then((i) => icons.set(p, i)).catch(() => undefined)
+}
+const editingIcon = ref<{ kind: 'repo' | 'group'; id: string; name: string } | null>(null)
+function editIcon(kind: 'repo' | 'group', id: string, name: string) {
+  open.value = false
+  editingIcon.value = { kind, id, name }
+}
+const currentIcon = computed(() => editingIcon.value?.kind === 'group' ? groups.value.find((g) => g.id === editingIcon.value?.id)?.icon : editingIcon.value ? custom(editingIcon.value.id) : null)
+async function chooseIcon(icon: string | null) {
+  const target = editingIcon.value
+  if (!target) return
+  try {
+    const s = await api.getSettings()
+    if (target.kind === 'group') {
+      const repoGroups = (s.repoGroups ?? []).map((g) => g.id === target.id ? { ...g, icon: icon ?? undefined } : g)
+      const next = await api.saveSettings({ repoGroups })
+      groups.value = next.repoGroups
+    } else {
+      const repoIcons = { ...(s.repoIcons ?? {}) }
+      if (icon) repoIcons[target.id] = icon
+      else delete repoIcons[target.id]
+      const next = await api.saveSettings({ repoIcons })
+      customIcons.value = next.repoIcons
+    }
+    editingIcon.value = null
+  } catch (e) {
+    alert(`Não foi possível salvar o ícone: ${String((e as Error).message)}`)
+  }
+}
 
 /* busca: filtra grupos e pastas pelo nome; consultas com / ou \\ procuram no caminho */
 const query = ref('')
@@ -71,6 +107,7 @@ const groups = ref<RepoGroup[]>([])
 async function loadGroups() {
   const s = await api.getSettings().catch(() => null)
   groups.value = s?.repoGroups ?? []
+  customIcons.value = s?.repoIcons ?? {}
 }
 const shownGroups = computed(() => (props.extensible ? groups.value.filter((g) => groupMatches(words.value, g)) : []))
 const group = computed(() => groupOf(groups.value, props.cwd, extras.value))
@@ -125,11 +162,7 @@ async function toggle() {
   nextTick(() => searchInput.value?.focus())
   loadGroups()
   projects.value = await api.agentProjects().catch(() => [])
-  for (const p of projects.value) {
-    if (icons.has(p)) continue
-    icons.set(p, null)
-    api.projectIcon(p).then((i) => icons.set(p, i)).catch(() => undefined)
-  }
+  for (const p of projects.value) loadIcon(p)
 }
 function choose(p: string) {
   if (p === props.cwd) return (open.value = false)
@@ -180,8 +213,12 @@ onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('resize', onResize)
   loadGroups()
-  offSettings = api.onSettingsChanged((s) => (groups.value = s.repoGroups ?? []))
+  loadIcon(props.cwd)
+  extras.value.forEach(loadIcon)
+  offSettings = api.onSettingsChanged((s) => { groups.value = s.repoGroups ?? []; customIcons.value = s.repoIcons ?? {} })
 })
+watch(() => props.cwd, loadIcon)
+watch(extras, (dirs) => dirs.forEach(loadIcon))
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDoc)
   window.removeEventListener('keydown', onKey)
@@ -200,7 +237,7 @@ onUnmounted(() => {
       :title="chipTitle"
       @click="toggle"
     >
-      <Icon :name="group ? 'layers' : 'folder'" :size="big ? 16 : 11" />
+      <RepoIcon :icon="group ? group.icon : custom(cwd)" :favicon="group ? null : icons.get(cwd)" :group="!!group" :size="big ? 19 : 14" />
       <span class="ellipsis">{{ group ? group.name : project }}</span>
       <Icon v-if="canOpen() && (group || !extras.length)" name="chevron" :size="big ? 12 : 10" class="chev" />
     </button>
@@ -210,6 +247,7 @@ onUnmounted(() => {
       <span v-for="p in shownExtra" :key="p" class="pair">
         <span class="plus" aria-hidden="true">+</span>
         <span class="repo more" :class="{ static: !extensible }" :title="p">
+          <RepoIcon :icon="custom(p)" :favicon="icons.get(p)" :size="big ? 18 : 13" />
           <span class="ellipsis">{{ base(p) }}</span>
           <button v-if="extensible" type="button" class="rm" title="Tirar este repositório da conversa" @click.stop="emit('remove', p)"><Icon name="x" :size="big ? 11 : 9" /></button>
         </span>
@@ -235,11 +273,12 @@ onUnmounted(() => {
         <h6>Grupos</h6>
         <div class="list groups">
           <button v-for="g in shownGroups" :key="g.id" type="button" class="ghost opt grp-opt" :class="{ cur: isCur(g) }" :title="g.dirs.join('\n')" @click="apply(g)">
-            <Icon name="layers" :size="14" :class="isCur(g) ? 'ok' : 'faint'" />
+            <RepoIcon :icon="g.icon" group :size="17" />
             <span class="opt-text">
               <strong class="ellipsis">{{ g.name }}</strong>
               <small class="ellipsis">{{ groupMembers(g) }}</small>
             </span>
+            <span class="add edit" role="button" tabindex="0" :title="g.icon ? 'Trocar ícone do grupo' : 'Escolher ícone do grupo'" @click.stop="editIcon('group', g.id, g.name)" @keydown.enter.stop.prevent="editIcon('group', g.id, g.name)"><Icon name="sparkles" :size="12" /></span>
             <span class="add del" title="Tirar o grupo da lista" @click.stop="removeGroup(g)"><Icon name="trash" :size="12" /></span>
             <Icon v-if="isCur(g)" name="check" :size="14" class="ok" />
           </button>
@@ -249,12 +288,12 @@ onUnmounted(() => {
       <h6>{{ switchable ? 'Repositório principal' : 'Repositórios da conversa' }}</h6>
       <div class="list">
         <button v-for="p in shownProjects" :key="p" type="button" class="ghost opt" :class="{ cur: p === cwd, in: inExtra(p) }" :title="p" @click="choose(p)">
-          <img v-if="icons.get(p)" :src="icons.get(p)!" class="fav" alt="" />
-          <Icon v-else name="folder" :size="14" class="faint" />
+          <RepoIcon :icon="custom(p)" :favicon="icons.get(p)" :size="17" />
           <span class="opt-text">
             <strong class="ellipsis">{{ base(p) }}</strong>
             <small class="ellipsis">{{ dir(p) }}</small>
           </span>
+          <span class="add edit" role="button" tabindex="0" :title="custom(p) ? 'Trocar ícone' : 'Escolher ícone'" @click.stop="editIcon('repo', p, base(p))" @keydown.enter.stop.prevent="editIcon('repo', p, base(p))"><Icon name="sparkles" :size="12" /></span>
           <Icon v-if="p === cwd" name="check" :size="14" class="ok" />
           <span v-else-if="extensible" class="add" :class="{ on: inExtra(p) }" :title="inExtra(p) ? 'Tirar da conversa' : 'Juntar à conversa'" @click.stop="toggleExtra(p)">
             <Icon :name="inExtra(p) ? 'check' : 'plus'" :size="12" />
@@ -277,6 +316,7 @@ onUnmounted(() => {
       </template>
       </div>
     </Teleport>
+    <RepoIconPicker v-if="editingIcon" :title="editingIcon.name" :current="currentIcon" @close="editingIcon = null" @choose="chooseIcon" />
   </span>
 </template>
 
@@ -297,6 +337,8 @@ onUnmounted(() => {
 .add { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--faint); flex: none; }
 .add:hover { color: var(--accent); background: var(--accent-soft); }
 .add.on { color: var(--accent); }
+.add.edit { cursor: pointer; }
+.add.edit:hover, .add.edit:focus-visible { color: var(--accent); background: var(--accent-soft); }
 /* a lixeira do grupo só aparece ao passar o mouse na linha */
 .add.del { opacity: 0; }
 .grp-opt:hover .add.del, .add.del:focus-visible { opacity: 1; }

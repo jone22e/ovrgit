@@ -49,6 +49,11 @@ describe('saveGroup', () => {
     const other = saveGroup([g], 'Outro', ['/w/a'])
     expect(other.map((x) => x.name)).toEqual(['SmartConnect', 'Outro'])
   })
+  it('mantém o ícone escolhido quando o grupo é renomeado', () => {
+    const [renamed] = saveGroup([{ ...g, icon: 'sparkles' }], 'Conectores', [...g.dirs])
+    expect(renamed.icon).toBe('sparkles')
+    expect(renamed.id).toBe(g.id)
+  })
 })
 
 describe('nomes', () => {

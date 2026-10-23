@@ -6,6 +6,7 @@ import { loadProject, loadProjectIcon, loadSourceFiles, openNewAgent, openSource
 import { applyTheme } from '../theme'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
 
 /**
  * Buscador (Shift Shift, de qualquer lugar do app): arquivos do projeto e repositórios recentes, na mesma lista.
@@ -264,8 +265,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
                 <span class="dir faint">trocar</span>
               </template>
               <template v-else-if="it.repo">
-                <img v-if="projectIcons.get(it.path)" :src="projectIcons.get(it.path)!" class="fav" alt="" />
-                <Icon v-else name="folder" :size="15" class="faint" />
+                <RepoIcon :icon="state.settings?.repoIcons?.[it.path]" :favicon="projectIcons.get(it.path)" :size="17" />
                 <span class="name ellipsis">{{ base(it.path) }}</span>
                 <span v-if="dir(it.path)" class="dir faint ellipsis">{{ dir(it.path) }}</span>
               </template>

@@ -271,6 +271,8 @@ export interface AwsInstallProgress {
 export interface RepoGroup {
   id: string
   name: string
+  /** Ícone escolhido para o grupo */
+  icon?: string
   /** Pastas do grupo; a primeira vira o principal quando a conversa ainda pode trocar de repositório */
   dirs: string[]
 }
@@ -332,6 +334,8 @@ export interface Settings {
   queueSmart: boolean
   /** Grupos de repositórios salvos pelo seletor da conversa: um nome para um conjunto de pastas */
   repoGroups: RepoGroup[]
+  /** Ícones escolhidos para repositórios, pela pasta */
+  repoIcons: Record<string, string>
   /** Ao abrir o app, reabre os agentes que estavam abertos ao fechar (conversas retomadas, em espera, a da área do orquestrador) */
   restoreAgents: boolean
   /** Canto do cartão do agente trabalhando (orquestrador): o anel de progresso, ou o mascote em miniatura */
@@ -731,6 +735,8 @@ export interface AgentSnapshot {
   paths?: string[]
   /** Pasta onde o agente trabalha */
   cwd: string
+  /** Outros repositórios desta conversa, para identificar um grupo salvo no card */
+  extraDirs?: string[]
   /** Trabalhando: início do trabalho atual e o último sinal do agente (texto, ferramenta, pensamento) */
   startedAt?: number
   lastEventAt?: number

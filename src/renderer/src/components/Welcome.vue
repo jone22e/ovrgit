@@ -3,6 +3,7 @@ import logo from '../assets/logo.png'
 import { onMounted } from 'vue'
 import { loadProject, loadProjectIcon, openProject, projectIcons, state } from '../store'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
 
 onMounted(() => state.settings?.recentProjects.forEach(loadProjectIcon))
 </script>
@@ -31,8 +32,7 @@ onMounted(() => state.settings?.recentProjects.forEach(loadProjectIcon))
         :title="p"
         @click="loadProject(p)"
       >
-        <img v-if="projectIcons.get(p)" :src="projectIcons.get(p)!" class="favicon" alt="" />
-        <Icon v-else name="folder" />
+        <RepoIcon :icon="state.settings?.repoIcons?.[p]" :favicon="projectIcons.get(p)" :size="18" />
         <span class="name">{{ p.split(/[\\/]/).pop() }}</span>
         <span class="path faint ellipsis">{{ p }}</span>
       </button>

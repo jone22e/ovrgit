@@ -57,5 +57,6 @@ export function applyGroup(g: RepoGroup, cwd: string, switchable: boolean): { cw
 export function saveGroup(groups: RepoGroup[], name: string, dirs: string[]): RepoGroup[] {
   const clean = name.trim()
   const kept = groups.filter((g) => !sameRepos(g.dirs, dirs) && g.name.toLowerCase() !== clean.toLowerCase())
-  return [...kept, { id: crypto.randomUUID(), name: clean, dirs: [...new Set(dirs.map(norm))] }].slice(-30)
+  const previous = groups.find((g) => sameRepos(g.dirs, dirs) || g.name.toLowerCase() === clean.toLowerCase())
+  return [...kept, { id: previous?.id ?? crypto.randomUUID(), name: clean, dirs: [...new Set(dirs.map(norm))], ...(previous?.icon ? { icon: previous.icon } : {}) }].slice(-30)
 }

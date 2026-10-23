@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { ProjectOverview } from '@shared/types'
-import { forgetProject, isInside, loadProject, loadProjectIcon, openProject, projectIcons, state } from '../store'
+import { forgetProject, isInside, loadProject, loadProjectIcon, openProject, projectIcons, saveSettings, state } from '../store'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
+import RepoIconPicker from './RepoIconPicker.vue'
 
 const open = defineModel<boolean>('open', { default: false })
 const query = ref('')
@@ -12,6 +14,22 @@ const root = ref<HTMLElement>()
 const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+const iconOf = (p: string) => state.settings?.repoIcons?.[p] ?? null
+const editingIcon = ref<string | null>(null)
+async function chooseIcon(icon: string | null) {
+  const path = editingIcon.value
+  if (!path) return
+  try {
+    const current = await window.ovseer.getSettings()
+    const repoIcons = { ...(current.repoIcons ?? {}) }
+    if (icon) repoIcons[path] = icon
+    else delete repoIcons[path]
+    await saveSettings({ repoIcons })
+    editingIcon.value = null
+  } catch (e) {
+    state.error = String((e as Error).message)
+  }
+}
 
 // situação de cada projeto (só leitura local, rápido): linha, alterações, o que falta enviar/baixar
 const overview = ref(new Map<string, ProjectOverview>())
@@ -111,8 +129,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       :title="`Trocar projeto (${mod}P)\n${state.repo?.root ?? ''}`"
       @click="open = !open"
     >
-      <img v-if="state.repo && projectIcons.get(state.repo.root)" :src="projectIcons.get(state.repo.root)!" class="favicon" alt="" />
-      <Icon v-else name="folder" :size="15" />
+      <RepoIcon v-if="state.repo" :icon="iconOf(state.repo.root)" :favicon="projectIcons.get(state.repo.root)" :size="18" />
       <span class="ellipsis">{{ state.repo?.name }}</span>
       <Icon name="chevron" :size="13" class="chev" />
     </button>
@@ -128,8 +145,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
           @mouseenter="index = i"
           @click="choose(p)"
         >
-          <img v-if="projectIcons.get(p)" :src="projectIcons.get(p)!" class="favicon big" alt="" />
-          <span v-else class="folder"><Icon name="folder" :size="15" /></span>
+          <RepoIcon :icon="iconOf(p)" :favicon="projectIcons.get(p)" :size="24" />
           <span class="txt">
             <span class="name ellipsis">
               {{ baseName(p) }}
@@ -142,6 +158,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
               <span v-for="b in badges(p)" :key="b.t" class="bd" :class="b.c">{{ b.t }}</span>
             </span>
           </span>
+          <button type="button" class="ghost edit-icon" :title="iconOf(p) ? 'Trocar ícone' : 'Escolher ícone'" @click.stop="editingIcon = p"><Icon name="sparkles" :size="13" /></button>
           <button
             v-if="p !== state.repo?.root"
             class="ghost remove"
@@ -163,6 +180,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         <span class="kbd faint">{{ mod }}O</span>
       </button>
     </div>
+    <RepoIconPicker v-if="editingIcon" :title="baseName(editingIcon)" :current="iconOf(editingIcon)" @close="editingIcon = null" @choose="chooseIcon" />
   </div>
 </template>
 
@@ -201,6 +219,8 @@ li.current .name { color: var(--accent); }
 .bd.agent { color: var(--add); background: var(--add-bg); }
 .remove { width: 22px; height: 22px; padding: 0; opacity: 0; flex: none; }
 li:hover .remove { opacity: 1; }
+.edit-icon { width: 24px; height: 24px; padding: 0; flex: none; color: var(--faint); }
+.edit-icon:hover { color: var(--accent); background: var(--accent-soft); }
 .empty { margin: 8px 10px; font-size: 12px; }
 .browse.clone { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0; }
 .browse.clone + .browse { margin-top: 0; border-top: 0; }

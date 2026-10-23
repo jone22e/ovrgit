@@ -36,6 +36,7 @@ const DEFAULTS: Settings = {
   queueReuse: true,
   queueSmart: true,
   repoGroups: [],
+  repoIcons: {},
   restoreAgents: true,
   cardIndicator: 'ring'
 }

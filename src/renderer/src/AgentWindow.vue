@@ -1744,6 +1744,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     files,
     paths: [...new Set(paths)].slice(0, 200),
     cwd: info.value.cwd,
+    extraDirs: info.value.extraDirs,
     startedAt: cur ? workStart(cur) : undefined,
     lastEventAt: cur ? lastEventAt.value : undefined,
     lastTool: lastToolBlock ? (lastToolBlock.detail?.split('\n')[0] || lastToolBlock.title).slice(0, 80) : undefined,

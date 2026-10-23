@@ -3,12 +3,14 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
 import { EFFORT_LABEL, MODES } from '@shared/models'
-import { api, ask, state } from '../store'
+import { api, ask, loadProjectIcon, projectIcons, state } from '../store'
+import { groupOf } from '@shared/repoGroups'
 import AgentBuddy from './AgentBuddy.vue'
 import AgentLogo from './AgentLogo.vue'
 import ContextBattery from './ContextBattery.vue'
 import Heartbeat from './Heartbeat.vue'
 import Icon from './Icon.vue'
+import RepoIcon from './RepoIcon.vue'
 
 /**
  * Cartão de um agente no modo orquestrador: número do atalho em destaque, anel de progresso (o checklist do plano;
@@ -32,6 +34,9 @@ const props = defineProps<{
   stalled?: boolean
 }>()
 const emit = defineEmits<{ pick: []; act: [action: AgentAction] }>()
+const group = computed(() => groupOf(state.settings?.repoGroups ?? [], props.a.cwd, props.a.extraDirs))
+const repoIcon = computed(() => state.settings?.repoIcons?.[props.a.cwd] ?? null)
+watch(() => props.a.cwd, loadProjectIcon, { immediate: true })
 
 /** Configurações: o canto do cartão mostra o mascote em miniatura no lugar do anel */
 const mascot = computed(() => state.settings?.cardIndicator === 'mascot')
@@ -256,7 +261,7 @@ async function saveRename() {
           @blur="saveRename"
         />
         <strong v-else class="title" title="Botão direito: renomear e mais"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ shownTitle }}</strong>
-        <small class="faint ellipsis">{{ a.project }} · {{ a.model }}</small>
+        <small class="faint project"><RepoIcon :icon="group ? group.icon : repoIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="16" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
       <!-- mascote no lugar do anel (Configurações): trabalhando, esperando você ou cochilando (parado) -->
@@ -386,6 +391,8 @@ async function saveRename() {
 .title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-height: 2.6em; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .logo { display: inline-block; vertical-align: -2px; margin-right: 6px; opacity: 0.9; }
 .ttl small { font-size: 11.5px; }
+.project { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.project .ellipsis { min-width: 0; }
 /* renomear em linha: o campo toma o lugar do título */
 .rename { width: 100%; height: 26px; margin: 4px 0 5px; padding: 0 6px; font-size: 13px; font-weight: 600; }
 
