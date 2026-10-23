@@ -261,7 +261,7 @@ async function saveRename() {
           @blur="saveRename"
         />
         <strong v-else class="title" title="Botão direito: renomear e mais"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ shownTitle }}</strong>
-        <small class="faint project"><RepoIcon :icon="group ? group.icon : repoIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="16" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
+        <small class="faint project"><RepoIcon :icon="group ? group.icon : repoIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="22" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
       <!-- mascote no lugar do anel (Configurações): trabalhando, esperando você ou cochilando (parado) -->
@@ -391,8 +391,8 @@ async function saveRename() {
 .title { font-size: 13.5px; font-weight: 600; line-height: 1.3; min-height: 2.6em; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .logo { display: inline-block; vertical-align: -2px; margin-right: 6px; opacity: 0.9; }
 .ttl small { font-size: 11.5px; }
-.project { display: flex; align-items: center; gap: 5px; min-width: 0; }
-.project .ellipsis { min-width: 0; }
+.project { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 22px; }
+.project .ellipsis { display: block; min-width: 0; line-height: 1.2; }
 /* renomear em linha: o campo toma o lugar do título */
 .rename { width: 100%; height: 26px; margin: 4px 0 5px; padding: 0 6px; font-size: 13px; font-weight: 600; }
 
