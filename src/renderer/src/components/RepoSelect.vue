@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, loadProjectIcon, projectIcons, saveSettings, state } from '../store'
-import { groupMembers, groupOf } from '@shared/repoGroups'
+import { groupMatches, groupMembers, groupOf, repoMatches, searchWords } from '@shared/repoGroups'
 import type { RepoGroup } from '@shared/types'
 import Icon from './Icon.vue'
 import RepoIcon from './RepoIcon.vue'
@@ -40,10 +40,28 @@ function place() {
 }
 function toggle() {
   open.value = !open.value
-  if (open.value) place()
+  if (open.value) {
+    query.value = ''
+    place()
+    nextTick(() => searchInput.value?.focus())
+  }
 }
 const projects = ref<string[]>([])
 const options = computed(() => [...new Set([state.repo?.root ?? '', ...projects.value].filter(Boolean))])
+const query = ref('')
+const searchInput = ref<HTMLInputElement>()
+const words = computed(() => searchWords(query.value))
+const shownGroups = computed(() => groups.value.filter((g) => groupMatches(words.value, g)))
+const shownOptions = computed(() => options.value.filter((p) => repoMatches(words.value, p)))
+function chooseFirst() {
+  if (!query.value.trim()) return
+  if (shownGroups.value[0]) chooseGroup(shownGroups.value[0])
+  else if (shownOptions.value[0]) choose(shownOptions.value[0])
+}
+function onSearchEsc() {
+  if (query.value) query.value = ''
+  else open.value = false
+}
 const name = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
 const dir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
 const icon = (p: string) => projectIcons.get(p) ?? null
@@ -128,28 +146,34 @@ onUnmounted(() => {
     </button>
     <Teleport to="body">
     <div v-if="open" ref="popEl" class="repo-select-pop" role="listbox" :style="popStyle">
-      <button v-if="props.any" type="button" class="ghost opt" :class="{ cur: !model }" @click="choose('')">
+      <label class="search">
+        <Icon name="search" :size="13" />
+        <input ref="searchInput" v-model="query" type="text" placeholder="Buscar repositório ou grupo" spellcheck="false" @keydown.esc.stop.prevent="onSearchEsc" @keydown.enter.prevent="chooseFirst" />
+        <button v-if="query" type="button" class="ghost clear" title="Limpar busca" @click="query = ''; searchInput?.focus()"><Icon name="x" :size="12" /></button>
+      </label>
+      <button v-if="props.any && !words.length" type="button" class="ghost opt" :class="{ cur: !model }" @click="choose('')">
         <Icon name="layers" :size="14" class="faint" />
         <span class="txt"><span class="nm ellipsis">Qualquer repositório</span><small class="faint ellipsis">o próximo agente em espera livre, de qualquer projeto</small></span>
         <Icon v-if="!model" name="check" :size="13" class="ok" />
       </button>
       <!-- grupos salvos: o principal mais os juntados, de uma vez -->
-      <template v-if="groups.length">
+      <template v-if="shownGroups.length">
         <h6>Grupos</h6>
-        <button v-for="g in groups" :key="g.id" type="button" class="ghost opt" :class="{ cur: group?.id === g.id }" :title="g.dirs.join('\n')" @click="chooseGroup(g)">
+        <button v-for="g in shownGroups" :key="g.id" type="button" class="ghost opt" :class="{ cur: group?.id === g.id }" :title="g.dirs.join('\n')" @click="chooseGroup(g)">
           <RepoIcon :icon="g.icon" group :size="17" />
           <span class="txt"><span class="nm ellipsis">{{ g.name }}</span><small class="faint ellipsis">{{ groupMembers(g) }}</small></span>
           <span class="edit" role="button" tabindex="0" :title="g.icon ? 'Trocar ícone do grupo' : 'Escolher ícone do grupo'" @click.stop="editIcon('group', g.id, g.name)" @keydown.enter.stop.prevent="editIcon('group', g.id, g.name)"><Icon name="sparkles" :size="12" /></span>
           <Icon v-if="group?.id === g.id" name="check" :size="13" class="ok" />
         </button>
-        <h6>Repositórios</h6>
       </template>
-      <button v-for="p in options" :key="p" type="button" class="ghost opt" :class="{ cur: p === model && !group }" :title="p" @click="choose(p)">
+      <h6 v-if="groups.length && shownOptions.length">Repositórios</h6>
+      <button v-for="p in shownOptions" :key="p" type="button" class="ghost opt" :class="{ cur: p === model && !group }" :title="p" @click="choose(p)">
         <RepoIcon :icon="custom(p)" :favicon="icon(p)" :size="17" />
         <span class="txt"><span class="nm ellipsis">{{ name(p) }}</span><small class="faint ellipsis">{{ dir(p) }}</small></span>
         <span class="edit" role="button" tabindex="0" :title="custom(p) ? 'Trocar ícone' : 'Escolher ícone'" @click.stop="editIcon('repo', p, name(p))" @keydown.enter.stop.prevent="editIcon('repo', p, name(p))"><Icon name="sparkles" :size="12" /></span>
         <Icon v-if="p === model && !group" name="check" :size="13" class="ok" />
       </button>
+      <p v-if="words.length && !shownGroups.length && !shownOptions.length" class="none">Nenhum grupo ou repositório encontrado.</p>
     </div>
     </Teleport>
     <RepoIconPicker v-if="editingIcon" :title="editingIcon.name" :current="currentIcon" @close="editingIcon = null" @choose="chooseIcon" />
@@ -166,6 +190,11 @@ onUnmounted(() => {
 .chev { color: var(--faint); transform: rotate(90deg); flex: none; }
 .repo-select-pop { position: fixed; z-index: 90; box-sizing: border-box; overflow: hidden auto; padding: 6px; border-radius: 12px; background: var(--panel); border: 1px solid var(--border); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 2px; animation: drop 0.12s ease-out; }
 @keyframes drop { from { opacity: 0; transform: translateY(-4px); } }
+.search { position: sticky; top: 0; z-index: 1; flex: none; display: flex; align-items: center; gap: 6px; height: 30px; margin: 2px 4px 4px; padding: 0 7px 0 9px; border: 1px solid var(--border); border-radius: 7px; color: var(--faint); background: var(--bg); }
+.search:focus-within { border-color: var(--accent); }
+.search input, .search input[type='text']:focus { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--text); font-size: 12.5px; }
+.search .clear { width: 20px; height: 20px; padding: 0; flex: none; }
+.none { margin: 8px 10px; color: var(--muted); font-size: 12px; }
 .opt { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 10px; justify-content: flex-start; color: var(--text); min-width: 0; flex: none; }
 .opt.cur { background: var(--accent-soft); }
 .txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; text-align: left; }

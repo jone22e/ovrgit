@@ -43,12 +43,17 @@ const popStyle = ref<Record<string, string>>({})
 function place() {
   const r = root.value?.getBoundingClientRect()
   if (!r) return
-  const top = r.bottom + 6
+  const width = Math.min(400, Math.max(240, window.innerWidth - 16))
+  const anchor = props.center ? r.left + r.width / 2 - width / 2 : r.left
+  const left = Math.max(8, Math.min(anchor, window.innerWidth - width - 8))
+  const below = window.innerHeight - r.bottom - 12
+  const above = r.top - 12
+  const up = below < 240 && above > below
   popStyle.value = {
-    top: `${top}px`,
-    left: props.center ? `${r.left + r.width / 2}px` : `${r.left}px`,
-    transform: props.center ? 'translateX(-50%)' : '',
-    maxHeight: `${Math.max(160, window.innerHeight - top - 12)}px`
+    left: `${left}px`,
+    width: `${width}px`,
+    maxHeight: `${Math.min(440, Math.max(120, up ? above : below))}px`,
+    ...(up ? { bottom: `${window.innerHeight - r.top + 6}px` } : { top: `${r.bottom + 6}px` })
   }
 }
 const projects = ref<string[]>([])
@@ -269,6 +274,7 @@ onUnmounted(() => {
         <input ref="searchInput" v-model="query" type="text" :placeholder="groups.length && extensible ? 'Buscar repositório ou grupo' : 'Buscar repositório'" spellcheck="false" @keydown.esc.stop="onSearchEsc" @keydown.enter.prevent="chooseFirst" />
         <button v-if="query" type="button" class="ghost clear" title="Limpar" @click="query = ''"><Icon name="x" :size="12" /></button>
       </label>
+      <div class="results">
       <template v-if="shownGroups.length">
         <h6>Grupos</h6>
         <div class="list groups">
@@ -302,6 +308,8 @@ onUnmounted(() => {
         <p v-if="!projects.length" class="faint none">Nenhum repositório recente.</p>
         <p v-else-if="!shownProjects.length" class="faint none">Nenhum repositório com “{{ query.trim() }}”.</p>
       </div>
+      </div>
+      <template v-if="!query.trim()">
       <hr class="sep" />
       <button v-if="switchable" type="button" class="ghost opt" @click="pick"><Icon name="folder" :size="14" class="faint" /><strong>Outra pasta como principal…</strong></button>
       <button v-if="extensible" type="button" class="ghost opt" @click="pickExtra"><Icon name="plus" :size="14" class="faint" /><strong>Juntar outra pasta…</strong></button>
@@ -313,6 +321,7 @@ onUnmounted(() => {
           <input ref="nameInput" v-model="nameDraft" type="text" maxlength="60" placeholder="Nome do grupo" @keydown.esc.stop="naming = false" />
           <button type="submit" class="primary small" :disabled="!nameDraft.trim()">Salvar</button>
         </form>
+      </template>
       </template>
       </div>
     </Teleport>
@@ -374,11 +383,11 @@ h6 { margin: 6px 10px 4px; font-size: 10.5px; text-transform: uppercase; letter-
   border: 1px solid var(--border); border-radius: 7px; color: var(--faint); background: var(--bg);
 }
 .search:focus-within { border-color: var(--accent); }
-.search input { flex: 1; min-width: 0; border: 0; outline: 0; box-shadow: none; background: transparent; padding: 0; height: 100%; border-radius: 0; font-size: 12.5px; color: var(--text); }
+.search input, .search input[type='text']:focus { flex: 1; min-width: 0; border: 0; outline: 0; box-shadow: none; background: transparent; padding: 0; height: 100%; border-radius: 0; font-size: 12.5px; color: var(--text); }
 .search .clear { width: 20px; height: 20px; padding: 0; flex: none; }
-.list { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-/* o menu não cabe na altura da janela: só a lista de repositórios encolhe e rola; os grupos (poucos) ficam inteiros */
-.list.groups { flex: none; max-height: 150px; }
+.results { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.pop > .opt, .pop > .sep, .pop > .naming { flex: none; }
+.list { display: flex; flex-direction: column; gap: 2px; flex: none; }
 .list .opt { flex: none; }
 .opt { justify-content: flex-start; gap: 10px; height: auto; padding: 7px 10px; width: 100%; text-align: left; color: var(--text); }
 .opt.cur { background: var(--accent-soft); }
