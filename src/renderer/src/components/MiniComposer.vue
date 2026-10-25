@@ -12,7 +12,7 @@ import ModelPicker from './ModelPicker.vue'
  * de várias linhas, anexos (botão, arrastar, colar), texto grande colado como cartão, modelo e esforço, modo e o
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
-const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; managerSessionId?: string; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
+const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; managerSessionId?: string; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; dictationTerms?: string[]; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
 const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
@@ -74,7 +74,7 @@ const dictation = useDictation((words) => {
     waitingForVoice.value = true
     nextTick(() => void send())
   }
-}, () => !!props.autoSendDictation)
+}, () => !!props.autoSendDictation, () => props.dictationTerms ?? [])
 watch(() => props.autoSendDictation, (active) => {
   clearTimeout(resumeTimer)
   clearInterval(elapsedTimer)
@@ -89,14 +89,15 @@ watch(() => props.autoSendDictation, (active) => {
   else {
     waitingForVoice.value = false
     voiceStarted.value = false
-    dictation.cancel()
+    dictation.hangUp()
   }
 }, { immediate: true })
 watch(() => dictation.phase.value, (phase) => { if (phase === 'idle') resumeListening() })
 watch(() => props.voiceSpeaking, (speaking) => {
   if (speaking) {
     voiceStarted.value = true
-    dictation.cancel()
+    // o que já foi dito até aqui vai para a transcrição; a escuta volta quando a voz terminar
+    dictation.flush()
   } else if (voiceStarted.value) {
     voiceStarted.value = false
     if (!sending.value) {
@@ -213,7 +214,8 @@ async function send() {
     try {
       if (props.autoSendDictation) {
         waitingForVoice.value = true
-        dictation.cancel()
+        // uma fala já captada depois desta entra como a próxima mensagem
+        dictation.flush()
       }
       if (props.autoSendDictation) await api.voiceCancel('__manager__').catch(() => undefined)
       const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, managerSessionId: props.managerSessionId, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })

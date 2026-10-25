@@ -4,7 +4,10 @@ import Speech
 
 // ovseer-transcribe: transforma um arquivo de áudio em texto (o mesmo motor das legendas do ScreenRx).
 //
-//   ovseer-transcribe --input <arquivo de áudio> --locale <id BCP 47>
+//   ovseer-transcribe --input <arquivo de áudio> --locale <id BCP 47> [--terms <arquivo de texto>]
+//
+// `--terms` é um arquivo com um termo por linha (nomes de projetos, agentes, jargão) que o reconhecedor passa a
+// favorecer: o vocabulário de contexto do SpeechAnalyzer.
 //
 // O reconhecimento roda neste Mac (SpeechAnalyzer); o áudio não sai dele.
 // O andamento e o resultado saem no stdout, uma linha JSON por vez:
@@ -41,8 +44,14 @@ func argument(_ name: String) -> String? {
     return arguments[index + 1]
 }
 
+/** Um termo por linha; linhas vazias são ignoradas. Arquivo ausente ou ilegível é o mesmo que nenhum termo. */
+func readTerms(_ path: String?) -> [String] {
+    guard let path, let content = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
+    return content.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+}
+
 @available(macOS 26.0, *)
-func transcribe(input: URL, localeId: String) async {
+func transcribe(input: URL, localeId: String, terms: [String]) async {
     emit(Message(type: "status", state: "preparing"))
 
     let wanted = Locale(identifier: localeId).identifier(.bcp47)
@@ -75,6 +84,11 @@ func transcribe(input: URL, localeId: String) async {
 
         emit(Message(type: "status", state: "transcribing"))
         let analyzer = SpeechAnalyzer(modules: [transcriber])
+        if !terms.isEmpty {
+            let context = AnalysisContext()
+            context.contextualStrings = [.general: terms]
+            try await analyzer.setContext(context)
+        }
         let results = Task {
             for try await result in transcriber.results {
                 let text = String(result.text.characters)
@@ -99,7 +113,7 @@ guard let inputPath = argument("--input"), let localeId = argument("--locale") e
 }
 
 if #available(macOS 26.0, *) {
-    await transcribe(input: URL(fileURLWithPath: inputPath), localeId: localeId)
+    await transcribe(input: URL(fileURLWithPath: inputPath), localeId: localeId, terms: readTerms(argument("--terms")))
 } else {
     fail("unsupported-os", "a transcrição precisa do macOS 26 ou mais novo")
 }

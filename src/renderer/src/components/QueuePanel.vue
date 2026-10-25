@@ -81,6 +81,11 @@ let enableVoiceAfterSetup = false
 const managerVoiceId = '__manager__'
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
 const conversation = computed(() => voicePlatform && voiceSession.value)
+/** Nomes que o reconhecimento de fala deve favorecer: agentes abertos e projetos recentes */
+const dictationTerms = computed(() => [
+  ...state.agentSnaps.flatMap((snap) => [snap.project, snap.title]),
+  ...(state.settings?.recentProjects ?? []).map((p) => p.split('/').filter(Boolean).pop() ?? '')
+])
 const scopeLabel = computed(() => {
   const count = state.agentSnaps.length
   return `Todos os projetos · ${count} ${count === 1 ? 'agente' : 'agentes'}`
@@ -298,7 +303,7 @@ watch(() => state.queue.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       </article>
     </div>
     <div class="manager-composer" :class="{ conversation }">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :manager-session-id="voiceSessionId ?? undefined" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :manager-session-id="voiceSessionId ?? undefined" :known="known" :dictation-terms="dictationTerms" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>

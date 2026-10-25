@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { encodeWav, readTranscribeOutput } from '../src/shared/transcribe'
+import { createNoiseFloor, dictationTerms, encodeWav, readTranscribeOutput } from '../src/shared/transcribe'
 
 const j = (o: unknown) => JSON.stringify(o)
 
@@ -29,5 +29,42 @@ describe('readTranscribeOutput', () => {
   it('saída cortada no meio é erro', () => {
     expect(readTranscribeOutput(j({ type: 'text', text: 'Olá' }))).toEqual({ error: 'A transcrição parou antes de terminar.' })
     expect(readTranscribeOutput('')).toEqual({ error: 'A transcrição parou antes de terminar.' })
+  })
+})
+
+describe('dictationTerms', () => {
+  it('põe os nomes passados antes do vocabulário básico, sem repetição', () => {
+    const terms = dictationTerms(['Flexi', ' loja ', 'flexi', '', 'Deploy'])
+    expect(terms.slice(0, 2)).toEqual(['Flexi', 'loja'])
+    expect(terms.filter((t) => t.toLowerCase() === 'deploy')).toEqual(['Deploy'])
+    expect(terms).toContain('Ovseer')
+  })
+  it('ignora termos longos demais e limita a quantidade', () => {
+    expect(dictationTerms(['x'.repeat(61)])).not.toContain('x'.repeat(61))
+    expect(dictationTerms(Array.from({ length: 300 }, (_, i) => `p${i}`)).length).toBe(120)
+  })
+})
+
+describe('createNoiseFloor', () => {
+  it('voz baixa conta como fala num ambiente silencioso', () => {
+    const noise = createNoiseFloor()
+    for (let i = 0; i < 10; i++) noise.sample(0.002)
+    expect(noise.threshold).toBeCloseTo(0.008)
+    expect(noise.sample(0.012)).toBe(true)
+  })
+  it('ruído constante sobe o limiar e não conta como fala', () => {
+    const noise = createNoiseFloor()
+    for (let i = 0; i < 60; i++) noise.sample(0.012)
+    expect(noise.threshold).toBeGreaterThan(0.03)
+    expect(noise.sample(0.012)).toBe(false)
+    expect(noise.sample(0.05)).toBe(true)
+  })
+  it('o limiar tem teto, e a fala não altera o piso', () => {
+    const noise = createNoiseFloor()
+    for (let i = 0; i < 60; i++) noise.sample(0.05)
+    expect(noise.threshold).toBe(0.06)
+    const floor = noise.floor
+    for (let i = 0; i < 60; i++) noise.sample(0.5)
+    expect(noise.floor).toBe(floor)
   })
 })

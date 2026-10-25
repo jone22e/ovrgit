@@ -8,6 +8,57 @@ export const DICTATION_RATE = 16000
 /** Idioma do ditado */
 export const DICTATION_LOCALE = 'pt-BR'
 
+/** Termos que o reconhecedor costuma errar e que sempre entram no vocabulário de contexto */
+const BASE_TERMS = ['Ovseer', 'Claude', 'Codex', 'Gemini', 'deploy', 'commit', 'push', 'pull request', 'merge', 'branch', 'rebase', 'migration', 'typecheck', 'build', 'lint', 'backend', 'frontend', 'API', 'endpoint', 'webhook', 'Docker', 'PostgreSQL', 'TypeScript', 'Vue', 'Electron', 'Node', 'npm', 'GitHub']
+const MAX_TERMS = 120
+const MAX_TERM_LENGTH = 60
+
+/** Vocabulário de contexto do reconhecedor: os termos básicos mais os nomes passados (projetos, agentes), sem repetição */
+export function dictationTerms(extra: readonly string[] = []): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of [...extra, ...BASE_TERMS]) {
+    const term = String(raw ?? '').replace(/\s+/g, ' ').trim()
+    if (!term || term.length > MAX_TERM_LENGTH || seen.has(term.toLowerCase())) continue
+    seen.add(term.toLowerCase())
+    out.push(term)
+    if (out.length >= MAX_TERMS) break
+  }
+  return out
+}
+
+/** Limiar de fala em relação ao piso de ruído do ambiente, com mínimo (voz baixa) e máximo (ambiente barulhento) */
+const FLOOR_RATIO = 3
+const MIN_THRESHOLD = 0.008
+const MAX_THRESHOLD = 0.06
+
+/**
+ * Piso de ruído do microfone: média móvel do volume (RMS) nos trechos sem fala. O limiar de fala fica acima dele,
+ * então voz baixa num ambiente silencioso conta, e um ventilador ligado não conta. O piso sobe devagar e desce rápido.
+ */
+export function createNoiseFloor() {
+  let floor: number | null = null
+  const threshold = () => (floor === null ? MIN_THRESHOLD : Math.min(MAX_THRESHOLD, Math.max(MIN_THRESHOLD, floor * FLOOR_RATIO)))
+  return {
+    get threshold() {
+      return threshold()
+    },
+    get floor() {
+      return floor
+    },
+    /** Registra uma medição de volume (RMS, 0 a 1) e diz se ela conta como fala */
+    sample(rms: number): boolean {
+      if (floor === null) {
+        floor = rms
+        return false
+      }
+      if (rms >= threshold()) return true
+      floor += (rms - floor) * (rms > floor ? 0.1 : 0.3)
+      return false
+    }
+  }
+}
+
 /** WAV PCM de 16 bits, mono, a partir das amostras (−1 a 1) */
 export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array {
   const out = new DataView(new ArrayBuffer(44 + samples.length * 2))

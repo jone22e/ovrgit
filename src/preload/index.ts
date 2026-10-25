@@ -220,7 +220,7 @@ const api: OvseerApi = {
   startTaskBranch: (key, title) => ipcRenderer.invoke('task:branch', key, title),
   ovseerUpload: (taskId, file, purpose) => ipcRenderer.invoke('ovseer:upload', taskId, file, purpose),
   requestMicrophone: () => ipcRenderer.invoke('media:microphone'),
-  transcribeAudio: (wav) => ipcRenderer.invoke('media:transcribe', wav),
+  transcribeAudio: (wav, terms) => ipcRenderer.invoke('media:transcribe', wav, terms),
   onOvseerChange: (cb) => {
     const h = () => cb()
     ipcRenderer.on('ovseer:changed', h)
