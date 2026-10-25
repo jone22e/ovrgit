@@ -17,7 +17,6 @@ const tasks = computed(() => state.queue)
 const voiceSetup = ref(false)
 const voicePending = ref(0)
 const voicePhase = ref<'idle' | 'generating' | 'playing'>('idle')
-const voiceUiState = ref<'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'>('listening')
 const voiceSession = ref(false)
 let enableVoiceAfterSetup = false
 const managerVoiceId = '__manager__'
@@ -141,7 +140,6 @@ const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = 
 onMounted(scrollEnd)
 onMounted(() => api.knownModels().then((models) => (known.value = models)).catch(() => undefined))
 watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
-watch(voiceUiState, scrollEnd)
 </script>
 
 <template>
@@ -207,11 +205,9 @@ watch(voiceUiState, scrollEnd)
           </div>
         </div>
       </article>
-      <div v-if="conversation && voiceUiState === 'transcribing'" class="voice-progress"><Icon name="mic" :size="12" /> Transcrevendo sua fala…</div>
-      <div v-else-if="conversation && voiceUiState === 'thinking'" class="voice-progress"><span class="spinner" /> Preparando resposta…</div>
     </div>
     <div class="manager-composer" :class="{ conversation }">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation" @voice-state="voiceUiState = $event">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>
@@ -231,7 +227,6 @@ watch(voiceUiState, scrollEnd)
 .avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
 .avatar { width: 34px; height: 34px; border-radius: 11px; }
 .feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 12px; }
-.voice-progress { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; padding: 6px 8px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 9px; }
 .intro { margin: auto 4px; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; color: var(--muted); }
 .intro > svg { color: var(--accent); }
 .intro strong { color: var(--text); font-size: 13px; }

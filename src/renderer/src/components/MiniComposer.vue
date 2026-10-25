@@ -13,7 +13,7 @@ import ModelPicker from './ModelPicker.vue'
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
 const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
-const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: []; voiceState: [state: 'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'] }>()
+const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
 const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
@@ -48,11 +48,10 @@ const elapsed = ref(0)
 let sessionStarted = 0
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
 const elapsedLabel = computed(() => `${Math.floor(elapsed.value / 60)}:${String(elapsed.value % 60).padStart(2, '0')}`)
-const voiceState = computed<'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'>(() => {
+const voiceState = computed<'listening' | 'thinking' | 'responding' | 'muted' | 'typing'>(() => {
   if (typing.value) return 'typing'
-  if (dictation.phase.value === 'transcribing') return 'transcribing'
   if (props.voicePhase === 'playing') return 'responding'
-  if (waitingForVoice.value || props.voicePhase === 'generating') return 'thinking'
+  if (dictation.phase.value === 'transcribing' || waitingForVoice.value || props.voicePhase === 'generating') return 'thinking'
   if (muted.value) return 'muted'
   return 'listening'
 })
@@ -76,7 +75,6 @@ const dictation = useDictation((words) => {
     nextTick(() => void send())
   }
 }, () => !!props.autoSendDictation)
-watch(voiceState, (phase) => { if (props.autoSendDictation) emit('voiceState', phase) }, { immediate: true })
 watch(() => props.autoSendDictation, (active) => {
   clearTimeout(resumeTimer)
   clearInterval(elapsedTimer)
@@ -86,7 +84,6 @@ watch(() => props.autoSendDictation, (active) => {
     sessionStarted = Date.now()
     elapsed.value = 0
     elapsedTimer = setInterval(() => (elapsed.value = Math.floor((Date.now() - sessionStarted) / 1000)), 1000)
-    emit('voiceState', voiceState.value)
     resumeListening()
   }
   else {
@@ -276,8 +273,8 @@ onUnmounted(() => {
         </span>
       </div>
       <div class="voice-description" aria-live="polite">
-        <strong>{{ voiceState === 'responding' ? 'Respondendo' : voiceState === 'thinking' ? 'Pensando' : voiceState === 'transcribing' ? 'Transcrevendo' : voiceState === 'muted' ? 'Microfone mudo' : voiceState === 'typing' ? 'Digite sua mensagem' : canDictate ? 'Ouvindo' : 'Microfone indisponível' }}</strong>
-        <span>{{ voiceState === 'responding' ? 'Use Parar para interromper' : voiceState === 'thinking' ? 'Preparando resposta' : voiceState === 'transcribing' ? 'Entendendo sua fala' : voiceState === 'muted' ? 'Toque em Ativar para voltar a falar' : voiceState === 'typing' ? 'Envie o texto abaixo' : canDictate ? 'Pause para enviar' : 'Use Digitar para conversar' }}</span>
+        <strong>{{ voiceState === 'responding' ? 'Respondendo' : voiceState === 'thinking' ? 'Pensando' : voiceState === 'muted' ? 'Microfone mudo' : voiceState === 'typing' ? 'Digite sua mensagem' : canDictate ? 'Ouvindo' : 'Microfone indisponível' }}</strong>
+        <span>{{ voiceState === 'responding' ? 'Use Parar para interromper' : voiceState === 'thinking' ? 'Só um instante…' : voiceState === 'muted' ? 'Toque em Ativar para voltar a falar' : voiceState === 'typing' ? 'Envie o texto abaixo' : canDictate ? 'Pode falar' : 'Use Digitar para conversar' }}</span>
       </div>
       <div class="voice-controls">
         <button type="button" class="voice-action" :disabled="!canDictate" :title="muted ? 'Ativar microfone' : 'Deixar microfone mudo'" @click="toggleMute"><span class="voice-action-icon"><Icon :name="muted ? 'mic' : 'micOff'" :size="18" /></span><small>{{ muted ? 'Ativar' : 'Mudo' }}</small></button>
@@ -359,7 +356,7 @@ onUnmounted(() => {
 .voice-core { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: var(--accent); background: color-mix(in srgb, var(--accent) 17%, var(--panel)); }
 .voice-focus.listening .voice-core { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 13%, transparent); }
 .voice-focus.listening .voice-ring.inner { animation: voice-pulse 1.8s ease-in-out infinite; }
-.voice-focus.thinking .voice-ring.outer, .voice-focus.transcribing .voice-ring.outer { border-style: dashed; animation: voice-turn 9s linear infinite; }
+.voice-focus.thinking .voice-ring.outer { border-style: dashed; animation: voice-turn 9s linear infinite; }
 .voice-focus.responding .voice-core { border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .voice-focus.muted { opacity: .55; }
 .voice-dots, .voice-bars { display: flex; align-items: center; justify-content: center; gap: 4px; height: 26px; }
