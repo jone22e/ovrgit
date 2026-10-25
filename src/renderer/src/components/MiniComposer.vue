@@ -374,10 +374,10 @@ onUnmounted(() => {
 .voice-description strong { color: var(--text); font-size: 16px; }
 .voice-description span { color: var(--muted); font-size: 11px; }
 .voice-controls { display: flex; align-items: flex-start; justify-content: center; gap: 14px; width: 100%; margin-top: auto; padding-top: 12px; }
-.voice-action { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 68px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.voice-action { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 68px; height: 68px; flex: none; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .voice-action:hover:not(:disabled) { color: var(--text); }
 .voice-action:disabled { opacity: .45; cursor: default; }
-.voice-action-icon { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 50%; background: var(--panel); }
+.voice-action-icon { display: grid; place-items: center; width: 43px; height: 43px; flex: none; border-radius: 50%; background: var(--panel); }
 .voice-action.end .voice-action-icon { background: color-mix(in srgb, var(--del) 25%, var(--panel)); color: color-mix(in srgb, var(--del) 60%, var(--text)); }
 .voice-action small { font-size: 10px; }
 @keyframes voice-pulse { 50% { transform: scale(1.12); opacity: .5; } }
