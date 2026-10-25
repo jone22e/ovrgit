@@ -150,7 +150,7 @@ watch(voiceUiState, scrollEnd)
       <span class="avatar"><Icon name="bot" :size="19" /></span>
       <span><strong>Gerenciador de agentes</strong><small>{{ scopeLabel }}</small></span>
       <span class="head-spacer" />
-      <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Conversa ativa' : 'Conversa por voz' }}</button>
+      <button v-if="voicePlatform" class="ghost icon voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" :aria-label="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" :aria-pressed="conversation" @click="toggleConversation"><Icon name="phone" :size="18" /></button>
       <button v-if="voicePlatform && voicePending" class="ghost icon" title="Interromper fala do gerenciador" @click="api.voiceCancel(managerVoiceId)"><Icon name="stop" :size="13" /></button>
       <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
@@ -226,7 +226,7 @@ watch(voiceUiState, scrollEnd)
 .manager-head strong { font-size: 13px; }
 .manager-head small { color: var(--faint); font-size: 10.5px; }
 .head-spacer { flex: 1; }
-.voice-toggle { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 5px 7px; color: var(--muted); font-size: 10.5px; }
+.voice-toggle { width: 32px; height: 32px; padding: 0; color: var(--muted); }
 .voice-toggle.on { color: var(--accent); background: var(--accent-soft); }
 .avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
 .avatar { width: 34px; height: 34px; border-radius: 11px; }
