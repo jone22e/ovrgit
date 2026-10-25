@@ -147,10 +147,16 @@ function createWindow() {
   win.once('ready-to-show', () => win?.show())
   // modo orquestrador: a conversa presa à principal acompanha tamanho, posição e minimização dela
   agentChat.watchMainWindow(win)
+  win.on('close', (event) => {
+    // ⌘W na principal encerra o app e todas as conversas, inclusive as ocultas e as embutidas.
+    if (quitState !== 'no') return
+    event.preventDefault()
+    prepareQuit()
+    setImmediate(() => app.quit())
+  })
   win.on('closed', () => {
     win = null
-    // sem a janela principal, uma janela de agente escondida não teria mais como voltar: reaparece
-    agentChat.revealHiddenAgentWindows()
+    if (quitState === 'no') app.quit()
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)

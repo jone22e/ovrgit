@@ -268,12 +268,10 @@ export function layoutDocked() {
   w.win.place(b, main)
 }
 
-/** A janela principal mudou de tamanho ou zoom: a vista acompanha. Fechando a principal, as conversas viram janelas
- * (menos quando o app está saindo ou reiniciando para atualizar: aí elas fecham junto) */
+/** A janela principal mudou de tamanho ou zoom: a vista acompanha. */
 export function watchMainWindow(main: BrowserWindow) {
   main.on('resize', () => layoutDocked())
   main.webContents.on('zoom-changed', () => layoutDocked())
-  main.on('close', () => !quitting && undockAll(true))
 }
 
 /** Mostra a conversa `uid` na área do orquestrador (a que estava lá sai de cena). false: não dá (sem janela principal) */
@@ -937,11 +935,6 @@ export function hideAgentWindow(uid: string) {
     w.win.once('leave-full-screen', () => !w.win.isDestroyed() && w.win.hide())
     w.win.setFullScreen(false)
   } else w.win.hide()
-}
-
-/** Mostra de novo as janelas escondidas (quem as traria de volta, o gerenciador, fechou) */
-export function revealHiddenAgentWindows() {
-  for (const w of wins.values()) if (!w.win.isDestroyed() && !w.docked && !isEmbedded(w.win) && !w.win.isVisible() && !w.win.isMinimized()) w.win.show()
 }
 
 /** Ações sobre todas as janelas de agente, do dropdown do Organizar */
