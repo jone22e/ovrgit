@@ -1034,6 +1034,7 @@ export interface OvseerApi {
   voiceCancel(uid: string): Promise<void>
   onVoiceProgress(cb: (message: string) => void): () => void
   onVoiceQueue(cb: (state: { uid: string; pending: number }) => void): () => void
+  onVoicePhase(cb: (state: { uid: string; phase: 'generating' | 'playing' | 'idle' }) => void): () => void
   onVoiceError(cb: (state: { uid: string; message: string }) => void): () => void
   openProject(): Promise<RepoStatus | null>
   loadProject(path: string): Promise<RepoStatus>

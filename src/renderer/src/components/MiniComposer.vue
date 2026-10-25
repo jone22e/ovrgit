@@ -12,8 +12,8 @@ import ModelPicker from './ModelPicker.vue'
  * de várias linhas, anexos (botão, arrastar, colar), texto grande colado como cartão, modelo e esforço, modo e o
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
-const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean }>()
-const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
+const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
+const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: []; voiceState: [state: 'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
 const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
@@ -42,12 +42,26 @@ const sending = ref(false)
 const canDictate = api.platform === 'darwin'
 const waitingForVoice = ref(false)
 const voiceStarted = ref(false)
+const muted = ref(false)
+const typing = ref(false)
+const elapsed = ref(0)
+let sessionStarted = 0
+let elapsedTimer: ReturnType<typeof setInterval> | undefined
+const elapsedLabel = computed(() => `${Math.floor(elapsed.value / 60)}:${String(elapsed.value % 60).padStart(2, '0')}`)
+const voiceState = computed<'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'>(() => {
+  if (typing.value) return 'typing'
+  if (dictation.phase.value === 'transcribing') return 'transcribing'
+  if (props.voicePhase === 'playing') return 'responding'
+  if (waitingForVoice.value || props.voicePhase === 'generating') return 'thinking'
+  if (muted.value) return 'muted'
+  return 'listening'
+})
 let resumeTimer: ReturnType<typeof setTimeout> | undefined
 function resumeListening() {
   clearTimeout(resumeTimer)
-  if (!props.autoSendDictation || !canDictate || waitingForVoice.value || props.voiceSpeaking || dictation.phase.value !== 'idle') return
+  if (!props.autoSendDictation || !canDictate || muted.value || typing.value || waitingForVoice.value || props.voiceSpeaking || dictation.phase.value !== 'idle') return
   resumeTimer = setTimeout(() => {
-    if (props.autoSendDictation && !waitingForVoice.value && !props.voiceSpeaking && dictation.phase.value === 'idle') {
+    if (props.autoSendDictation && !muted.value && !typing.value && !waitingForVoice.value && !props.voiceSpeaking && dictation.phase.value === 'idle') {
       void dictation.start().then(() => {
         if (props.autoSendDictation && dictation.phase.value === 'idle' && !dictation.error.value) resumeListening()
       })
@@ -62,9 +76,19 @@ const dictation = useDictation((words) => {
     nextTick(() => void send())
   }
 }, () => !!props.autoSendDictation)
+watch(voiceState, (phase) => { if (props.autoSendDictation) emit('voiceState', phase) }, { immediate: true })
 watch(() => props.autoSendDictation, (active) => {
   clearTimeout(resumeTimer)
-  if (active) resumeListening()
+  clearInterval(elapsedTimer)
+  if (active) {
+    muted.value = false
+    typing.value = false
+    sessionStarted = Date.now()
+    elapsed.value = 0
+    elapsedTimer = setInterval(() => (elapsed.value = Math.floor((Date.now() - sessionStarted) / 1000)), 1000)
+    emit('voiceState', voiceState.value)
+    resumeListening()
+  }
   else {
     waitingForVoice.value = false
     voiceStarted.value = false
@@ -85,6 +109,19 @@ watch(() => props.voiceSpeaking, (speaking) => {
   }
 })
 watch(() => dictation.error.value, (error) => { if (error && props.autoSendDictation) emit('endConversation') })
+function toggleMute() {
+  muted.value = !muted.value
+  if (muted.value) dictation.cancel()
+  else resumeListening()
+}
+function toggleTyping() {
+  typing.value = !typing.value
+  if (typing.value) {
+    dictation.cancel()
+    nextTick(() => box.value?.focus())
+  } else resumeListening()
+}
+function stopReply() { void api.voiceCancel('__manager__').catch(() => undefined) }
 
 // ---------- anexos: os mesmos caminhos da janela do agente (os arquivos ficam guardados para a janela `uid`) ----------
 type Shown = AgentAttachment & { preview?: string }
@@ -185,6 +222,7 @@ async function send() {
       const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
       const task = tasks.at(-1)
       if (task) emit('managerTask', task)
+      if (props.autoSendDictation) typing.value = false
       try {
         localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs))
       } catch { /* preferência local indisponível: o pedido já foi salvo */ }
@@ -217,24 +255,38 @@ onMounted(() => document.addEventListener('mousedown', onDoc))
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDoc)
   clearTimeout(resumeTimer)
+  clearInterval(elapsedTimer)
   for (const a of pending) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
 })
 </script>
 
 <template>
-  <div class="mini" :class="{ drop: dragging }" @click.stop @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop">
+  <div class="mini" :class="{ drop: dragging, conversation: autoSendDictation }" @click.stop @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop">
     <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="14" /> Solte para anexar</div>
-    <div v-if="autoSendDictation" class="voice-stage" :class="{ listening: dictation.phase.value === 'recording', transcribing: dictation.phase.value === 'transcribing', speaking: voiceSpeaking && dictation.phase.value === 'idle' }">
-      <span v-if="canDictate" class="voice-orb"><Icon name="mic" :size="23" /></span>
-      <span v-else class="voice-orb unavailable"><Icon name="mic" :size="23" /></span>
-      <span class="voice-copy" aria-live="polite">
-        <small><i class="voice-led" /> MODO CONVERSA ATIVO</small>
-        <strong>{{ dictation.phase.value === 'recording' ? 'Ouvindo você' : dictation.phase.value === 'transcribing' ? 'Entendendo sua fala' : voiceSpeaking ? 'Respondendo por voz' : waitingForVoice ? 'Preparando resposta' : canDictate ? 'Preparando microfone' : 'Microfone indisponível' }}</strong>
-        <span>{{ dictation.phase.value === 'recording' ? 'Fale normalmente; envio após uma pausa' : canDictate ? 'A conversa continua automaticamente' : 'Você pode escrever abaixo' }}</span>
-      </span>
-      <span v-if="dictation.phase.value === 'recording' || voiceSpeaking" class="voice-wave" aria-hidden="true"><i v-for="n in 5" :key="n" /></span>
-      <button type="button" class="ghost voice-end" title="Encerrar conversa por voz" @click="dictation.cancel(); emit('endConversation')">Encerrar</button>
+    <div v-if="autoSendDictation" class="voice-stage" :class="voiceState">
+      <span class="voice-grip" aria-hidden="true" />
+      <small class="voice-session"><i class="voice-led" /> CONVERSA POR VOZ · {{ elapsedLabel }}</small>
+      <div v-if="!typing" class="voice-focus" :class="voiceState" aria-hidden="true">
+        <span class="voice-ring outer" /><span class="voice-ring inner" />
+        <span class="voice-core">
+          <span v-if="voiceState === 'responding'" class="voice-bars"><i v-for="n in 7" :key="n" /></span>
+          <Icon v-else-if="muted || !canDictate" name="micOff" :size="29" />
+          <Icon v-else-if="voiceState === 'listening'" name="mic" :size="29" />
+          <span v-else class="voice-dots"><i v-for="n in 3" :key="n" /></span>
+        </span>
+      </div>
+      <div class="voice-description" aria-live="polite">
+        <strong>{{ voiceState === 'responding' ? 'Respondendo' : voiceState === 'thinking' ? 'Pensando' : voiceState === 'transcribing' ? 'Transcrevendo' : voiceState === 'muted' ? 'Microfone mudo' : voiceState === 'typing' ? 'Digite sua mensagem' : canDictate ? 'Ouvindo' : 'Microfone indisponível' }}</strong>
+        <span>{{ voiceState === 'responding' ? 'Use Parar para interromper' : voiceState === 'thinking' ? 'Preparando resposta' : voiceState === 'transcribing' ? 'Entendendo sua fala' : voiceState === 'muted' ? 'Toque em Ativar para voltar a falar' : voiceState === 'typing' ? 'Envie o texto abaixo' : canDictate ? 'Pause para enviar' : 'Use Digitar para conversar' }}</span>
+      </div>
+      <div class="voice-controls">
+        <button type="button" class="voice-action" :disabled="!canDictate" :title="muted ? 'Ativar microfone' : 'Deixar microfone mudo'" @click="toggleMute"><span class="voice-action-icon"><Icon :name="muted ? 'mic' : 'micOff'" :size="18" /></span><small>{{ muted ? 'Ativar' : 'Mudo' }}</small></button>
+        <button type="button" class="voice-action end" title="Encerrar conversa por voz" @click="dictation.cancel(); emit('endConversation')"><span class="voice-action-icon"><Icon name="x" :size="23" /></span><small>Encerrar</small></button>
+        <button v-if="voiceState === 'responding'" type="button" class="voice-action" title="Parar resposta em voz" @click="stopReply"><span class="voice-action-icon"><Icon name="stop" :size="18" /></span><small>Parar</small></button>
+        <button v-else type="button" class="voice-action" :title="typing ? 'Voltar à conversa por voz' : 'Escrever uma mensagem'" @click="toggleTyping"><span class="voice-action-icon"><Icon :name="typing ? 'mic' : 'keyboard'" :size="18" /></span><small>{{ typing ? 'Voltar' : 'Digitar' }}</small></button>
+      </div>
     </div>
+    <div v-show="!autoSendDictation || typing" class="compose-body">
     <div v-if="pending.length || pastes.length" class="pending">
       <template v-for="(a, i) in pending" :key="a.path">
         <span v-if="a.preview" class="thumb" :title="`${a.name}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
@@ -280,6 +332,8 @@ onUnmounted(() => {
       <span class="spacer" />
       <button type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canSend || sending" @click="send"><Icon name="up" :size="16" /></button>
     </div>
+    </div>
+    <p v-if="autoSendDictation && !typing && (attachError || dictation.error.value)" class="att-err">{{ attachError || dictation.error.value }}</p>
   </div>
 </template>
 
@@ -289,25 +343,48 @@ onUnmounted(() => {
   background: var(--panel); border: 1px solid var(--border); min-width: 0;
 }
 .mini:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
-.voice-stage { position: relative; display: flex; align-items: center; gap: 10px; min-height: 76px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
-.voice-orb { display: grid; place-items: center; flex: none; width: 50px; height: 50px; border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border)); border-radius: 50%; background: var(--accent); color: var(--background); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent); }
-.voice-orb.unavailable { opacity: .65; }
-.voice-stage.listening .voice-orb { animation: voice-pulse 1.4s ease-in-out infinite; }
-.voice-stage.speaking .voice-orb { background: var(--accent-soft); color: var(--accent); }
-.voice-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
-.voice-copy small { display: flex; align-items: center; gap: 5px; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+.compose-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mini.conversation { gap: 0; padding: 0; background: var(--panel-2); }
+.mini.conversation:focus-within { border-color: var(--border); }
+.mini.conversation .compose-body { padding: 0 10px 10px; }
+.voice-stage { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; width: 100%; height: clamp(310px, 43vh, 410px); padding: 12px 12px 16px; border-radius: 22px 22px 0 0; background: color-mix(in srgb, var(--panel-2) 80%, var(--bg)); text-align: center; }
+.voice-stage.typing { height: 170px; }
+.voice-grip { display: block; width: 35px; height: 4px; border-radius: 4px; background: var(--border); flex: none; }
+.voice-session { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 16px; margin-top: 13px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .1em; }
 .voice-led { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-.voice-stage.listening .voice-led { background: var(--del); box-shadow: 0 0 8px var(--del); }
-.voice-copy strong { color: var(--text); font-size: 12px; }
-.voice-copy > span { color: var(--muted); font-size: 10px; line-height: 1.3; }
-.voice-wave { display: flex; align-items: center; gap: 2px; height: 20px; margin-right: 4px; }
-.voice-wave i { width: 3px; height: 8px; border-radius: 3px; background: var(--accent); animation: voice-wave .8s ease-in-out infinite alternate; }
-.voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { animation-delay: .2s; }
-.voice-wave i:nth-child(3) { animation-delay: .4s; }
-.voice-end { flex: none; padding: 5px 7px; color: var(--muted); font-size: 10px; }
-@keyframes voice-pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 5%, transparent); } }
-@keyframes voice-wave { to { height: 19px; } }
-@media (prefers-reduced-motion: reduce) { .voice-stage.listening .voice-orb, .voice-wave i { animation: none; } }
+.voice-focus { position: relative; display: grid; place-items: center; width: 116px; height: 116px; flex: none; margin: auto 0 10px; }
+.voice-ring { position: absolute; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border)); border-radius: 50%; }
+.voice-ring.outer { inset: 0; }
+.voice-ring.inner { inset: 15px; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.voice-core { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: var(--accent); background: color-mix(in srgb, var(--accent) 17%, var(--panel)); }
+.voice-focus.listening .voice-core { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 13%, transparent); }
+.voice-focus.listening .voice-ring.inner { animation: voice-pulse 1.8s ease-in-out infinite; }
+.voice-focus.thinking .voice-ring.outer, .voice-focus.transcribing .voice-ring.outer { border-style: dashed; animation: voice-turn 9s linear infinite; }
+.voice-focus.responding .voice-core { border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.voice-focus.muted { opacity: .55; }
+.voice-dots, .voice-bars { display: flex; align-items: center; justify-content: center; gap: 4px; height: 26px; }
+.voice-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: voice-dot 1.2s ease-in-out infinite; }
+.voice-dots i:nth-child(2) { animation-delay: .18s; }
+.voice-dots i:nth-child(3) { animation-delay: .36s; }
+.voice-bars i { width: 3px; height: 10px; border-radius: 3px; background: var(--accent); animation: voice-wave .7s ease-in-out infinite alternate; }
+.voice-bars i:nth-child(2), .voice-bars i:nth-child(6) { animation-delay: .1s; }
+.voice-bars i:nth-child(3), .voice-bars i:nth-child(5) { animation-delay: .25s; }
+.voice-bars i:nth-child(4) { animation-delay: .4s; }
+.voice-description { display: flex; flex-direction: column; gap: 3px; min-height: 44px; }
+.voice-description strong { color: var(--text); font-size: 16px; }
+.voice-description span { color: var(--muted); font-size: 11px; }
+.voice-controls { display: flex; align-items: flex-start; justify-content: center; gap: 14px; width: 100%; margin-top: auto; padding-top: 12px; }
+.voice-action { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 68px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.voice-action:hover:not(:disabled) { color: var(--text); }
+.voice-action:disabled { opacity: .45; cursor: default; }
+.voice-action-icon { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 50%; background: var(--panel); }
+.voice-action.end .voice-action-icon { background: color-mix(in srgb, var(--del) 25%, var(--panel)); color: color-mix(in srgb, var(--del) 60%, var(--text)); }
+.voice-action small { font-size: 10px; }
+@keyframes voice-pulse { 50% { transform: scale(1.12); opacity: .5; } }
+@keyframes voice-turn { to { transform: rotate(360deg); } }
+@keyframes voice-dot { 50% { opacity: .3; transform: translateY(-3px); } }
+@keyframes voice-wave { to { height: 24px; } }
+@media (prefers-reduced-motion: reduce) { .voice-ring, .voice-dots i, .voice-bars i { animation: none !important; } }
 textarea { border: 0; background: transparent; padding: 4px 6px 2px; font-size: 13px; line-height: 1.45; max-height: 160px; overflow-y: auto; resize: none; width: 100%; }
 textarea:focus { box-shadow: none; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }

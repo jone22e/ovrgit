@@ -20,6 +20,11 @@ const api: OvseerApi = {
     ipcRenderer.on('voice:queue', h)
     return () => ipcRenderer.off('voice:queue', h)
   },
+  onVoicePhase: (cb) => {
+    const h = (_e: unknown, state: { uid: string; phase: 'generating' | 'playing' | 'idle' }) => cb(state)
+    ipcRenderer.on('voice:phase', h)
+    return () => ipcRenderer.off('voice:phase', h)
+  },
   onVoiceError: (cb) => {
     const h = (_e: unknown, state: { uid: string; message: string }) => cb(state)
     ipcRenderer.on('voice:error', h)

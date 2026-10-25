@@ -16,11 +16,17 @@ const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
 const voiceSetup = ref(false)
 const voicePending = ref(0)
+const voicePhase = ref<'idle' | 'generating' | 'playing'>('idle')
+const voiceUiState = ref<'listening' | 'transcribing' | 'thinking' | 'responding' | 'muted' | 'typing'>('listening')
 const voiceSession = ref(false)
 let enableVoiceAfterSetup = false
 const managerVoiceId = '__manager__'
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
 const conversation = computed(() => voicePlatform && voiceSession.value)
+const scopeLabel = computed(() => {
+  const count = state.agentSnaps.length
+  return `Todos os projetos · ${count} ${count === 1 ? 'agente' : 'agentes'}`
+})
 async function toggleConversation() {
   if (conversation.value) {
     voiceSession.value = false
@@ -82,8 +88,10 @@ watch(() => tasks.value.map((t) => `${t.id}:${t.status}`).join('|'), () => {
   }
 })
 const offVoiceQueue = api.onVoiceQueue((q) => { if (q.uid === managerVoiceId) voicePending.value = q.pending })
+const offVoicePhase = api.onVoicePhase((q) => { if (q.uid === managerVoiceId) voicePhase.value = q.phase })
 onUnmounted(() => {
   offVoiceQueue()
+  offVoicePhase()
   if (voiceSession.value) void api.voiceCancel(managerVoiceId).catch(() => undefined)
 })
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
@@ -130,13 +138,14 @@ const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = 
 onMounted(scrollEnd)
 onMounted(() => api.knownModels().then((models) => (known.value = models)).catch(() => undefined))
 watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
+watch(voiceUiState, scrollEnd)
 </script>
 
 <template>
   <section class="manager">
     <header class="manager-head">
       <span class="avatar"><Icon name="bot" :size="19" /></span>
-      <span><strong>Gerenciador de agentes</strong><small>Todos os projetos e agentes</small></span>
+      <span><strong>Gerenciador de agentes</strong><small>{{ scopeLabel }}</small></span>
       <span class="head-spacer" />
       <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Conversa ativa' : 'Conversa por voz' }}</button>
       <button v-if="voicePlatform && voicePending" class="ghost icon" title="Interromper fala do gerenciador" @click="api.voiceCancel(managerVoiceId)"><Icon name="stop" :size="13" /></button>
@@ -194,9 +203,11 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
           </div>
         </div>
       </article>
+      <div v-if="conversation && voiceUiState === 'transcribing'" class="voice-progress"><Icon name="mic" :size="12" /> Transcrevendo sua fala…</div>
+      <div v-else-if="conversation && voiceUiState === 'thinking'" class="voice-progress"><span class="spinner" /> Preparando resposta…</div>
     </div>
-    <div class="manager-composer">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
+    <div class="manager-composer" :class="{ conversation }">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation" @voice-state="voiceUiState = $event">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>
@@ -216,6 +227,7 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
 .avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
 .avatar { width: 34px; height: 34px; border-radius: 11px; }
 .feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 12px; }
+.voice-progress { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; padding: 6px 8px; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 9px; }
 .intro { margin: auto 4px; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; color: var(--muted); }
 .intro > svg { color: var(--accent); }
 .intro strong { color: var(--text); font-size: 13px; }
@@ -248,6 +260,8 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
 .analysis { margin-top: 6px; font-size: 11px; color: var(--muted); }
 .analysis pre { max-height: 170px; overflow: auto; white-space: pre-wrap; font: inherit; line-height: 1.4; }
 .manager-composer { flex: none; margin: 0 12px 12px; }
+.manager-composer.conversation { margin: 0; }
+.manager-composer.conversation :deep(.mini) { border-radius: 22px 22px 0 0; border-left: 0; border-right: 0; border-bottom: 0; }
 .project-scope { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
 .repo { max-width: 230px; }
 .repo :deep(.sel) { height: 28px; font-size: 11px; background: var(--panel); }

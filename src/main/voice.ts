@@ -196,14 +196,19 @@ async function drain() {
       if (!bin || !model || !voice) throw new Error('Instale a voz local antes de ativar a conversa.')
       if (canceled) continue
       const wav = path.join(dir, 'speech.wav')
+      broadcast('voice:phase', { uid: job.uid, phase: 'generating' })
       await runCancelable(bin, ['--model', model, '--voice', voice, '--lang', 'pt', '--quant', 'q8', '--device', 'cpu', '--output', wav, job.text],
         { ...process.env, HF_HUB_OFFLINE: '1', HF_TOKEN: '' })
-      if (!canceled && existsSync(wav)) await play(wav)
+      if (!canceled && existsSync(wav)) {
+        broadcast('voice:phase', { uid: job.uid, phase: 'playing' })
+        await play(wav)
+      }
     } catch (e) {
       if (!canceled) broadcast('voice:error', { uid: job.uid, message: (e as Error).message })
     } finally {
       rmSync(dir, { recursive: true, force: true })
       active = null
+      broadcast('voice:phase', { uid: job.uid, phase: 'idle' })
       broadcast('voice:queue', { uid: job.uid, pending: jobs.filter((x) => x.uid === job.uid).length })
     }
   }
@@ -225,6 +230,7 @@ export function cancelVoice(uid: string) {
     canceled = true
     child?.kill()
   }
+  broadcast('voice:phase', { uid, phase: 'idle' })
   broadcast('voice:queue', { uid, pending: 0 })
 }
 
