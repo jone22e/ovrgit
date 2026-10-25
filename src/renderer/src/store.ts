@@ -1,5 +1,5 @@
 import { count } from '@shared/plural'
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
@@ -14,6 +14,7 @@ export type Busy = null | 'load' | 'analyze' | 'message' | 'commit' | 'pull' | '
 export type ViewMode = 'tree' | 'list'
 /** Lista da esquerda: arquivos alterados (diff à direita) ou todos os arquivos do projeto (editor à direita) */
 export type Pane = 'changes' | 'files'
+const savedTab = readPref('ovseer.tab')
 
 export const state = reactive({
   repo: null as RepoStatus | null,
@@ -34,13 +35,13 @@ export const state = reactive({
   diff: '',
   diffLoading: false,
   history: [] as CommitInfo[],
-  /** Aba da área principal: o app abre no gerenciador de agentes */
-  tab: 'agents' as 'changes' | 'history' | 'agents' | 'map',
+  /** Aba da área principal escolhida na última sessão */
+  tab: (savedTab === 'changes' || savedTab === 'history' || savedTab === 'agents' || savedTab === 'map' ? savedTab : 'agents') as 'changes' | 'history' | 'agents' | 'map',
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
   agentPick: null as { n: number; at: number } | null,
   /** Pedidos do gerenciador e tarefas antigas da fila; conversa do gerenciador aberta */
   queue: [] as QueueTask[],
-  showQueue: false,
+  showQueue: readPref('ovseer.manager.show') === '1',
   message: '',
   messageEdited: false,
   busy: null as Busy,
@@ -161,6 +162,8 @@ function writePref(key: string, value: string) {
   }
 }
 
+watch(() => state.tab, (tab) => writePref('ovseer.tab', tab))
+
 export function setShowDiff(v: boolean) {
   state.showDiff = v
   writePref('ovseer.diff', v ? '1' : '0')
@@ -183,6 +186,11 @@ export function setShowTerminal(v: boolean) {
 export function setShowDock(v: boolean) {
   state.showDock = v
   writePref('ovseer.dock.show', v ? '1' : '0')
+}
+
+export function setShowQueue(v: boolean) {
+  state.showQueue = v
+  writePref('ovseer.manager.show', v ? '1' : '0')
 }
 
 export function setShowTasks(v: boolean) {

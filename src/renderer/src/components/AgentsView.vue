@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
-import { api, ask, openNewAgent, saveSettings, setPane, setShowDock, state, toast } from '../store'
+import { api, ask, openNewAgent, saveSettings, setPane, setShowDock, setShowQueue, state, toast } from '../store'
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { ago as agoSince } from '../ago'
@@ -261,8 +261,33 @@ const workspaceLabel = (h: { cwd: string; project: string; extraDirs?: string[] 
 const queuedCount = computed(() => state.queue.filter((t) => t.status === 'queued' || t.status === 'running').length)
 /** Conversa mostrada na área agora */
 const docked = computed(() => snaps.value.find((a) => a.docked) ?? null)
+const bodyEl = ref<HTMLElement>()
+const managerEl = ref<HTMLElement>()
+const managerWidth = ref(Number(localStorage.getItem('ovseer.manager.width')) || 360)
 const dockEl = ref<HTMLElement>()
 const dockWidth = ref(Number(localStorage.getItem('ovseer.dock') ?? 620))
+function clampManagerWidth(width: number) {
+  const available = (bodyEl.value?.clientWidth ?? window.innerWidth) - (state.showDock ? dockWidth.value : 0) - 320
+  return Math.min(Math.max(width, 280), Math.max(280, available))
+}
+function resizeManagerBy(delta: number) {
+  managerWidth.value = clampManagerWidth((managerEl.value?.clientWidth ?? managerWidth.value) + delta)
+  localStorage.setItem('ovseer.manager.width', String(managerWidth.value))
+}
+function startManagerResize(e: MouseEvent) {
+  const startX = e.clientX
+  const start = managerEl.value?.clientWidth ?? managerWidth.value
+  const move = (ev: MouseEvent) => {
+    managerWidth.value = clampManagerWidth(start + ev.clientX - startX)
+  }
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    localStorage.setItem('ovseer.manager.width', String(managerWidth.value))
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
 function startDockResize(e: MouseEvent) {
   const startX = e.clientX
   const start = dockWidth.value
@@ -384,7 +409,7 @@ function pick(a: AgentSnapshot) {
   <div ref="root" class="agents orch">
     <div class="toolbar">
       <button class="primary new-agent" :disabled="!state.repo" title="Novo agente de IA neste projeto (⌘⇧N)" @click="openNewAgent()"><Icon name="plus" :size="14" /> Novo agente</button>
-      <button class="ghost tool" :class="{ on: state.showQueue }" title="Conversar com o gerenciador de agentes" @click="state.showQueue = !state.showQueue">
+      <button class="ghost tool" :class="{ on: state.showQueue }" title="Conversar com o gerenciador de agentes" @click="setShowQueue(!state.showQueue)">
         <Icon name="bot" :size="14" /><span class="lbl">Gerenciador de agentes</span><span v-if="queuedCount" class="cnt">{{ queuedCount }}</span>
       </button>
       <span class="gap" />
@@ -394,11 +419,12 @@ function pick(a: AgentSnapshot) {
       </div>
     </div>
 
-    <div class="body">
+    <div ref="bodyEl" class="body">
     <!-- a fila de tarefas é uma coluna própria, antes dos cartões -->
-    <aside v-show="state.showQueue" class="queue-col">
+    <aside v-show="state.showQueue" ref="managerEl" class="queue-col" :style="{ width: `${managerWidth}px`, maxWidth: `calc(100% - ${state.showDock ? dockWidth : 0}px - 320px)` }">
       <QueuePanel />
     </aside>
+    <div v-show="state.showQueue" class="queue-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionar gerenciador de agentes" tabindex="0" @mousedown.prevent="startManagerResize" @keydown.left.prevent="resizeManagerBy(-20)" @keydown.right.prevent="resizeManagerBy(20)" />
     <div class="scroll" :class="{ 'list-mode': compactList }">
       <header v-if="compactList" class="list-head">
         <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong>
@@ -510,7 +536,7 @@ function pick(a: AgentSnapshot) {
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
 .body { flex: 1; display: flex; min-height: 0; min-width: 0; }
-.queue-col { flex: none; width: 360px; min-width: 0; overflow: visible; border-right: 1px solid var(--border); background: var(--panel); }
+.queue-col { flex: none; min-width: 280px; overflow: visible; background: var(--panel); }
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
 .new-agent { height: 28px; gap: 6px; font-size: 12.5px; }
@@ -523,9 +549,9 @@ function pick(a: AgentSnapshot) {
 /* o fundo imita a janela presa (cabeçalho em cima, corpo embaixo): os cantos arredondados dela ficam invisíveis */
 .dock-area { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(var(--panel) 0 var(--titlebar), var(--bg) var(--titlebar)); }
 .dock-frozen { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; }
-.dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
-.dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }
+.queue-resizer, .dock-resizer { width: 5px; margin: 0 -2px; cursor: col-resize; position: relative; z-index: 2; flex: none; }
+.queue-resizer::after, .dock-resizer::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.queue-resizer:hover::after, .dock-resizer:hover::after { background: var(--accent); width: 2px; left: 1.5px; }
 /* por baixo da janela presa: só aparece se ela estiver escondida por um instante (ex.: com um diálogo aberto) */
 .dock-under { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-size: 13px; color: var(--muted); min-width: 0; }
 .dock-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; color: var(--faint); text-align: center; }

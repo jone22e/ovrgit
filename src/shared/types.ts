@@ -323,6 +323,9 @@ export interface Settings {
   awsWatch: boolean
   recentProjects: string[]
   lastProject: string | null
+  /** Tamanho e posição da janela principal na última sessão */
+  mainWindowBounds?: WindowBounds
+  mainWindowMaximized?: boolean
   /** Mascote no topo da tela, ao lado do recorte da câmera */
   buddy: boolean
   /** Modo orquestrador: na aba Agentes, os agentes viram cartões e a conversa do selecionado aparece ao lado,

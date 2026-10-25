@@ -1,5 +1,5 @@
 import {
-  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell, systemPreferences,
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, session, shell, systemPreferences,
   type MenuItemConstructorOptions, webContents
 } from 'electron'
 import { findTheme } from '../shared/themes'
@@ -105,6 +105,19 @@ function initialBackground(): string {
   return process.platform === 'win32' ? '#202020' : '#1e1e1e'
 }
 
+function restoredMainBounds(): Partial<WindowBounds> {
+  const saved = getSettings().mainWindowBounds
+  if (!saved || [saved.x, saved.y, saved.width, saved.height].some((value) => !Number.isFinite(value)) || saved.width <= 0 || saved.height <= 0) return {}
+  const area = screen.getDisplayMatching(saved).workArea
+  const width = Math.min(Math.max(Math.round(saved.width), 450), area.width)
+  const height = Math.min(Math.max(Math.round(saved.height), 560), area.height)
+  return {
+    width, height,
+    x: Math.min(Math.max(Math.round(saved.x), area.x), area.x + area.width - width),
+    y: Math.min(Math.max(Math.round(saved.y), area.y), area.y + area.height - height)
+  }
+}
+
 /** Manda para a janela principal, se ela ainda existir (as janelas de agente mantêm o app vivo sem ela). */
 function toMain(channel: string, ...args: unknown[]) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args)
@@ -127,6 +140,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...restoredMainBounds(),
     minWidth: 450,
     minHeight: 560,
     title: 'Ovseer',
@@ -144,10 +158,33 @@ function createWindow() {
       nodeIntegration: false
     }
   })
-  win.once('ready-to-show', () => win?.show())
+  const main = win
+  main.once('ready-to-show', () => {
+    if (getSettings().mainWindowMaximized) main.maximize()
+    main.show()
+  })
+  let boundsTimer: ReturnType<typeof setTimeout> | undefined
+  const rememberBounds = () => {
+    clearTimeout(boundsTimer)
+    if (main.isDestroyed() || main.isMinimized()) return
+    try {
+      saveSettings({ mainWindowBounds: main.getNormalBounds(), mainWindowMaximized: main.isMaximized() })
+    } catch (e) {
+      console.warn('Não consegui guardar a posição da janela principal:', e)
+    }
+  }
+  const scheduleBounds = () => {
+    clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(rememberBounds, 500)
+  }
+  main.on('move', scheduleBounds)
+  main.on('resize', scheduleBounds)
+  main.on('maximize', scheduleBounds)
+  main.on('unmaximize', scheduleBounds)
   // modo orquestrador: a conversa presa à principal acompanha tamanho, posição e minimização dela
   agentChat.watchMainWindow(win)
   win.on('close', (event) => {
+    rememberBounds()
     // ⌘W na principal encerra o app e todas as conversas, inclusive as ocultas e as embutidas.
     if (quitState !== 'no') return
     event.preventDefault()
@@ -155,6 +192,7 @@ function createWindow() {
     setImmediate(() => app.quit())
   })
   win.on('closed', () => {
+    clearTimeout(boundsTimer)
     win = null
     if (quitState === 'no') app.quit()
   })
