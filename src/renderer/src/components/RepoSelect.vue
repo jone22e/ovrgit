@@ -14,7 +14,7 @@ import RepoIconPicker from './RepoIconPicker.vue'
  */
 const model = defineModel<string>({ required: true })
 const extra = defineModel<string[]>('extra', { default: () => [] })
-const props = defineProps<{ any?: boolean }>()
+const props = defineProps<{ any?: boolean; anyLabel?: string }>()
 const groups = computed(() => state.settings?.repoGroups ?? [])
 const group = computed(() => (model.value ? groupOf(groups.value, model.value, extra.value) : undefined))
 function chooseGroup(g: RepoGroup) {
@@ -129,7 +129,7 @@ onUnmounted(() => {
 
 <template>
   <span ref="root" class="repo-select" :class="{ on: open }">
-    <button type="button" class="sel" :title="group ? [model, ...extra].join('\n') : model || (props.any ? 'Qualquer repositório' : '')" @click="toggle">
+    <button type="button" class="sel" :title="group ? [model, ...extra].join('\n') : model || (props.any ? props.anyLabel || 'Qualquer repositório' : '')" @click="toggle">
       <template v-if="group">
         <RepoIcon :icon="group.icon" group :size="16" />
         <span class="ellipsis">{{ group.name }}</span>
@@ -140,7 +140,7 @@ onUnmounted(() => {
       </template>
       <template v-else>
         <Icon name="layers" :size="14" class="faint" />
-        <span class="ellipsis faint-text">Qualquer repositório</span>
+        <span class="ellipsis faint-text">{{ props.anyLabel || 'Qualquer repositório' }}</span>
       </template>
       <Icon name="chevron" :size="12" class="chev" />
     </button>
@@ -153,7 +153,7 @@ onUnmounted(() => {
       </label>
       <button v-if="props.any && !words.length" type="button" class="ghost opt" :class="{ cur: !model }" @click="choose('')">
         <Icon name="layers" :size="14" class="faint" />
-        <span class="txt"><span class="nm ellipsis">Qualquer repositório</span><small class="faint ellipsis">o próximo agente em espera livre, de qualquer projeto</small></span>
+        <span class="txt"><span class="nm ellipsis">{{ props.anyLabel || 'Qualquer repositório' }}</span><small class="faint ellipsis">{{ props.anyLabel ? 'Consulte todos os agentes ou indique o projeto no pedido' : 'o próximo agente em espera livre, de qualquer projeto' }}</small></span>
         <Icon v-if="!model" name="check" :size="13" class="ok" />
       </button>
       <!-- grupos salvos: o principal mais os juntados, de uma vez -->

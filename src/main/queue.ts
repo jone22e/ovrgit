@@ -7,6 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
+import { agentStatusReply, knownProjects, mentionedProjects } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -91,18 +92,39 @@ export const list = (): QueueTask[] => tasks
 export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
-  if (task.managed && (!task.cwd || !existsSync(task.cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
+  let cwd = task.cwd
+  let reply: string | null = null
+  if (task.managed) {
+    const settings = getSettings()
+    const agents = agentChat.agentSnapshots()
+    const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
+    reply = agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+    if (!reply) {
+      const mentioned = mentionedProjects(text, roots, settings.repoGroups ?? [])
+      if (cwd && mentioned.length && !mentioned.some((p) => p === cwd || task.extraDirs?.includes(p))) {
+        reply = `O seletor está em ${path.basename(cwd)}, mas o pedido menciona ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto certo antes de encaminhar.`
+      } else if (!cwd) {
+        if (mentioned.length === 1) cwd = mentioned[0]
+        else reply = mentioned.length
+          ? `Encontrei mais de um projeto no pedido: ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto principal no seletor.`
+          : 'Escolha um projeto no seletor ou cite o nome de um projeto conhecido no pedido para eu encaminhá-lo.'
+      }
+    }
+    if (!reply && (!cwd || !existsSync(cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
+  }
   const attachments = (task.attachments ?? []).slice(0, 20).map((a) => {
     if (!existsSync(a.path)) throw new Error(`Anexo não encontrado: ${a.name}`)
     return { ...agentChat.describeFile(a.path), name: String(a.name || path.basename(a.path)).slice(0, 120) }
   })
-  const extraDirs = task.cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== task.cwd) : undefined
+  const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: task.cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
-  if (stage) analyze(t.id)
-  else void dispatch()
+  if (!reply) {
+    if (stage) analyze(t.id)
+    else void dispatch()
+  }
   return tasks
 }
 

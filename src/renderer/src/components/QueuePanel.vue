@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
@@ -9,18 +9,21 @@ import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
 import VoiceSetupDialog from './VoiceSetupDialog.vue'
 
-const cwd = ref(state.repo?.root ?? '')
+const cwd = ref('')
 const extraDirs = ref<string[]>([])
 const known = ref<KnownModels | null>(null)
 const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
 const voiceSetup = ref(false)
+const voicePending = ref(0)
 let enableVoiceAfterSetup = false
+const managerVoiceId = '__manager__'
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
 const conversation = computed(() => voicePlatform && !!state.settings?.managerConversationVoice)
 async function toggleConversation() {
   if (conversation.value) {
     await saveSettings({ managerConversationVoice: false })
+    await api.voiceCancel(managerVoiceId)
     return
   }
   try {
@@ -37,8 +40,14 @@ async function closeVoiceSetup() {
   if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) await saveSettings({ managerConversationVoice: true })
   enableVoiceAfterSetup = false
 }
+function speakManagerReply(reply: string) {
+  if (!conversation.value) return
+  for (const line of reply.split('\n').filter(Boolean)) void api.voiceSpeak(managerVoiceId, line).catch((e) => toast(String((e as Error).message)))
+}
+const offVoiceQueue = api.onVoiceQueue((q) => { if (q.uid === managerVoiceId) voicePending.value = q.pending })
+onUnmounted(offVoiceQueue)
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
-const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Sem projeto'
+const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Todos os projetos'
 const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 const agentName = (t: QueueTask) => agentOf(t)?.title || t.agentTitle || 'agente'
 const configLabel = (t: QueueTask) => t.config ? [PROVIDER_LABEL[t.config.provider], t.config.model || 'modelo padrão', MODES.find((m) => m.id === t.config?.mode)?.label].filter(Boolean).join(' · ') : ''
@@ -63,28 +72,23 @@ const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = 
 onMounted(scrollEnd)
 onMounted(() => api.knownModels().then((models) => (known.value = models)).catch(() => undefined))
 watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
-watch(() => state.repo?.root, (next, previous) => {
-  if (!cwd.value || cwd.value === previous) {
-    cwd.value = next ?? ''
-    extraDirs.value = []
-  }
-})
 </script>
 
 <template>
   <section class="manager">
     <header class="manager-head">
       <span class="avatar"><Icon name="bot" :size="19" /></span>
-      <span><strong>Gerenciador de agentes</strong><small>Encaminha cada pedido no projeto certo</small></span>
+      <span><strong>Gerenciador de agentes</strong><small>Todos os projetos e agentes</small></span>
       <span class="head-spacer" />
       <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Desativar conversa por voz' : 'Ativar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Voz ligada' : 'Conversa por voz' }}</button>
+      <button v-if="voicePlatform && voicePending" class="ghost icon" title="Interromper fala do gerenciador" @click="api.voiceCancel(managerVoiceId)"><Icon name="stop" :size="13" /></button>
       <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
     <div ref="feed" class="feed">
       <div v-if="!tasks.length" class="intro">
         <Icon name="bot" :size="28" />
         <strong>O que precisa ser feito?</strong>
-        <p>Vou encontrar uma conversa relacionada neste projeto ou criar um agente para o pedido.</p>
+        <p>Consulte os agentes de qualquer projeto ou peça uma tarefa. Para executar, escolha um projeto ou cite o nome dele.</p>
       </div>
       <article v-for="t in tasks" :key="t.id" class="exchange">
         <div class="user-message">
@@ -96,7 +100,8 @@ watch(() => state.repo?.root, (next, previous) => {
           <span class="message-avatar"><Icon :name="t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
           <div class="message-body">
             <template v-if="t.managed">
-              <p v-if="t.status === 'queued' && !t.uid">Estou procurando o agente mais adequado em {{ where(t) }}…</p>
+              <p v-if="t.reply" class="manager-reply">{{ t.reply }}</p>
+              <p v-else-if="t.status === 'queued' && !t.uid">Estou procurando o agente mais adequado em {{ where(t) }}…</p>
               <p v-else-if="t.status === 'queued'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) : 'Encaminhei para ' + agentName(t) }}. O pedido aguarda a vez dele.</p>
               <p v-else-if="t.status === 'running'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) + '.' : 'Encaminhei para ' + agentName(t) + '.' }} {{ agentOf(t)?.status === 'waiting' ? 'Ele aguarda sua resposta.' : 'Ele está trabalhando agora.' }}</p>
               <p v-else-if="t.status === 'done'">{{ agentName(t) }} concluiu o pedido.</p>
@@ -120,8 +125,8 @@ watch(() => state.repo?.root, (next, previous) => {
       </article>
     </div>
     <div class="manager-composer">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :placeholder="conversation ? 'Dite ou escreva para o gerenciador…' : 'Peça algo ao gerenciador…'">
-        <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" class="repo" /></div></template>
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :placeholder="conversation ? 'Dite ou escreva para o gerenciador…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-reply="speakManagerReply">
+        <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>
     <VoiceSetupDialog v-if="voiceSetup" @close="closeVoiceSetup" />
@@ -156,6 +161,7 @@ watch(() => state.repo?.root, (next, previous) => {
 .manager-message.failed .message-avatar { color: var(--del); background: color-mix(in srgb, var(--del) 15%, transparent); }
 .message-body { min-width: 0; flex: 1; padding-top: 2px; }
 .message-body p { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.message-body .manager-reply { white-space: pre-line; }
 .message-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
 .message-actions:empty { display: none; }
 .link { min-height: 22px; padding: 0; color: var(--accent); font-size: 11px; }

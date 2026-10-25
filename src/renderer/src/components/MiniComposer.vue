@@ -13,7 +13,7 @@ import ModelPicker from './ModelPicker.vue'
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
 const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean }>()
-const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]] }>()
+const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerReply: [text: string] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
 const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
@@ -135,10 +135,11 @@ async function send() {
   // a prévia é só desta tela; a ação vai para a outra janela sem ela
   const attachments = pending.map(({ preview: _p, ...a }) => a)
   if (props.manager) {
-    if (!props.cwd) return void (attachError.value = 'Escolha um repositório para o pedido.')
     sending.value = true
     try {
-      await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
+      const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
+      const reply = tasks.at(-1)?.reply
+      if (reply) emit('managerReply', reply)
       try {
         localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs))
       } catch { /* preferência local indisponível: o pedido já foi salvo */ }
@@ -218,7 +219,7 @@ onUnmounted(() => {
         <button type="button" class="ghost icon" :disabled="dictation.phase.value === 'transcribing'" :title="dictation.phase.value === 'recording' ? 'Terminar e transcrever' : 'Ditar'" @click="dictation.toggle"><Icon :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="15" /></button>
       </div>
       <span class="spacer" />
-      <button type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canSend || sending || (manager && !cwd)" @click="send"><Icon name="up" :size="16" /></button>
+      <button type="button" class="icon send primary" title="Enviar (Enter)" :disabled="!canSend || sending" @click="send"><Icon name="up" :size="16" /></button>
     </div>
   </div>
 </template>

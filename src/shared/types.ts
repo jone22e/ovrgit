@@ -474,6 +474,8 @@ export interface QueueTask {
   status: 'queued' | 'running' | 'done' | 'failed'
   /** Pedido da conversa do gerenciador: pode ir a qualquer agente relacionado, ou abrir um novo */
   managed?: boolean
+  /** Resposta do próprio gerenciador baseada na situação dos agentes ou pedindo um projeto exato */
+  reply?: string
   /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
   stage?: 'reasoning'
   /** Análise do agente de raciocínio (markdown), quando e se está sendo refeita */

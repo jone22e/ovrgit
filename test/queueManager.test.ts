@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -65,4 +65,41 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   queue.add({ text: 'Ajustar login de novo', cwd: project, managed: true, config: { ...config, provider: 'claude', model: 'sonnet' } })
   await vi.waitFor(() => expect(fake.opened).toHaveLength(2))
   expect(fake.opened[1]).toMatchObject({ provider: 'claude', model: 'sonnet' })
+
+  const flexi = path.join(userData, 'flexi2')
+  const flexiLite = path.join(userData, 'flexi-lite')
+  mkdirSync(flexi)
+  mkdirSync(flexiLite)
+  fake.snapshots.push(
+    { uid: 'flexi-agent', cwd: flexi, project: 'flexi2', provider: 'codex', status: 'live', title: 'Estoque do Flexi', lastUser: 'Conferir estoque', summary: '', paths: [] },
+    { uid: 'flexi-lite-agent', cwd: flexiLite, project: 'flexi-lite', provider: 'codex', status: 'done', title: 'Tela do Flexi Lite', lastUser: '', summary: '', paths: [] }
+  )
+  const openedBefore = fake.opened.length
+  const actionsBefore = fake.actions.length
+  const status = queue.add({ text: 'Tem algum agente trabalhando no flexi?', cwd: flexi, managed: true }).at(-1)!
+  expect(status.status).toBe('done')
+  expect(status.reply).toContain('Estoque do Flexi (flexi2)')
+  expect(status.reply).not.toContain('Tela do Flexi Lite')
+  expect(fake.opened).toHaveLength(openedBefore)
+  expect(fake.actions).toHaveLength(actionsBefore)
+
+  const unclearStatus = queue.add({ text: 'Tem algum agente trabalhando no flexi?', managed: true }).at(-1)!
+  expect(unclearStatus.reply).toContain('Encontrei vários projetos')
+  expect(unclearStatus.reply).toContain('flexi2: 1 agente')
+  expect(unclearStatus.reply).toContain('flexi-lite: 0 agentes')
+  const exactStatus = queue.add({ text: 'Tem algum agente trabalhando no flexi2?', managed: true }).at(-1)!
+  expect(exactStatus.reply).toContain('Estoque do Flexi (flexi2)')
+  const globalStatus = queue.add({ text: 'Quais agentes estão trabalhando?', managed: true }).at(-1)!
+  expect(globalStatus.reply).toContain('Estoque do Flexi (flexi2)')
+  expect(globalStatus.reply).toContain('Login: acesso negado')
+
+  const ambiguous = queue.add({ text: 'Ajustar a tela do flexi', managed: true }).at(-1)!
+  expect(ambiguous.reply).toContain('mais de um projeto')
+  expect(ambiguous.status).toBe('done')
+  const routed = queue.add({ text: 'Ajustar a tela do flexi2', managed: true, config }).at(-1)!
+  expect(routed.cwd).toBe(flexi)
+  expect(routed.reply).toBeUndefined()
+  const conflicting = queue.add({ text: 'Ajustar a tela do flexi2', cwd: other, managed: true, config }).at(-1)!
+  expect(conflicting.reply).toContain('O seletor está em')
+  expect(conflicting.status).toBe('done')
 })
