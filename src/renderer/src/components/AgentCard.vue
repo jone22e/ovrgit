@@ -499,7 +499,7 @@ async function saveRename() {
 .acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
 .acard.compact:not(.sel) { border-color: transparent; }
 .acard.compact:hover { background: var(--hover); transform: none; }
-.acard.compact.sel { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); background: var(--accent-soft); }
+.acard.compact.sel { border-color: transparent; background: var(--accent-soft); }
 .acard.compact.waiting { background: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
 .acard.compact.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 .compact > .top, .compact > .status, .compact > .say, .compact > .track-steps, .compact > .foot, .compact > .close { display: none; }
