@@ -5,6 +5,26 @@ import type {
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
+  voiceStatus: () => ipcRenderer.invoke('voice:status'),
+  voiceInstall: (token) => ipcRenderer.invoke('voice:install', token),
+  voiceTest: () => ipcRenderer.invoke('voice:test'),
+  voiceSpeak: (uid, text) => ipcRenderer.invoke('voice:speak', uid, text),
+  voiceCancel: (uid) => ipcRenderer.invoke('voice:cancel', uid),
+  onVoiceProgress: (cb) => {
+    const h = (_e: unknown, message: string) => cb(message)
+    ipcRenderer.on('voice:progress', h)
+    return () => ipcRenderer.off('voice:progress', h)
+  },
+  onVoiceQueue: (cb) => {
+    const h = (_e: unknown, state: { uid: string; pending: number }) => cb(state)
+    ipcRenderer.on('voice:queue', h)
+    return () => ipcRenderer.off('voice:queue', h)
+  },
+  onVoiceError: (cb) => {
+    const h = (_e: unknown, state: { uid: string; message: string }) => cb(state)
+    ipcRenderer.on('voice:error', h)
+    return () => ipcRenderer.off('voice:error', h)
+  },
   openProject: () => ipcRenderer.invoke('project:open'),
   loadProject: (p) => ipcRenderer.invoke('project:load', p),
   githubRepos: () => ipcRenderer.invoke('clone:repos'),

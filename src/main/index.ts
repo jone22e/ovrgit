@@ -49,6 +49,7 @@ import * as agentApi from './agentApi'
 import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
+import * as voice from './voice'
 import type { ServicesFile } from '../shared/servicesShare'
 
 let win: BrowserWindow | null = null
@@ -270,6 +271,11 @@ function openTerminalWindow(id: number) {
 }
 
 function registerIpc() {
+  ipcMain.handle('voice:status', () => voice.voiceStatus())
+  ipcMain.handle('voice:install', (_e, token?: string) => voice.installVoice(typeof token === 'string' ? token.slice(0, 500) : undefined))
+  ipcMain.handle('voice:test', () => voice.testVoice())
+  ipcMain.handle('voice:speak', (_e, uid: string, text: string) => voice.speak(String(uid).slice(0, 100), String(text).slice(0, 800)))
+  ipcMain.handle('voice:cancel', (_e, uid: string) => voice.cancelVoice(String(uid).slice(0, 100)))
   ipcMain.handle('project:open', async () => {
     const res = await dialog.showOpenDialog(win!, {
       title: 'Abrir projeto Git',
@@ -984,6 +990,7 @@ async function installUpdate() {
   updater.installUpdate()
 }
 app.on('before-quit', (e) => {
+  voice.shutdownVoice()
   prepareQuit()
   if (quitState === 'ready' || !livePtys()) return
   // um terminal ou serviço que avisa a saída com o app já desmontando derruba o processo ("encerrou

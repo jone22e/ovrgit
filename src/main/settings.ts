@@ -38,7 +38,8 @@ const DEFAULTS: Settings = {
   repoGroups: [],
   repoIcons: {},
   restoreAgents: true,
-  cardIndicator: 'ring'
+  cardIndicator: 'ring',
+  managerConversationVoice: false
 }
 
 const file = () => path.join(app.getPath('userData'), 'settings.json')

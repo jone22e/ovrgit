@@ -340,6 +340,19 @@ export interface Settings {
   restoreAgents: boolean
   /** Canto do cartão do agente trabalhando (orquestrador): o anel de progresso, ou o mascote em miniatura */
   cardIndicator: 'ring' | 'mascot'
+  /** Respostas dos pedidos do gerenciador em voz, usando o Phonon local */
+  managerConversationVoice: boolean
+}
+
+export interface VoiceStatus {
+  platform: NodeJS.Platform
+  arch: string
+  supported: boolean
+  installed: boolean
+  modelReady: boolean
+  voiceReady: boolean
+  ready: boolean
+  installing: boolean
 }
 
 /** Situação da atualização do app. `unsupported`: rodando em desenvolvimento, sem pacote instalado */
@@ -1006,6 +1019,14 @@ export interface ProviderStatus {
 }
 
 export interface OvseerApi {
+  voiceStatus(): Promise<VoiceStatus>
+  voiceInstall(token?: string): Promise<VoiceStatus>
+  voiceTest(): Promise<void>
+  voiceSpeak(uid: string, text: string): Promise<void>
+  voiceCancel(uid: string): Promise<void>
+  onVoiceProgress(cb: (message: string) => void): () => void
+  onVoiceQueue(cb: (state: { uid: string; pending: number }) => void): () => void
+  onVoiceError(cb: (state: { uid: string; message: string }) => void): () => void
   openProject(): Promise<RepoStatus | null>
   loadProject(path: string): Promise<RepoStatus>
   githubRepos(): Promise<RemoteRepo[] | null>

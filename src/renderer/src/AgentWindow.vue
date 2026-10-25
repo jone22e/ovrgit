@@ -29,6 +29,7 @@ import ModelPicker from './components/ModelPicker.vue'
 import RepoMenu from './components/RepoMenu.vue'
 import { applyGroup } from '@shared/repoGroups'
 import WindowGrid from './components/WindowGrid.vue'
+import VoiceSetupDialog from './components/VoiceSetupDialog.vue'
 import { applyTheme } from './theme'
 
 /**
@@ -61,6 +62,91 @@ interface Shown extends AgentAttachment {
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
 let activeManagerTaskId: string | null = null
+/** null: acompanha o modo do gerenciador; true/false: escolha deste agente */
+const voiceEnabled = ref<boolean | null>(null)
+const managerVoice = ref(false)
+const voiceSetup = ref(false)
+let enableVoiceAfterSetup = false
+const voicePendingCount = ref(0)
+const voiceError = ref('')
+let voiceText = ''
+let voiceInCode = false
+let voiceFenceTail = ''
+let voiceMutedForTurn = false
+const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
+const voiceActive = () => voicePlatform && !voiceMutedForTurn && (voiceEnabled.value ?? (managerVoice.value && !!activeManagerTaskId))
+function saveAgentVoice() {
+  if (!sessionId.value || voiceEnabled.value === null) return
+  try { localStorage.setItem(`ovseer.voice.${sessionId.value}`, voiceEnabled.value ? '1' : '0') } catch { /* preferência só desta sessão */ }
+}
+function resetVoice() {
+  voiceText = ''
+  voiceInCode = false
+  voiceFenceTail = ''
+  voiceMutedForTurn = false
+  void api.voiceCancel(uid).catch(() => undefined)
+}
+function stopVoice() {
+  voiceMutedForTurn = true
+  voiceText = ''
+  voiceFenceTail = ''
+  void api.voiceCancel(uid).catch(() => undefined)
+}
+function speakText(text: string) {
+  const plain = text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*]\s+|\d+[.)]\s+)/gm, '')
+    .replace(/[*_~|]/g, '')
+    .trim()
+  if (plain) void api.voiceSpeak(uid, plain).catch((e) => (voiceError.value = String((e as Error).message)))
+}
+function feedVoice(delta: string) {
+  if (!voiceActive()) return
+  const input = voiceFenceTail + delta
+  const ticks = input.match(/`+$/)?.[0] ?? ''
+  const tail = ticks.slice(0, ticks.length % 3)
+  voiceFenceTail = tail
+  const parts = input.slice(0, input.length - tail.length).split('```')
+  parts.forEach((part, index) => {
+    if (!voiceInCode) voiceText += part
+    if (index < parts.length - 1) voiceInCode = !voiceInCode
+  })
+  while (voiceText.length) {
+    const end = /[.!?](?=\s|$)/.exec(voiceText.slice(0, 260))?.index
+    const space = voiceText.lastIndexOf(' ', 240)
+    const cut = end !== undefined ? end + 1 : voiceText.length > 260 ? (space > 0 ? space : 260) : -1
+    if (cut <= 0) break
+    speakText(voiceText.slice(0, cut))
+    voiceText = voiceText.slice(cut).trimStart()
+  }
+}
+async function toggleVoice() {
+  if (voiceActive()) {
+    voiceEnabled.value = false
+    saveAgentVoice()
+    stopVoice()
+    return
+  }
+  try {
+    if (!(await api.voiceStatus()).ready) {
+      enableVoiceAfterSetup = true
+      voiceSetup.value = true
+      return
+    }
+    voiceEnabled.value = true
+    voiceMutedForTurn = false
+    saveAgentVoice()
+    voiceError.value = ''
+  } catch (e) { voiceError.value = String((e as Error).message) }
+}
+async function closeVoiceSetup() {
+  voiceSetup.value = false
+  if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) { voiceEnabled.value = true; saveAgentVoice() }
+  enableVoiceAfterSetup = false
+}
 // Modo Arquiteto: declarados cedo porque a situação da janela (lida por observadores imediatos) depende deles
 /** Estado do Modo Arquiteto desta conversa (fica na vez em que a descoberta começou) */
 const arch = computed<ArchState | null>(() => turns.find((t) => t.arch)?.arch ?? null)
@@ -597,6 +683,7 @@ function apply(ev: AgentChatEvent) {
   lastEventAt.value = Date.now()
   if (ev.type === 'session') {
     sessionId.value = ev.sessionId
+    saveAgentVoice()
     return
   }
   if (ev.type === 'title') {
@@ -628,6 +715,7 @@ function apply(ev: AgentChatEvent) {
   const t = current()
   if (!t) return
   if (ev.type === 'text') {
+    feedVoice(ev.delta)
     t.thinking = false
     t.activity = 'writing'
     const last = t.blocks[t.blocks.length - 1]
@@ -672,6 +760,7 @@ function apply(ev: AgentChatEvent) {
     } else t.blocks.push({ kind: 'files', paths: [...ev.paths], stats: ev.stats, repos: ev.repos })
     if (ev.repos) for (const r of Object.values(ev.repos)) loadRepoIcon(r.root)
   } else if (ev.type === 'done') {
+    if (!ev.error && voiceActive()) { speakText(voiceText); voiceText = '' }
     t.running = false
     t.thinking = false
     t.error = ev.error
@@ -933,6 +1022,10 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistItem[]) {
   if (!info.value) return
+  voiceText = ''
+  voiceInCode = false
+  voiceFenceTail = ''
+  voiceMutedForTurn = false
   if (p.model !== undefined) model.value = p.model
   if (p.effort) effort.value = p.effort
   if (p.mode) setMode(p.mode)
@@ -1295,6 +1388,7 @@ function sendNow() {
 }
 
 function stop() {
+  stopVoice()
   api.agentCancel(uid)
 }
 
@@ -1943,10 +2037,13 @@ onMounted(async () => {
     applyTheme(s.theme)
     gridSize.value = normalizeGrid(s.agentGrid)
     applyFont(s)
+    managerVoice.value = s.managerConversationVoice
   } catch {
     /* tema padrão */
   }
   offs.push(api.onAgentEvent((u, ev) => u === uid && onEvent(ev)))
+  offs.push(api.onVoiceQueue((q) => { if (q.uid === uid) voicePendingCount.value = q.pending }))
+  offs.push(api.onVoiceError((e) => { if (e.uid === uid) voiceError.value = e.message }))
   offs.push(() => clearTimeout(textTimer))
   document.addEventListener('mousedown', onDocClick)
   offs.push(() => document.removeEventListener('mousedown', onDocClick))
@@ -1964,6 +2061,8 @@ onMounted(async () => {
     api.onSettingsChanged((s) => {
       applyTheme(s.theme)
       applyFont(s)
+      if (managerVoice.value && !s.managerConversationVoice && voiceEnabled.value !== true) stopVoice()
+      managerVoice.value = s.managerConversationVoice
       // o grid mudou noutra janela (ou na principal): este menu passa a mostrar as mesmas colunas × linhas
       gridSize.value = normalizeGrid(s.agentGrid)
     })
@@ -1984,6 +2083,10 @@ onMounted(async () => {
   mode.value = i.mode
   chatTitle.value = i.title
   sessionId.value = i.sessionId
+  try {
+    const saved = i.sessionId ? localStorage.getItem(`ovseer.voice.${i.sessionId}`) : null
+    voiceEnabled.value = saved === '1' ? true : saved === '0' ? false : null
+  } catch { /* preferência local indisponível */ }
   handoff.value = i.handoff ?? null
   await restore(i)
   // Modo Arquiteto: conversa reaberta volta no modo da etapa em que parou (o processo principal reabre tudo em
@@ -2016,7 +2119,7 @@ onMounted(async () => {
   ready.value = true
   if ((i.firstMessage || firstFiles) && !turns.length) send(i.firstMessage ?? '', i.managerTaskId)
 })
-onUnmounted(() => offs.forEach((f) => f()))
+onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
 </script>
 
 <template>
@@ -2055,6 +2158,8 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <span class="spacer" />
+      <button v-if="voicePlatform" type="button" class="ghost icon head-btn" :class="{ on: voiceActive() }" :title="voiceActive() ? 'Desativar voz deste agente' : 'Ativar voz deste agente'" @click="toggleVoice"><Icon name="volume" :size="15" /></button>
+      <button v-if="voicePlatform && voicePendingCount" type="button" class="ghost icon head-btn" title="Interromper e limpar áudios deste agente" @click="stopVoice"><Icon name="stop" :size="13" /></button>
       <div v-if="!docked" ref="gridRoot" class="grid-menu">
         <button type="button" class="ghost icon head-btn" :class="{ on: gridOpen }" title="Posicionar a janela na tela" @click="gridOpen = !gridOpen">
           <Icon name="grid" :size="14" />
@@ -2359,6 +2464,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         </span>
       </div>
       <p v-if="attachError" class="att-err">{{ attachError }}</p>
+      <p v-if="voiceError" class="att-err">Voz: {{ voiceError }} <button type="button" class="ghost" @click="voiceSetup = true">Configurar</button></p>
       <p v-if="dictation.error.value" class="att-err">{{ dictation.error.value }}</p>
       <textarea
         ref="box"
@@ -2451,6 +2557,7 @@ onUnmounted(() => offs.forEach((f) => f()))
         <button type="button" class="primary" @click="startPlan(approveMode)">Implementar em "{{ MODES.find((m) => m.id === approveMode)?.label }}"</button>
       </template>
     </Modal>
+    <VoiceSetupDialog v-if="voiceSetup" @close="closeVoiceSetup" />
   </div>
 </template>
 

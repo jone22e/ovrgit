@@ -3,16 +3,40 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
-import { api, state, toast } from '../store'
+import { api, saveSettings, state, toast } from '../store'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
+import VoiceSetupDialog from './VoiceSetupDialog.vue'
 
 const cwd = ref(state.repo?.root ?? '')
 const extraDirs = ref<string[]>([])
 const known = ref<KnownModels | null>(null)
 const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
+const voiceSetup = ref(false)
+let enableVoiceAfterSetup = false
+const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
+const conversation = computed(() => voicePlatform && !!state.settings?.managerConversationVoice)
+async function toggleConversation() {
+  if (conversation.value) {
+    await saveSettings({ managerConversationVoice: false })
+    return
+  }
+  try {
+    if (!(await api.voiceStatus()).ready) {
+      enableVoiceAfterSetup = true
+      voiceSetup.value = true
+      return
+    }
+    await saveSettings({ managerConversationVoice: true })
+  } catch (e) { toast(String((e as Error).message)) }
+}
+async function closeVoiceSetup() {
+  voiceSetup.value = false
+  if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) await saveSettings({ managerConversationVoice: true })
+  enableVoiceAfterSetup = false
+}
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
 const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Sem projeto'
 const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
@@ -52,6 +76,9 @@ watch(() => state.repo?.root, (next, previous) => {
     <header class="manager-head">
       <span class="avatar"><Icon name="bot" :size="19" /></span>
       <span><strong>Gerenciador de agentes</strong><small>Encaminha cada pedido no projeto certo</small></span>
+      <span class="head-spacer" />
+      <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Desativar conversa por voz' : 'Ativar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Voz ligada' : 'Conversa por voz' }}</button>
+      <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
     <div ref="feed" class="feed">
       <div v-if="!tasks.length" class="intro">
@@ -93,19 +120,23 @@ watch(() => state.repo?.root, (next, previous) => {
       </article>
     </div>
     <div class="manager-composer">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" placeholder="Peça algo ao gerenciador…">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :placeholder="conversation ? 'Dite ou escreva para o gerenciador…' : 'Peça algo ao gerenciador…'">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" class="repo" /></div></template>
       </MiniComposer>
     </div>
+    <VoiceSetupDialog v-if="voiceSetup" @close="closeVoiceSetup" />
   </section>
 </template>
 
 <style scoped>
 .manager { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--text); }
 .manager-head { display: flex; align-items: center; gap: 10px; padding: 15px 14px; border-bottom: 1px solid var(--border); flex: none; }
-.manager-head > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.manager-head > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .manager-head strong { font-size: 13px; }
 .manager-head small { color: var(--faint); font-size: 10.5px; }
+.head-spacer { flex: 1; }
+.voice-toggle { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; padding: 5px 7px; color: var(--muted); font-size: 10.5px; }
+.voice-toggle.on { color: var(--accent); background: var(--accent-soft); }
 .avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
 .avatar { width: 34px; height: 34px; border-radius: 11px; }
 .feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 12px; }
