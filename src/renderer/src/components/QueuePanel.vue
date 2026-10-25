@@ -16,14 +16,16 @@ const feed = ref<HTMLElement>()
 const tasks = computed(() => state.queue)
 const voiceSetup = ref(false)
 const voicePending = ref(0)
+const voiceSession = ref(false)
 let enableVoiceAfterSetup = false
 const managerVoiceId = '__manager__'
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
-const conversation = computed(() => voicePlatform && !!state.settings?.managerConversationVoice)
+const conversation = computed(() => voicePlatform && voiceSession.value)
 async function toggleConversation() {
   if (conversation.value) {
-    await saveSettings({ managerConversationVoice: false })
-    await api.voiceCancel(managerVoiceId)
+    voiceSession.value = false
+    await api.voiceCancel(managerVoiceId).catch(() => undefined)
+    try { await saveSettings({ managerConversationVoice: false }) } catch (e) { toast(String((e as Error).message)) }
     return
   }
   try {
@@ -33,11 +35,17 @@ async function toggleConversation() {
       return
     }
     await saveSettings({ managerConversationVoice: true })
+    voiceSession.value = true
   } catch (e) { toast(String((e as Error).message)) }
 }
 async function closeVoiceSetup() {
   voiceSetup.value = false
-  if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) await saveSettings({ managerConversationVoice: true })
+  try {
+    if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) {
+      await saveSettings({ managerConversationVoice: true })
+      voiceSession.value = true
+    }
+  } catch (e) { toast(String((e as Error).message)) }
   enableVoiceAfterSetup = false
 }
 function speakManagerReply(reply: string) {
@@ -70,7 +78,10 @@ watch(() => tasks.value.map((t) => `${t.id}:${t.status}`).join('|'), () => {
   }
 })
 const offVoiceQueue = api.onVoiceQueue((q) => { if (q.uid === managerVoiceId) voicePending.value = q.pending })
-onUnmounted(offVoiceQueue)
+onUnmounted(() => {
+  offVoiceQueue()
+  if (voiceSession.value) void api.voiceCancel(managerVoiceId).catch(() => undefined)
+})
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
 const where = (t: QueueTask) => t.cwd ? (groupOf(state.settings?.repoGroups ?? [], t.cwd, t.extraDirs)?.name ?? name(t.cwd)) : 'Todos os projetos'
 const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
@@ -105,7 +116,7 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       <span class="avatar"><Icon name="bot" :size="19" /></span>
       <span><strong>Gerenciador de agentes</strong><small>Todos os projetos e agentes</small></span>
       <span class="head-spacer" />
-      <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Desativar conversa por voz' : 'Ativar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Voz ligada' : 'Conversa por voz' }}</button>
+      <button v-if="voicePlatform" class="ghost voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" @click="toggleConversation"><Icon name="volume" :size="14" /> {{ conversation ? 'Conversa ativa' : 'Conversa por voz' }}</button>
       <button v-if="voicePlatform && voicePending" class="ghost icon" title="Interromper fala do gerenciador" @click="api.voiceCancel(managerVoiceId)"><Icon name="stop" :size="13" /></button>
       <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
@@ -150,7 +161,7 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       </article>
     </div>
     <div class="manager-composer">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>

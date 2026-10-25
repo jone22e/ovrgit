@@ -13,7 +13,7 @@ import ModelPicker from './ModelPicker.vue'
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
 const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean }>()
-const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask] }>()
+const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
 const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
@@ -40,15 +40,51 @@ const currentMode = computed(() => MODES.find((m) => m.id === mode.value) ?? MOD
 const canSend = computed(() => !!(text.value.trim() || pending.length || pastes.length))
 const sending = ref(false)
 const canDictate = api.platform === 'darwin'
+const waitingForVoice = ref(false)
+const voiceStarted = ref(false)
+let resumeTimer: ReturnType<typeof setTimeout> | undefined
+function resumeListening() {
+  clearTimeout(resumeTimer)
+  if (!props.autoSendDictation || !canDictate || waitingForVoice.value || props.voiceSpeaking || dictation.phase.value !== 'idle') return
+  resumeTimer = setTimeout(() => {
+    if (props.autoSendDictation && !waitingForVoice.value && !props.voiceSpeaking && dictation.phase.value === 'idle') {
+      void dictation.start().then(() => {
+        if (props.autoSendDictation && dictation.phase.value === 'idle' && !dictation.error.value) resumeListening()
+      })
+    }
+  }, 350)
+}
 const dictation = useDictation((words) => {
   text.value = text.value.trim() ? text.value.replace(/\s+$/, '') + ' ' + words : words
   nextTick(() => { autosize(); box.value?.focus() })
-  if (props.autoSendDictation) nextTick(() => void send())
+  if (props.autoSendDictation) {
+    waitingForVoice.value = true
+    nextTick(() => void send())
+  }
+}, () => !!props.autoSendDictation)
+watch(() => props.autoSendDictation, (active) => {
+  clearTimeout(resumeTimer)
+  if (active) resumeListening()
+  else {
+    waitingForVoice.value = false
+    voiceStarted.value = false
+    dictation.cancel()
+  }
+}, { immediate: true })
+watch(() => dictation.phase.value, (phase) => { if (phase === 'idle') resumeListening() })
+watch(() => props.voiceSpeaking, (speaking) => {
+  if (speaking) {
+    voiceStarted.value = true
+    dictation.cancel()
+  } else if (voiceStarted.value) {
+    voiceStarted.value = false
+    if (!sending.value) {
+      waitingForVoice.value = false
+      resumeListening()
+    }
+  }
 })
-async function toggleConversationMic() {
-  if (dictation.phase.value === 'idle') await api.voiceCancel('__manager__').catch(() => undefined)
-  dictation.toggle()
-}
+watch(() => dictation.error.value, (error) => { if (error && props.autoSendDictation) emit('endConversation') })
 
 // ---------- anexos: os mesmos caminhos da janela do agente (os arquivos ficam guardados para a janela `uid`) ----------
 type Shown = AgentAttachment & { preview?: string }
@@ -141,6 +177,10 @@ async function send() {
   if (props.manager) {
     sending.value = true
     try {
+      if (props.autoSendDictation) {
+        waitingForVoice.value = true
+        dictation.cancel()
+      }
       if (props.autoSendDictation) await api.voiceCancel('__manager__').catch(() => undefined)
       const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
       const task = tasks.at(-1)
@@ -150,6 +190,8 @@ async function send() {
       } catch { /* preferência local indisponível: o pedido já foi salvo */ }
     } catch (e) {
       attachError.value = clean(e)
+      waitingForVoice.value = false
+      resumeListening()
       return
     } finally {
       sending.value = false
@@ -174,6 +216,7 @@ const onDoc = (e: MouseEvent) => {
 onMounted(() => document.addEventListener('mousedown', onDoc))
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDoc)
+  clearTimeout(resumeTimer)
   for (const a of pending) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
 })
 </script>
@@ -182,15 +225,15 @@ onUnmounted(() => {
   <div class="mini" :class="{ drop: dragging }" @click.stop @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop">
     <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="14" /> Solte para anexar</div>
     <div v-if="autoSendDictation" class="voice-stage" :class="{ listening: dictation.phase.value === 'recording', transcribing: dictation.phase.value === 'transcribing', speaking: voiceSpeaking && dictation.phase.value === 'idle' }">
-      <button v-if="canDictate" type="button" class="voice-orb" :disabled="dictation.phase.value === 'transcribing'" :title="dictation.phase.value === 'recording' ? 'Terminar fala e enviar' : 'Começar a falar'" @click="toggleConversationMic"><Icon :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="23" /></button>
+      <span v-if="canDictate" class="voice-orb"><Icon name="mic" :size="23" /></span>
       <span v-else class="voice-orb unavailable"><Icon name="mic" :size="23" /></span>
       <span class="voice-copy" aria-live="polite">
         <small><i class="voice-led" /> MODO CONVERSA ATIVO</small>
-        <strong>{{ dictation.phase.value === 'recording' ? 'Ouvindo você' : dictation.phase.value === 'transcribing' ? 'Transcrevendo sua fala' : voiceSpeaking ? 'Respondendo por voz' : canDictate ? 'Pronta para conversar' : 'Microfone indisponível' }}</strong>
-        <span>{{ dictation.phase.value === 'recording' ? 'Toque novamente para enviar sua fala' : dictation.phase.value === 'transcribing' ? 'Aguarde um instante…' : canDictate ? 'Toque no microfone ou escreva abaixo' : 'Você pode escrever abaixo' }}</span>
+        <strong>{{ dictation.phase.value === 'recording' ? 'Ouvindo você' : dictation.phase.value === 'transcribing' ? 'Entendendo sua fala' : voiceSpeaking ? 'Respondendo por voz' : waitingForVoice ? 'Preparando resposta' : canDictate ? 'Preparando microfone' : 'Microfone indisponível' }}</strong>
+        <span>{{ dictation.phase.value === 'recording' ? 'Fale normalmente; envio após uma pausa' : canDictate ? 'A conversa continua automaticamente' : 'Você pode escrever abaixo' }}</span>
       </span>
       <span v-if="dictation.phase.value === 'recording' || voiceSpeaking" class="voice-wave" aria-hidden="true"><i v-for="n in 5" :key="n" /></span>
-      <button v-if="dictation.phase.value === 'recording'" type="button" class="ghost icon voice-discard" title="Descartar gravação" @click="dictation.cancel"><Icon name="x" :size="13" /></button>
+      <button type="button" class="ghost voice-end" title="Encerrar conversa por voz" @click="dictation.cancel(); emit('endConversation')">Encerrar</button>
     </div>
     <div v-if="pending.length || pastes.length" class="pending">
       <template v-for="(a, i) in pending" :key="a.path">
@@ -247,8 +290,8 @@ onUnmounted(() => {
 }
 .mini:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .voice-stage { position: relative; display: flex; align-items: center; gap: 10px; min-height: 76px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
-.voice-orb { display: grid; place-items: center; flex: none; width: 50px; height: 50px; border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border)); border-radius: 50%; background: var(--accent); color: var(--background); cursor: pointer; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent); }
-.voice-orb:disabled, .voice-orb.unavailable { cursor: default; opacity: .65; }
+.voice-orb { display: grid; place-items: center; flex: none; width: 50px; height: 50px; border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border)); border-radius: 50%; background: var(--accent); color: var(--background); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent); }
+.voice-orb.unavailable { opacity: .65; }
 .voice-stage.listening .voice-orb { animation: voice-pulse 1.4s ease-in-out infinite; }
 .voice-stage.speaking .voice-orb { background: var(--accent-soft); color: var(--accent); }
 .voice-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
@@ -261,7 +304,7 @@ onUnmounted(() => {
 .voice-wave i { width: 3px; height: 8px; border-radius: 3px; background: var(--accent); animation: voice-wave .8s ease-in-out infinite alternate; }
 .voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { animation-delay: .2s; }
 .voice-wave i:nth-child(3) { animation-delay: .4s; }
-.voice-discard { position: absolute; top: 4px; right: 4px; }
+.voice-end { flex: none; padding: 5px 7px; color: var(--muted); font-size: 10px; }
 @keyframes voice-pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 5%, transparent); } }
 @keyframes voice-wave { to { height: 19px; } }
 @media (prefers-reduced-motion: reduce) { .voice-stage.listening .voice-orb, .voice-wave i { animation: none; } }
