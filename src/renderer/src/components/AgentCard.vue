@@ -245,7 +245,7 @@ async function saveRename() {
 
 <template>
   <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
-    <span v-if="compact" class="list-avatar" :class="tone" :title="statusLabel">{{ (group?.name ?? a.project).charAt(0).toUpperCase() }}<i :class="tone" /></span>
+    <span v-if="compact" class="list-avatar" :title="`${a.project} · ${statusLabel}`"><RepoIcon :icon="repoIcon" :favicon="projectIcons.get(a.cwd)" :size="34" /><i :class="tone" /></span>
     <div v-if="compact" class="list-copy">
       <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
       <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
@@ -502,11 +502,7 @@ async function saveRename() {
 .acard.compact.waiting { background: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
 .acard.compact.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 .compact > .top, .compact > .status, .compact > .say, .compact > .track-steps, .compact > .foot, .compact > .close { display: none; }
-.list-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); color: var(--text); font-size: 20px; font-weight: 700; }
-.list-avatar.live { background: color-mix(in srgb, var(--accent) 65%, var(--panel)); color: var(--on-accent); }
-.list-avatar.waiting { background: color-mix(in srgb, var(--mod) 85%, var(--panel)); color: var(--bg); }
-.list-avatar.done { background: color-mix(in srgb, var(--add) 78%, var(--panel)); color: var(--bg); }
-.list-avatar.error { background: color-mix(in srgb, var(--del) 65%, var(--panel)); color: var(--on-accent); }
+.list-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); }
 .list-avatar i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: var(--faint); }
 .list-avatar i.live { background: var(--accent); }
 .list-avatar i.waiting { background: var(--mod); }
