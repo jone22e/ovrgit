@@ -7,7 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
-import { agentStatusReply, chosenProject, knownProjects, mentionedProjects, openProjectsReply, projectOptions } from './manager'
+import { agentStatusReply, chosenProject, knownProjects, knownProjectsReply, mentionedProjects, openProjectsReply, projectOptions } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -156,7 +156,8 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
     const settings = getSettings()
     const agents = agentChat.agentSnapshots()
     const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
-    const answer = openProjectsReply(text, agents) ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+    const answer = openProjectsReply(text, agents) ?? knownProjectsReply(text, roots, agents)
+      ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
     reply = answer?.reply ?? null
     spokenReply = answer?.speech
     if (!reply) {

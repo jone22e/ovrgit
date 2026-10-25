@@ -48,7 +48,7 @@ it('aceita o nome falado ou a posição da opção sem confundir uma pergunta co
 
 it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria agente quando não há relação', async () => {
   fake.snapshots.push(
-    { uid: 'related', cwd: project, provider: 'codex', status: 'live', title: 'Login: acesso negado', lastUser: 'Corrigir mensagem de acesso negado no login', summary: '', paths: [] },
+    { uid: 'related', cwd: project, provider: 'codex', status: 'live', title: 'Login: acesso negado', activity: 'Revisando autenticação', lastUser: 'Corrigir mensagem de acesso negado no login', summary: '', paths: [] },
     { uid: 'wrong-project', cwd: other, provider: 'codex', status: 'done', title: 'Exportação em PDF', lastUser: 'Criar exportação em PDF', summary: '', paths: [] }
   )
   const queue = await import('../src/main/queue')
@@ -89,7 +89,7 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   const actionsBefore = fake.actions.length
   const status = queue.add({ text: 'Tem algum agente trabalhando no flexi?', cwd: flexi, managed: true }).at(-1)!
   expect(status.status).toBe('done')
-  expect(status.reply).toContain('Estoque do Flexi (flexi2)')
+  expect(status.reply).toContain('Estoque do Flexi (flexi2; trabalhando)')
   expect(status.reply).not.toContain('Tela do Flexi Lite')
   expect(status.spokenReply).toContain('Mostrei os nomes no chat')
   expect(status.spokenReply).not.toContain('Estoque do Flexi')
@@ -103,15 +103,35 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(unclearStatus.spokenReply).toContain('Encontrei 1 agente trabalhando')
   expect(unclearStatus.spokenReply).not.toContain('Estoque do Flexi')
   const exactStatus = queue.add({ text: 'Tem algum agente trabalhando no flexi2?', managed: true }).at(-1)!
-  expect(exactStatus.reply).toContain('Estoque do Flexi (flexi2)')
+  expect(exactStatus.reply).toContain('Estoque do Flexi (flexi2; trabalhando)')
   const globalStatus = queue.add({ text: 'Quais agentes estão trabalhando?', managed: true }).at(-1)!
-  expect(globalStatus.reply).toContain('Estoque do Flexi (flexi2)')
+  expect(globalStatus.reply).toContain('Estoque do Flexi (flexi2; trabalhando)')
   expect(globalStatus.reply).toContain('Login: acesso negado')
+  expect(globalStatus.reply).toContain('Atividade: Revisando autenticação')
+  const spokenQuestion = queue.add({ text: 'O que os agentes estão fazendo', managed: true }).at(-1)!
+  expect(spokenQuestion.reply).toContain('Atividade: Revisando autenticação')
+  expect(spokenQuestion.reply).not.toContain('Tela do Flexi Lite')
+  const globalWithTarget = queue.add({ text: 'Agentes em execução', cwd: flexi, managed: true }).at(-1)!
+  expect(globalWithTarget.reply).toContain('Login: acesso negado')
+  expect(globalWithTarget.reply).toContain('Estoque do Flexi')
+  expect(globalWithTarget.reply).not.toContain('Tela do Flexi Lite')
   const projectsStatus = queue.add({ text: 'Quais projetos tem aberto.', managed: true }).at(-1)!
   expect(projectsStatus.reply).toContain('projetos com agentes abertos')
   expect(projectsStatus.reply).toContain('flexi2: 1 agente')
   expect(projectsStatus.reply).toContain('flexi-lite: 1 agente')
   expect(projectsStatus.projectChoices).toBeUndefined()
+  const activeProjects = queue.add({ text: 'Projetos ativos', managed: true }).at(-1)!
+  expect(activeProjects.reply).toContain('em execução agora')
+  expect(activeProjects.reply).toContain('flexi2: 1 agente')
+  expect(activeProjects.reply).not.toContain('flexi-lite')
+  const projectsAndAgents = queue.add({ text: 'Mostra os projetos e agentes em execução', managed: true }).at(-1)!
+  expect(projectsAndAgents.reply).toContain('flexi2: 1 agente')
+  expect(projectsAndAgents.reply).toContain('Estoque do Flexi')
+  expect(projectsAndAgents.reply).not.toContain('Tela do Flexi Lite')
+  const allProjects = queue.add({ text: 'Quais projetos você conhece?', cwd: flexi, managed: true }).at(-1)!
+  expect(allProjects.reply).toContain('projetos conhecidos')
+  expect(allProjects.reply).toContain('flexi2: 1 agente aberto')
+  expect(allProjects.reply).toContain('flexi-lite: 1 agente aberto')
 
   const ambiguous = queue.add({ text: 'Ajustar a tela do flexi', managed: true }).at(-1)!
   expect(ambiguous.reply).toContain('mais de um projeto')

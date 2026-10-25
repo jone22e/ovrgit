@@ -1,11 +1,12 @@
 import path from 'node:path'
 import type { AgentSnapshot, QueueTask, RepoGroup } from '../shared/types'
 
-type Agent = Pick<AgentSnapshot, 'cwd' | 'project' | 'title' | 'status'>
+type Agent = Pick<AgentSnapshot, 'cwd' | 'project' | 'title' | 'status'> & Partial<Pick<AgentSnapshot, 'activity' | 'lastUser' | 'summary'>>
 
 const plain = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 const words = (text: string) => plain(text).split(/[^a-z0-9]+/).filter(Boolean)
 const nameOf = (root: string) => path.basename(root)
+const statusLabel: Record<AgentSnapshot['status'], string> = { idle: 'disponível', live: 'trabalhando', waiting: 'aguardando sua resposta', done: 'concluído', error: 'com erro' }
 
 /** Só nomes observados no app: nunca escolhe uma pasta com base no projeto aberto por acaso. */
 export function knownProjects(recent: string[], groups: RepoGroup[], agents: Agent[]): string[] {
@@ -61,20 +62,46 @@ export function chosenProject(text: string, choices: NonNullable<QueueTask['proj
 /** Consulta global: projetos com conversas de agentes abertas neste momento. */
 export function openProjectsReply(text: string, agents: Agent[]): { reply: string; speech: string } | null {
   const query = plain(text)
-  if (!/\b(projetos?|repositorios?)\b/.test(query) || !/\b(abertos?|abertas?|ativos?|ativas?)\b/.test(query)) return null
-  if (!/\b(quais|quantos|qual|liste|mostre|diga|tem|tenho|ha|existem)\b/.test(query)) return null
+  if (!/\b(projetos?|repositorios?)\b/.test(query) || !/\b(abertos?|abertas?|ativos?|ativas?|execucao)\b/.test(query)) return null
+  if (!/\b(quais|quantos|qual|liste|mostre|mostra|diga|tem|tenho|ha|existem)\b/.test(query) && !/^\s*(projetos?|repositorios?)\b/.test(query)) return null
+  const running = /\b(ativos?|ativas?|execucao)\b/.test(query)
+  const withAgents = /\b(agentes?|conversas?)\b/.test(query)
   const counts = new Map<string, number>()
-  for (const agent of agents) counts.set(agent.cwd, (counts.get(agent.cwd) ?? 0) + 1)
-  if (!counts.size) return { reply: 'Não há projetos com conversas de agentes abertas agora.', speech: 'Não há projetos com agentes abertos agora.' }
+  for (const agent of agents) if (!running || agent.status === 'live') counts.set(agent.cwd, (counts.get(agent.cwd) ?? 0) + 1)
+  const label = running ? 'em execução' : 'com agentes abertos'
+  if (!counts.size) return { reply: `Não há projetos ${label} agora.`, speech: `Não há projetos ${label} agora.` }
   const projects = [...counts].sort(([a], [b]) => nameOf(a).localeCompare(nameOf(b), 'pt'))
   return {
-    reply: [`${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} com agentes abertos agora:`, ...projects.map(([root, count]) => `• ${nameOf(root)}: ${count} ${count === 1 ? 'agente' : 'agentes'}`)].join('\n'),
-    speech: `Há ${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} com agentes abertos. Mostrei a lista no chat.`
+    reply: [`${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} ${label} agora:`, ...projects.flatMap(([root, count]) => [
+      `• ${nameOf(root)}: ${count} ${count === 1 ? 'agente' : 'agentes'}`,
+      ...(withAgents ? agents.filter((agent) => agent.cwd === root && (!running || agent.status === 'live')).map((agent) => `  - ${agent.title || 'Agente sem título'}`) : [])
+    ])].join('\n'),
+    speech: `Há ${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} ${label}. Mostrei a lista no chat.`
+  }
+}
+
+/** Projetos conhecidos pelo aplicativo, inclusive os que não têm agentes abertos. */
+export function knownProjectsReply(text: string, roots: string[], agents: Agent[]): { reply: string; speech: string } | null {
+  const query = plain(text)
+  if (!/\b(projetos?|repositorios?)\b/.test(query) || /\b(abertos?|abertas?|ativos?|ativas?|execucao)\b/.test(query)) return null
+  if (!/\b(quais|quantos|liste|mostre|mostra|conhecidos?|cadastrados?|informacoes|situacao|status)\b/.test(query)) return null
+  if (!/[?]/.test(text) && !/^\s*(quais|quantos|liste|mostre|mostra|me diga|qual|projetos?|repositorios?|status|situacao|informacoes)\b/.test(query)) return null
+  const ordered = [...roots].sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'pt'))
+  if (!ordered.length) return { reply: 'Não há projetos conhecidos no aplicativo.', speech: 'Não encontrei projetos conhecidos no aplicativo.' }
+  const withAgents = /\b(agentes?|conversas?)\b/.test(query)
+  return {
+    reply: [`${ordered.length} ${ordered.length === 1 ? 'projeto conhecido' : 'projetos conhecidos'}:`, ...ordered.flatMap((root) => {
+      const group = agents.filter((agent) => agent.cwd === root)
+      const live = group.filter((agent) => agent.status === 'live').length
+      return [`• ${nameOf(root)}: ${group.length} ${group.length === 1 ? 'agente aberto' : 'agentes abertos'}, ${live} em execução`,
+        ...(withAgents ? group.map((agent) => `  - ${agent.title || 'Agente sem título'} (${statusLabel[agent.status]})`) : [])]
+    })].join('\n'),
+    speech: `Encontrei ${ordered.length} ${ordered.length === 1 ? 'projeto conhecido' : 'projetos conhecidos'}. Mostrei a situação no chat.`
   }
 }
 
 const STATUS: { pattern: RegExp; label: string; statuses: AgentSnapshot['status'][] }[] = [
-  { pattern: /\b(trabalhando|rodando|executando|ocupados?|ativos?)\b/, label: 'trabalhando', statuses: ['live'] },
+  { pattern: /\b(trabalhando|rodando|executando|execucao|fazendo|ocupados?|ativos?)\b/, label: 'trabalhando', statuses: ['live'] },
   { pattern: /\b(aguardando|esperando|pendentes?)\b/, label: 'aguardando sua resposta', statuses: ['waiting'] },
   { pattern: /\b(falharam|falhou|erros?)\b/, label: 'com erro', statuses: ['error'] },
   { pattern: /\b(concluidos?|terminaram|finalizados?)\b/, label: 'concluídos', statuses: ['done'] }
@@ -86,18 +113,12 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
   if (!/\b(agentes?|conversas?)\b/.test(query)) return null
   if (/\b(corrigir|ajustar|criar|implementar|alterar|consertar|desenvolver)\b/.test(query)) return null
   const status = STATUS.find((s) => s.pattern.test(query))
-  if (!status && !/\b(status|situacao|andamento)\b/.test(query) && !/^\s*(tem|ha|existem|quais|quantos)\b/.test(query)) return null
-  if (!/[?]/.test(text) && !/^\s*(tem|ha|existe|quais|quantos|quem|liste|mostre|verifique|veja|me diga|qual)\b/.test(query)) return null
+  if (!status && !/\b(status|situacao|andamento|informacoes|detalhes|atividade|fazendo)\b/.test(query) && !/^\s*(tem|ha|existem|quais|quantos|liste|mostre|mostra|todos os agentes)\b/.test(query)) return null
+  if (!/[?]/.test(text) && !/^\s*(tem|ha|existe|quais|quantos|quem|o que|liste|mostre|mostra|verifique|veja|me diga|me fale|qual|informe|agentes?|conversas?|status|situacao|informacoes|todos os agentes)\b/.test(query)) return null
 
   const mentioned = mentionedProjects(text, roots, groups)
-  if (scope?.length && mentioned.length && !mentioned.some((root) => scope.includes(root))) {
-    return {
-      reply: `O pedido menciona ${mentioned.map(nameOf).join(', ')}, mas o seletor está em ${scope.map(nameOf).join(', ')}. Escolha o projeto certo ou selecione “Todos os projetos”.`,
-      speech: 'O projeto selecionado é diferente do que você mencionou. Mostrei os nomes no chat.'
-    }
-  }
-  const selected = scope?.length ? (mentioned.length ? scope.filter((root) => mentioned.includes(root)) : scope) : mentioned
-  if (!scope?.length && mentioned.length > 1) {
+  const selected = mentioned.length > 1 && scope?.length ? mentioned.filter((root) => scope.includes(root)) : mentioned
+  if (mentioned.length > 1 && selected.length !== 1) {
     const lines = mentioned.map((root) => {
       const matching = agents.filter((a) => a.cwd === root && (!status || status.statuses.includes(a.status)))
       return `• ${nameOf(root)}: ${matching.length} ${matching.length === 1 ? 'agente' : 'agentes'}${matching.length ? ` — ${matching.map((a) => a.title || 'Sem título').join(', ')}` : ''}`
@@ -122,6 +143,11 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
   const intro = status
     ? `${shown.length} ${shown.length === 1 ? 'agente' : 'agentes'} ${label}${place} agora:`
     : `${shown.length} ${shown.length === 1 ? 'agente aberto' : 'agentes abertos'}${place}:`
-  const names = shown.map((a) => `• ${a.title || 'Agente sem título'} (${a.project || nameOf(a.cwd)}${status ? '' : `; ${a.status}`})`)
+  const names = shown.map((a) => {
+    const activity = a.status === 'live' && a.activity?.trim() ? `Atividade: ${a.activity.trim()}`
+      : a.status === 'live' && a.lastUser?.trim() ? `Pedido: ${a.lastUser.trim()}`
+      : a.status === 'done' && a.summary?.trim() ? `Última resposta: ${a.summary.trim()}` : ''
+    return `• ${a.title || 'Agente sem título'} (${a.project || nameOf(a.cwd)}; ${statusLabel[a.status]})${activity ? ` — ${activity.slice(0, 220)}${activity.length > 220 ? '…' : ''}` : ''}`
+  })
   return { reply: [intro, ...names].join('\n'), speech: `${intro.slice(0, -1)}. Mostrei os nomes no chat.` }
 }
