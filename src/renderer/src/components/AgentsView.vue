@@ -23,6 +23,11 @@ const snaps = computed(() => state.agentSnaps)
 const compactList = ref(localStorage.getItem('ovseer.agents.list') === '1')
 function setCompactList(value: boolean) {
   compactList.value = value
+  if (value && (filter.value === 'waiting' || filter.value === 'error')) filter.value = 'attention'
+  if (!value) {
+    search.value = ''
+    if (filter.value === 'attention') filter.value = 'all'
+  }
   localStorage.setItem('ovseer.agents.list', value ? '1' : '0')
 }
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
@@ -134,15 +139,28 @@ const reviewed = computed(() => done.value.filter((a) => !isNew(a)))
 const archiveReviewed = () => api.agentClose(reviewed.value.map((a) => a.uid)).catch(() => undefined)
 
 // ---------- filtro por situação: os contadores do cabeçalho; de novo no mesmo, ou em "agentes", volta a todos ----------
-type StatusFilter = 'all' | AgentSnapshot['status']
+type StatusFilter = 'all' | 'attention' | AgentSnapshot['status']
 const filter = ref<StatusFilter>('all')
-const pass = (a: AgentSnapshot) => filter.value === 'all' || a.status === filter.value
+const search = ref('')
+const searchInput = ref<HTMLInputElement>()
+const searchShortcut = api.platform === 'darwin' ? '⌘K' : 'Ctrl K'
+function clearSearch() {
+  search.value = ''
+  searchInput.value?.blur()
+}
+const fold = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const pass = (a: AgentSnapshot) => {
+  if (filter.value === 'attention' ? a.status !== 'waiting' && a.status !== 'error' : filter.value !== 'all' && a.status !== filter.value) return false
+  const query = fold(search.value.trim())
+  if (!query) return true
+  return [a.title, a.project, a.model, a.activity, a.summary, a.lastUser].some((part) => fold(part ?? '').includes(query))
+}
 function toggleFilter(s: StatusFilter) {
   filter.value = s === 'all' || filter.value === s ? 'all' : s
 }
 // o grupo filtrado esvaziou (ex.: todas as perguntas respondidas): volta a todos, em vez de uma tela vazia
 watch(
-  () => filter.value !== 'all' && !snaps.value.some(pass),
+  () => filter.value !== 'all' && !snaps.value.some((a) => filter.value === 'attention' ? a.status === 'waiting' || a.status === 'error' : a.status === filter.value),
   (empty) => empty && (filter.value = 'all')
 )
 const needYouShown = computed(() => needYou.value.filter(pass))
@@ -157,7 +175,7 @@ const idleShown = computed(() => idle.value.filter(pass))
  * da barra de ferramentas mostram todos, filtrados ou não */
 const allOrder = computed(() => [...snaps.value].sort((a, b) => (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
-const order = computed(() => allOrder.value.filter(pass))
+const order = computed(() => compactList.value ? [...needYouShown.value, ...runningShown.value, ...doneShown.value, ...idleShown.value] : allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
 const root = ref<HTMLElement>()
@@ -169,6 +187,11 @@ function select(a: AgentSnapshot | undefined) {
 }
 function onKey(e: KeyboardEvent) {
   if (state.tab !== 'agents' || planUid.value) return
+  if (compactList.value && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    searchInput.value?.focus()
+    return
+  }
   const el = e.target as HTMLElement | null
   if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -376,9 +399,19 @@ function pick(a: AgentSnapshot) {
     <aside v-show="state.showQueue" class="queue-col">
       <QueuePanel />
     </aside>
-    <div class="scroll">
+    <div class="scroll" :class="{ 'list-mode': compactList }">
+      <header v-if="compactList" class="list-head">
+        <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong>
+        <div class="list-filters" role="group" aria-label="Filtrar agentes">
+          <button type="button" :class="{ on: filter === 'all' }" :aria-pressed="filter === 'all'" @click="toggleFilter('all')">Todos <span>{{ snaps.length }}</span></button>
+          <button type="button" :class="{ on: filter === 'live' }" :aria-pressed="filter === 'live'" @click="toggleFilter('live')">Rodando <span>{{ running.length }}</span></button>
+          <button type="button" :class="{ on: filter === 'attention' }" :aria-pressed="filter === 'attention'" @click="toggleFilter('attention')">Atenção <span>{{ needYou.length }}</span></button>
+          <button type="button" :class="{ on: filter === 'done' }" :aria-pressed="filter === 'done'" @click="toggleFilter('done')">Concluídos <span>{{ done.length }}</span></button>
+        </div>
+        <label class="list-search"><Icon name="search" :size="16" /><input ref="searchInput" v-model="search" type="search" placeholder="Buscar agente" aria-label="Buscar agente" @keydown.esc="clearSearch" /><kbd>{{ searchShortcut }}</kbd></label>
+      </header>
       <!-- os contadores filtram a lista por situação; "agentes" (ou o filtro de novo) mostra todos -->
-      <header class="head" :class="{ filtered: filter !== 'all' }">
+      <header v-else class="head" :class="{ filtered: filter !== 'all' }">
         <button class="ghost all" :title="filter === 'all' ? 'Todos os agentes' : 'Mostrar todos'" @click="toggleFilter('all')"><strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong></button>
         <button v-if="byStatus('waiting').length" class="ghost count" :class="{ on: filter === 'waiting' }" :title="filter === 'waiting' ? 'Mostrar todos' : 'Só os que aguardam você'" @click="toggleFilter('waiting')"><span class="dot waiting" />{{ byStatus('waiting').length }} aguardando</button>
         <button v-if="byStatus('error').length" class="ghost count" :class="{ on: filter === 'error' }" :title="filter === 'error' ? 'Mostrar todos' : 'Só os que falharam'" @click="toggleFilter('error')"><span class="dot error" />{{ byStatus('error').length }} falhou</button>
@@ -398,9 +431,23 @@ function pick(a: AgentSnapshot) {
 
       <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa).
            Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
-      <section v-if="order.length" class="orch-list" :class="{ compact: compactList }">
+      <template v-if="compactList">
+        <section v-for="section in [
+          { key: 'attention', label: 'Precisa de você', agents: needYouShown },
+          { key: 'live', label: 'Rodando', agents: runningShown },
+          { key: 'done', label: 'Concluídos', agents: doneShown },
+          { key: 'idle', label: 'Disponíveis', agents: idleShown }
+        ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
+          <h3>{{ section.label }} · {{ section.agents.length }}</h3>
+          <div class="list-rows">
+            <AgentCard v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" />
+          </div>
+        </section>
+        <p v-if="snaps.length && !order.length" class="list-no-match">Nenhum agente corresponde à busca.</p>
+      </template>
+      <section v-else-if="order.length" class="orch-list">
         <div class="list">
-          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" :compact="compactList" @pick="pick(a)" @act="(action) => act(a, action)" />
+          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" />
         </div>
       </section>
 
@@ -503,6 +550,27 @@ function pick(a: AgentSnapshot) {
 .orch .item.closed > .go { display: block; margin: 0 5px; }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
+.scroll.list-mode { padding: 0 0 24px; container-type: inline-size; }
+.list-head { display: flex; align-items: center; gap: 18px; min-height: 58px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.list-head > strong { flex: none; font-size: 16px; white-space: nowrap; }
+.list-filters { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; padding: 3px; border-radius: 10px; background: var(--bg); overflow-x: auto; scrollbar-width: none; }
+.list-filters::-webkit-scrollbar { display: none; }
+.list-filters button { flex: none; min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.list-filters button.on { background: var(--panel-2); color: var(--text); }
+.list-filters button span { margin-left: 3px; color: var(--faint); }
+.list-filters button.on span { color: var(--text); }
+.list-search { display: flex; align-items: center; gap: 8px; min-width: 130px; width: min(240px, 25%); height: 34px; margin-left: auto; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--faint); }
+.list-search:focus-within { border-color: var(--accent); }
+.list-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 12px; }
+.list-search kbd { flex: none; font: inherit; font-size: 10px; color: var(--faint); }
+.list-section { padding: 14px 6px 0; }
+.list-section h3 { margin: 0 10px 8px; color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.list-section.attention h3 { color: var(--mod); }
+.list-section.live h3 { color: var(--accent); }
+.list-rows { display: flex; flex-direction: column; }
+.list-section.done .list-rows :deep(.acard:not(:last-child)) { border-bottom-color: var(--border); border-radius: 0; }
+.list-no-match { margin: 28px 16px; color: var(--muted); font-size: 12px; }
+@container (max-width: 760px) { .list-head { flex-wrap: wrap; gap: 8px; } .list-search { width: 100%; } }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .head strong { font-size: 14px; }
 /* contadores como filtros: pílulas discretas; a ativa fica marcada e as outras apagam um pouco */

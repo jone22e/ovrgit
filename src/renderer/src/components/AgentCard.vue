@@ -143,7 +143,7 @@ function onMenu(e: MouseEvent) {
   menu.value = { left: e.clientX, top: e.clientY }
   // o menu fica dentro da coluna dos cartões: se invadisse a área da conversa ao lado (uma vista nativa, sempre
   // por cima da página), o gerenciador esconderia a conversa inteira enquanto o menu estivesse aberto
-  const column = (e.currentTarget as HTMLElement | null)?.closest('.list')?.getBoundingClientRect()
+  const column = (e.currentTarget as HTMLElement | null)?.closest('.list, .list-rows')?.getBoundingClientRect()
   const right = Math.min(window.innerWidth, column?.right ?? window.innerWidth)
   nextTick(() => {
     // não deixa o menu sair da janela nem da coluna
@@ -245,11 +245,22 @@ async function saveRename() {
 
 <template>
   <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
-    <div class="top">
+    <span v-if="compact" class="list-avatar" :class="tone" :title="statusLabel">{{ (group?.name ?? a.project).charAt(0).toUpperCase() }}<i :class="tone" /></span>
+    <div v-if="compact" class="list-copy">
+      <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
+      <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
+      <small class="list-meta"><span>{{ group?.name ?? a.project }} · {{ a.model }}</span><span v-if="detail" class="list-activity"> · {{ detail }}</span></small>
+    </div>
+    <div v-if="compact && chips.length" class="list-chips"><span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span></div>
+    <button v-if="compact && a.status === 'waiting'" type="button" class="list-review" @click.stop="emit('pick')">Revisar</button>
+    <button v-else-if="compact && a.status === 'error'" type="button" class="list-review error" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
+    <small v-if="compact && since" class="list-when">{{ since }}</small>
+    <button v-if="compact" type="button" class="list-more" title="Mais opções para este agente" @click.stop="onMenu"><Icon name="ellipsis" :size="18" /></button>
+    <div v-if="!compact" class="top">
       <span v-if="n !== null" class="num mono" :title="`⌘${n}: mostra esta conversa`">{{ n }}</span>
       <div class="ttl">
         <input
-          v-if="renaming"
+          v-if="!compact && renaming"
           ref="renameInput"
           v-model="draft"
           type="text"
@@ -289,7 +300,7 @@ async function saveRename() {
       </span>
     </div>
 
-    <div class="status">
+    <div v-if="!compact" class="status">
       <span class="pill" :class="tone"><span class="dot" />{{ statusLabel }}</span>
       <span v-if="a.status === 'live'" class="clock mono" :title="`Trabalhando há ${ago(now, a.startedAt ?? a.since)}`">{{ clock }}</span>
       <small v-else-if="since" class="faint">{{ since }}</small>
@@ -304,18 +315,18 @@ async function saveRename() {
     </div>
 
     <!-- o que o cartão tem a dizer, numa área de duas linhas: atividade, pergunta, erro ou, concluído, as etiquetas do resultado -->
-    <div class="say">
+    <div v-if="!compact" class="say">
       <div v-if="chips.length && !writing" class="chips">
         <span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span>
       </div>
       <p v-else class="detail" :class="{ err: a.status === 'error', warn: tone === 'stalled', live: a.status === 'live' && !stalled, writing }" :title="detail">{{ detail }}</p>
     </div>
     <!-- etapas do checklist: barrinhas, uma por etapa (feita, dispensada, a atual pulsando, a fazer); sem checklist, a faixa fica vazia -->
-    <ol class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
+    <ol v-if="!compact" class="track-steps" :title="checklist.map((i, k) => `${k + 1}. ${i.text}`).join('\n')">
       <li v-for="(it, k) in checklist" :key="k" :class="{ done: it.done && !it.state, skipped: it.state === 'skipped', failed: it.state === 'failed', now: it === current && a.status === 'live' && !stalled }" />
     </ol>
 
-    <div class="foot">
+    <div v-if="!compact" class="foot">
       <button v-if="a.status === 'error'" class="small retry" title="Continua a tarefa de onde parou" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
       <button v-else-if="tone === 'stalled'" class="small nudge" title="Avisa o agente de que há pressa (o mesmo do Acelerar)" @click.stop="emit('act', { type: 'nudge' })">Cutucar</button>
       <small v-else-if="a.status === 'waiting'" class="meta hint ellipsis">Clique para responder</small>
@@ -329,7 +340,7 @@ async function saveRename() {
       </span>
     </div>
     <!-- encerrar: no canto superior direito, sempre visível -->
-    <button class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
+    <button v-if="!compact" class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
     <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
     <Teleport to="body">
       <div v-if="menu" ref="menuEl" class="ctx" role="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @click.stop @contextmenu.prevent>
@@ -484,24 +495,39 @@ async function saveRename() {
 .close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); }
 .close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 
-/* Uma conversa por linha, com projeto, situação e atividade preservados. */
-.acard.compact { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 9px 38px 9px 10px; border-radius: 9px; }
-.compact .top { grid-column: 1; grid-row: 1; align-items: center; padding-right: 0; gap: 6px; }
-.compact .num { min-width: 18px; height: 18px; padding: 0 3px; margin: 0; font-size: 10px; }
-.compact .title { display: block; min-height: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 12.5px; }
-.compact .project { min-height: 16px; gap: 4px; }
-.compact .project :deep(svg) { width: 15px; height: 15px; }
-.compact .project .ellipsis { font-size: 10px; }
-.compact .top > .ring, .compact .top > .buddy, .compact .top > .badge { display: none; }
-.compact .status { grid-column: 2; grid-row: 1; align-self: center; }
-.compact .status > :not(.pill) { display: none; }
-.compact .pill { height: 18px; padding: 0 6px; font-size: 10px; }
-.compact .say { grid-column: 1 / -1; grid-row: 2; height: 16px; margin-left: 24px; white-space: nowrap; }
-.compact .detail { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
-.compact .chips { flex-wrap: nowrap; overflow: hidden; }
-.compact .chip { white-space: nowrap; }
-.compact .track-steps, .compact .foot { display: none; }
-.compact .close { top: 10px; right: 8px; }
+/* Modo lista: uma linha por agente, com estado e ações à vista. */
+.acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
+.acard.compact:hover { background: var(--hover); transform: none; }
+.acard.compact.sel { border-color: color-mix(in srgb, var(--accent) 65%, var(--border)); background: var(--accent-soft); }
+.acard.compact.waiting { background: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
+.acard.compact.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
+.compact > .top, .compact > .status, .compact > .say, .compact > .track-steps, .compact > .foot, .compact > .close { display: none; }
+.list-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); color: var(--text); font-size: 20px; font-weight: 700; }
+.list-avatar.live { background: color-mix(in srgb, var(--accent) 65%, var(--panel)); color: var(--on-accent); }
+.list-avatar.waiting { background: color-mix(in srgb, var(--mod) 85%, var(--panel)); color: var(--bg); }
+.list-avatar.done { background: color-mix(in srgb, var(--add) 78%, var(--panel)); color: var(--bg); }
+.list-avatar.error { background: color-mix(in srgb, var(--del) 65%, var(--panel)); color: var(--on-accent); }
+.list-avatar i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: var(--faint); }
+.list-avatar i.live { background: var(--accent); }
+.list-avatar i.waiting { background: var(--mod); }
+.list-avatar i.done { background: var(--add); }
+.list-avatar i.error { background: var(--del); }
+.list-copy { grid-column: 2; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.list-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.list-meta { display: flex; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.list-meta > span:first-child { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.list-activity { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.compact.waiting .list-activity { color: var(--mod); }
+.compact.error .list-activity { color: var(--del); }
+.list-chips { grid-column: 3; display: flex; align-items: center; gap: 5px; max-width: 240px; overflow: hidden; }
+.list-chips .chip { flex: none; white-space: nowrap; }
+.list-review { grid-column: 4; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--mod) 82%, var(--panel)); color: var(--bg); font-size: 12px; font-weight: 700; }
+.list-review.error { background: color-mix(in srgb, var(--del) 20%, var(--panel)); color: var(--del); }
+.list-when { grid-column: 5; justify-self: end; color: var(--faint); font-size: 11px; white-space: nowrap; }
+.list-more { grid-column: 6; display: grid; place-items: center; width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--faint); }
+.list-more:hover { color: var(--text); }
+@container (max-width: 680px) { .list-chips { display: none; } .acard.compact { gap: 8px; } }
+@container (max-width: 460px) { .list-when { display: none; } .list-meta > span:first-child { max-width: 75%; } }
 
 /* menu do botão direito (vive no body) */
 .ctx {
