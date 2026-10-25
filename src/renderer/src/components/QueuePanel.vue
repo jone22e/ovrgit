@@ -42,8 +42,33 @@ async function closeVoiceSetup() {
 }
 function speakManagerReply(reply: string) {
   if (!conversation.value) return
-  for (const line of reply.split('\n').filter(Boolean)) void api.voiceSpeak(managerVoiceId, line).catch((e) => toast(String((e as Error).message)))
+  const lines = reply.split('\n')
+  const first = lines[0].trim().replace(/:$/, '.')
+  const speech = lines.length > 1
+    ? reply.startsWith('Encontrei vários projetos')
+      ? `Encontrei ${lines.length - 1} projetos com esse nome. Coloquei a situação de cada um no chat.`
+      : `${first} Os nomes e detalhes estão no chat.`
+    : first
+  void api.voiceSpeak(managerVoiceId, speech).catch((e) => toast(String((e as Error).message)))
 }
+const spokenTasks = new Map<string, QueueTask['status']>()
+function managerTaskSent(task: QueueTask) {
+  if (!conversation.value) return
+  if (task.reply) return speakManagerReply(task.spokenReply ?? task.reply)
+  spokenTasks.set(task.id, task.status)
+  if (task.status === 'done') speakManagerReply('O agente concluiu o pedido. A resposta completa está na conversa dele.')
+  else if (task.status === 'failed') speakManagerReply('Não consegui concluir esse pedido. Mostrei o motivo no chat.')
+  else speakManagerReply(`Recebi seu pedido para ${where(task)}. Vou acompanhar o agente e avisar quando terminar.`)
+}
+watch(() => tasks.value.map((t) => `${t.id}:${t.status}`).join('|'), () => {
+  for (const task of tasks.value) {
+    const previous = spokenTasks.get(task.id)
+    if (!previous || previous === task.status) continue
+    spokenTasks.set(task.id, task.status)
+    if (task.status === 'done') speakManagerReply(`${agentName(task)} concluiu o pedido. A resposta completa está na conversa dele.`)
+    else if (task.status === 'failed') speakManagerReply(`${agentName(task)} não conseguiu concluir o pedido. Mostrei o motivo no chat.`)
+  }
+})
 const offVoiceQueue = api.onVoiceQueue((q) => { if (q.uid === managerVoiceId) voicePending.value = q.pending })
 onUnmounted(offVoiceQueue)
 const name = (p: string) => p.split('/').filter(Boolean).pop() ?? p
@@ -125,7 +150,7 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       </article>
     </div>
     <div class="manager-composer">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :placeholder="conversation ? 'Dite ou escreva para o gerenciador…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-reply="speakManagerReply">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>

@@ -30,8 +30,8 @@ const STATUS: { pattern: RegExp; label: string; statuses: AgentSnapshot['status'
   { pattern: /\b(concluidos?|terminaram|finalizados?)\b/, label: 'concluídos', statuses: ['done'] }
 ]
 
-/** Responde consultas de situação usando os retratos reais das janelas, sem criar outro agente. */
-export function agentStatusReply(text: string, agents: Agent[], roots: string[], groups: RepoGroup[], scope?: string[]): string | null {
+/** Responde consultas com os retratos reais; a fala é curta, e os nomes ficam no chat. */
+export function agentStatusReply(text: string, agents: Agent[], roots: string[], groups: RepoGroup[], scope?: string[]): { reply: string; speech: string } | null {
   const query = plain(text)
   if (!/\b(agentes?|conversas?)\b/.test(query)) return null
   if (/\b(corrigir|ajustar|criar|implementar|alterar|consertar|desenvolver)\b/.test(query)) return null
@@ -41,7 +41,10 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
 
   const mentioned = mentionedProjects(text, roots, groups)
   if (scope?.length && mentioned.length && !mentioned.some((root) => scope.includes(root))) {
-    return `O pedido menciona ${mentioned.map(nameOf).join(', ')}, mas o seletor está em ${scope.map(nameOf).join(', ')}. Escolha o projeto certo ou selecione “Todos os projetos”.`
+    return {
+      reply: `O pedido menciona ${mentioned.map(nameOf).join(', ')}, mas o seletor está em ${scope.map(nameOf).join(', ')}. Escolha o projeto certo ou selecione “Todos os projetos”.`,
+      speech: 'O projeto selecionado é diferente do que você mencionou. Mostrei os nomes no chat.'
+    }
   }
   const selected = scope?.length ? (mentioned.length ? scope.filter((root) => mentioned.includes(root)) : scope) : mentioned
   if (!scope?.length && mentioned.length > 1) {
@@ -49,18 +52,26 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
       const matching = agents.filter((a) => a.cwd === root && (!status || status.statuses.includes(a.status)))
       return `• ${nameOf(root)}: ${matching.length} ${matching.length === 1 ? 'agente' : 'agentes'}${matching.length ? ` — ${matching.map((a) => a.title || 'Sem título').join(', ')}` : ''}`
     })
-    return [`Encontrei vários projetos com esse nome; situação dos agentes ${status?.label ?? 'abertos'} em cada um:`, ...lines].join('\n')
+    const count = mentioned.reduce((total, root) => total + agents.filter((a) => a.cwd === root && (!status || status.statuses.includes(a.status))).length, 0)
+    const spokenLabel = status?.label === 'concluídos' && count === 1 ? 'concluído' : status?.label ?? (count === 1 ? 'aberto' : 'abertos')
+    return {
+      reply: [`Encontrei vários projetos com esse nome; situação dos agentes ${status?.label ?? 'abertos'} em cada um:`, ...lines].join('\n'),
+      speech: count
+        ? `Encontrei ${count} ${count === 1 ? 'agente' : 'agentes'} ${spokenLabel} nos projetos com esse nome. Mostrei quem são no chat.`
+        : `Não encontrei agentes ${status?.label ?? 'abertos'} nos projetos com esse nome. Mostrei cada projeto no chat.`
+    }
   }
   const relevant = selected.length ? agents.filter((a) => selected.includes(a.cwd)) : agents
   const place = selected.length ? ` em ${selected.map(nameOf).join(', ')}` : ' em todos os projetos'
   const shown = status ? relevant.filter((a) => status.statuses.includes(a.status)) : relevant
-  if (!shown.length) return status
-    ? `Não há agentes ${status.label}${place} agora.`
-    : `Não há agentes abertos${place} agora.`
+  if (!shown.length) {
+    const reply = status ? `Não há agentes ${status.label}${place} agora.` : `Não há agentes abertos${place} agora.`
+    return { reply, speech: reply }
+  }
   const label = status?.label === 'concluídos' && shown.length === 1 ? 'concluído' : status?.label
   const intro = status
     ? `${shown.length} ${shown.length === 1 ? 'agente' : 'agentes'} ${label}${place} agora:`
     : `${shown.length} ${shown.length === 1 ? 'agente aberto' : 'agentes abertos'}${place}:`
   const names = shown.map((a) => `• ${a.title || 'Agente sem título'} (${a.project || nameOf(a.cwd)}${status ? '' : `; ${a.status}`})`)
-  return [intro, ...names].join('\n')
+  return { reply: [intro, ...names].join('\n'), speech: `${intro.slice(0, -1)}. Mostrei os nomes no chat.` }
 }

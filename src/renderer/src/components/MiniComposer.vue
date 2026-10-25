@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { AgentAttachment, AgentEffort, AgentMode, AgentSnapshot, CliProvider, KnownModels } from '@shared/types'
+import type { AgentAttachment, AgentEffort, AgentMode, AgentSnapshot, CliProvider, KnownModels, QueueTask } from '@shared/types'
 import { MODES } from '@shared/models'
 import { readAgentPrefs, AGENT_PREFS, type AgentPrefs } from '../agentPrefs'
 import { useDictation } from '../dictation'
@@ -12,8 +12,8 @@ import ModelPicker from './ModelPicker.vue'
  * de várias linhas, anexos (botão, arrastar, colar), texto grande colado como cartão, modelo e esforço, modo e o
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
-const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean }>()
-const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerReply: [text: string] }>()
+const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean }>()
+const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
 const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
@@ -45,6 +45,10 @@ const dictation = useDictation((words) => {
   nextTick(() => { autosize(); box.value?.focus() })
   if (props.autoSendDictation) nextTick(() => void send())
 })
+async function toggleConversationMic() {
+  if (dictation.phase.value === 'idle') await api.voiceCancel('__manager__').catch(() => undefined)
+  dictation.toggle()
+}
 
 // ---------- anexos: os mesmos caminhos da janela do agente (os arquivos ficam guardados para a janela `uid`) ----------
 type Shown = AgentAttachment & { preview?: string }
@@ -137,9 +141,10 @@ async function send() {
   if (props.manager) {
     sending.value = true
     try {
+      if (props.autoSendDictation) await api.voiceCancel('__manager__').catch(() => undefined)
       const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
-      const reply = tasks.at(-1)?.reply
-      if (reply) emit('managerReply', reply)
+      const task = tasks.at(-1)
+      if (task) emit('managerTask', task)
       try {
         localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs))
       } catch { /* preferência local indisponível: o pedido já foi salvo */ }
@@ -176,6 +181,17 @@ onUnmounted(() => {
 <template>
   <div class="mini" :class="{ drop: dragging }" @click.stop @dragover.prevent="dragging = true" @dragleave.self="dragging = false" @drop.prevent="onDrop">
     <div v-if="dragging" class="drop-hint"><Icon name="paperclip" :size="14" /> Solte para anexar</div>
+    <div v-if="autoSendDictation" class="voice-stage" :class="{ listening: dictation.phase.value === 'recording', transcribing: dictation.phase.value === 'transcribing', speaking: voiceSpeaking && dictation.phase.value === 'idle' }">
+      <button v-if="canDictate" type="button" class="voice-orb" :disabled="dictation.phase.value === 'transcribing'" :title="dictation.phase.value === 'recording' ? 'Terminar fala e enviar' : 'Começar a falar'" @click="toggleConversationMic"><Icon :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="23" /></button>
+      <span v-else class="voice-orb unavailable"><Icon name="mic" :size="23" /></span>
+      <span class="voice-copy" aria-live="polite">
+        <small><i class="voice-led" /> MODO CONVERSA ATIVO</small>
+        <strong>{{ dictation.phase.value === 'recording' ? 'Ouvindo você' : dictation.phase.value === 'transcribing' ? 'Transcrevendo sua fala' : voiceSpeaking ? 'Respondendo por voz' : canDictate ? 'Pronta para conversar' : 'Microfone indisponível' }}</strong>
+        <span>{{ dictation.phase.value === 'recording' ? 'Toque novamente para enviar sua fala' : dictation.phase.value === 'transcribing' ? 'Aguarde um instante…' : canDictate ? 'Toque no microfone ou escreva abaixo' : 'Você pode escrever abaixo' }}</span>
+      </span>
+      <span v-if="dictation.phase.value === 'recording' || voiceSpeaking" class="voice-wave" aria-hidden="true"><i v-for="n in 5" :key="n" /></span>
+      <button v-if="dictation.phase.value === 'recording'" type="button" class="ghost icon voice-discard" title="Descartar gravação" @click="dictation.cancel"><Icon name="x" :size="13" /></button>
+    </div>
     <div v-if="pending.length || pastes.length" class="pending">
       <template v-for="(a, i) in pending" :key="a.path">
         <span v-if="a.preview" class="thumb" :title="`${a.name}${a.size ? ` · ${sizeOf(a.size)}` : ''}`">
@@ -214,7 +230,7 @@ onUnmounted(() => {
         </div>
       </div>
       <slot name="actions" />
-      <div v-if="canDictate" class="dictate">
+      <div v-if="canDictate && !autoSendDictation" class="dictate">
         <button v-if="dictation.phase.value === 'recording'" type="button" class="ghost icon" title="Descartar gravação" @click="dictation.cancel"><Icon name="x" :size="12" /></button>
         <button type="button" class="ghost icon" :disabled="dictation.phase.value === 'transcribing'" :title="dictation.phase.value === 'recording' ? 'Terminar e transcrever' : 'Ditar'" @click="dictation.toggle"><Icon :name="dictation.phase.value === 'recording' ? 'stop' : 'mic'" :size="15" /></button>
       </div>
@@ -230,6 +246,25 @@ onUnmounted(() => {
   background: var(--panel); border: 1px solid var(--border); min-width: 0;
 }
 .mini:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.voice-stage { position: relative; display: flex; align-items: center; gap: 10px; min-height: 76px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 13px; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.voice-orb { display: grid; place-items: center; flex: none; width: 50px; height: 50px; border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--border)); border-radius: 50%; background: var(--accent); color: var(--background); cursor: pointer; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent); }
+.voice-orb:disabled, .voice-orb.unavailable { cursor: default; opacity: .65; }
+.voice-stage.listening .voice-orb { animation: voice-pulse 1.4s ease-in-out infinite; }
+.voice-stage.speaking .voice-orb { background: var(--accent-soft); color: var(--accent); }
+.voice-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.voice-copy small { display: flex; align-items: center; gap: 5px; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+.voice-led { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.voice-stage.listening .voice-led { background: var(--del); box-shadow: 0 0 8px var(--del); }
+.voice-copy strong { color: var(--text); font-size: 12px; }
+.voice-copy > span { color: var(--muted); font-size: 10px; line-height: 1.3; }
+.voice-wave { display: flex; align-items: center; gap: 2px; height: 20px; margin-right: 4px; }
+.voice-wave i { width: 3px; height: 8px; border-radius: 3px; background: var(--accent); animation: voice-wave .8s ease-in-out infinite alternate; }
+.voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { animation-delay: .2s; }
+.voice-wave i:nth-child(3) { animation-delay: .4s; }
+.voice-discard { position: absolute; top: 4px; right: 4px; }
+@keyframes voice-pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 5%, transparent); } }
+@keyframes voice-wave { to { height: 19px; } }
+@media (prefers-reduced-motion: reduce) { .voice-stage.listening .voice-orb, .voice-wave i { animation: none; } }
 textarea { border: 0; background: transparent; padding: 4px 6px 2px; font-size: 13px; line-height: 1.45; max-height: 160px; overflow-y: auto; resize: none; width: 100%; }
 textarea:focus { box-shadow: none; }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }

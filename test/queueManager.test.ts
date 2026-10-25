@@ -80,6 +80,8 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(status.status).toBe('done')
   expect(status.reply).toContain('Estoque do Flexi (flexi2)')
   expect(status.reply).not.toContain('Tela do Flexi Lite')
+  expect(status.spokenReply).toContain('Mostrei os nomes no chat')
+  expect(status.spokenReply).not.toContain('Estoque do Flexi')
   expect(fake.opened).toHaveLength(openedBefore)
   expect(fake.actions).toHaveLength(actionsBefore)
 
@@ -87,6 +89,8 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(unclearStatus.reply).toContain('Encontrei vários projetos')
   expect(unclearStatus.reply).toContain('flexi2: 1 agente')
   expect(unclearStatus.reply).toContain('flexi-lite: 0 agentes')
+  expect(unclearStatus.spokenReply).toContain('Encontrei 1 agente trabalhando')
+  expect(unclearStatus.spokenReply).not.toContain('Estoque do Flexi')
   const exactStatus = queue.add({ text: 'Tem algum agente trabalhando no flexi2?', managed: true }).at(-1)!
   expect(exactStatus.reply).toContain('Estoque do Flexi (flexi2)')
   const globalStatus = queue.add({ text: 'Quais agentes estão trabalhando?', managed: true }).at(-1)!

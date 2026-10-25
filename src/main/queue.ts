@@ -94,20 +94,25 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   if (!text) return tasks
   let cwd = task.cwd
   let reply: string | null = null
+  let spokenReply: string | undefined
   if (task.managed) {
     const settings = getSettings()
     const agents = agentChat.agentSnapshots()
     const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
-    reply = agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+    const answer = agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+    reply = answer?.reply ?? null
+    spokenReply = answer?.speech
     if (!reply) {
       const mentioned = mentionedProjects(text, roots, settings.repoGroups ?? [])
       if (cwd && mentioned.length && !mentioned.some((p) => p === cwd || task.extraDirs?.includes(p))) {
         reply = `O seletor está em ${path.basename(cwd)}, mas o pedido menciona ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto certo antes de encaminhar.`
+        spokenReply = 'O projeto selecionado é diferente do que você mencionou. Mostrei as opções no chat.'
       } else if (!cwd) {
         if (mentioned.length === 1) cwd = mentioned[0]
         else reply = mentioned.length
           ? `Encontrei mais de um projeto no pedido: ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto principal no seletor.`
           : 'Escolha um projeto no seletor ou cite o nome de um projeto conhecido no pedido para eu encaminhá-lo.'
+        if (reply) spokenReply = 'Preciso que você escolha o projeto antes de encaminhar esse pedido. Mostrei as opções no chat.'
       }
     }
     if (!reply && (!cwd || !existsSync(cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
@@ -118,7 +123,7 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   })
   const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, finishedAt: Date.now() } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (!reply) {

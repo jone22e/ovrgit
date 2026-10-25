@@ -62,9 +62,8 @@ interface Shown extends AgentAttachment {
 const info = ref<AgentWindowInfo | null>(null)
 const turns = reactive<Turn[]>([])
 let activeManagerTaskId: string | null = null
-/** null: acompanha o modo do gerenciador; true/false: escolha deste agente */
+/** A voz do agente é uma escolha própria; a conversa do gerenciador não lê suas respostas inteiras. */
 const voiceEnabled = ref<boolean | null>(null)
-const managerVoice = ref(false)
 const voiceSetup = ref(false)
 let enableVoiceAfterSetup = false
 const voicePendingCount = ref(0)
@@ -74,7 +73,7 @@ let voiceInCode = false
 let voiceFenceTail = ''
 let voiceMutedForTurn = false
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
-const voiceActive = () => voicePlatform && !voiceMutedForTurn && (voiceEnabled.value ?? (managerVoice.value && !!activeManagerTaskId))
+const voiceActive = () => voicePlatform && !voiceMutedForTurn && voiceEnabled.value === true
 function saveAgentVoice() {
   if (!sessionId.value || voiceEnabled.value === null) return
   try { localStorage.setItem(`ovseer.voice.${sessionId.value}`, voiceEnabled.value ? '1' : '0') } catch { /* preferência só desta sessão */ }
@@ -2037,7 +2036,6 @@ onMounted(async () => {
     applyTheme(s.theme)
     gridSize.value = normalizeGrid(s.agentGrid)
     applyFont(s)
-    managerVoice.value = s.managerConversationVoice
   } catch {
     /* tema padrão */
   }
@@ -2061,8 +2059,6 @@ onMounted(async () => {
     api.onSettingsChanged((s) => {
       applyTheme(s.theme)
       applyFont(s)
-      if (managerVoice.value && !s.managerConversationVoice && voiceEnabled.value !== true) stopVoice()
-      managerVoice.value = s.managerConversationVoice
       // o grid mudou noutra janela (ou na principal): este menu passa a mostrar as mesmas colunas × linhas
       gridSize.value = normalizeGrid(s.agentGrid)
     })
