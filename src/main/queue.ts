@@ -194,18 +194,18 @@ export function chooseProject(id: string, cwd: string): QueueTask[] {
 }
 
 /** Tarefa nova: inicia no raciocínio ou vai direto para a fila de execução */
-export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
+export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; managerSessionId?: string; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
   if (task.managed && !task.attachments?.length) {
     restoreProjectChoices()
-    const awaiting = [...tasks].reverse().find((item) => item.managed && item.projectChoices?.length && item.status === 'done')
+    const awaiting = [...tasks].reverse().find((item) => item.managed && item.projectChoices?.length && item.status === 'done' && (!task.managerSessionId || item.managerSessionId === task.managerSessionId))
     const selected = awaiting?.projectChoices && chosenProject(text, awaiting.projectChoices)
     if (awaiting && selected) {
       chooseProject(awaiting.id, selected)
       const label = path.basename(selected)
       const acknowledgement: QueueTask = {
-        id: crypto.randomUUID(), text, cwd: selected, status: 'done', managed: true,
+        id: crypto.randomUUID(), text, cwd: selected, status: 'done', managed: true, managerSessionId: task.managerSessionId,
         reply: `Escolhi ${label} e retomei o pedido anterior.`,
         spokenReply: `Certo, selecionei ${label} e retomei o pedido.`,
         resumedTaskId: awaiting.id, createdAt: Date.now(), finishedAt: Date.now()
@@ -257,7 +257,7 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   })
   const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(managerThinking ? { managerThinking: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true, ...(task.managerSessionId ? { managerSessionId: task.managerSessionId } : {}) } : {}), ...(managerThinking ? { managerThinking: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (!reply) {
@@ -275,7 +275,7 @@ async function decideManager(task: QueueTask): Promise<void> {
   const settings = getSettings()
   const agents = agentChat.agentSnapshots()
   const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
-  const previous = tasks.filter((item) => item !== task)
+  const previous = tasks.filter((item) => item !== task && (!task.managerSessionId || item.managerSessionId === task.managerSessionId))
   const mentioned = mentionedProjects(task.text, roots, settings.repoGroups ?? [])
   const readableCwd = task.cwd ?? (mentioned.length === 1 ? mentioned[0] : undefined)
   try {

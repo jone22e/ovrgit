@@ -477,6 +477,8 @@ export interface QueueTask {
   status: 'queued' | 'running' | 'done' | 'failed'
   /** Pedido da conversa do gerenciador: pode ir a qualquer agente relacionado, ou abrir um novo */
   managed?: boolean
+  /** Chamada de voz do gerenciador à qual este pedido pertence. */
+  managerSessionId?: string
   /** Resposta do próprio gerenciador baseada na situação dos agentes ou pedindo um projeto exato */
   reply?: string
   /** Versão curta da resposta para o modo conversa, sem ler os detalhes exibidos no chat */
@@ -1314,7 +1316,7 @@ export interface OvseerApi {
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
   queueHistory(before?: string): Promise<{ tasks: QueueTask[]; nextCursor?: string }>
-  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): Promise<QueueTask[]>
+  queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; managerSessionId?: string; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): Promise<QueueTask[]>
   /** Anexos do compositor do gerenciador, antes de escolher o agente */
   queuePickFiles(cwd?: string): Promise<AgentAttachment[]>
   queueKeepFile(path: string): Promise<AgentAttachment>

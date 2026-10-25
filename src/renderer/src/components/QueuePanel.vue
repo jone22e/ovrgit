@@ -18,6 +18,9 @@ const archiveCursor = ref<string>()
 const archiveReady = ref(false)
 const visibleCount = ref(50)
 const loadingOlder = ref(false)
+const voiceSession = ref(false)
+const voiceSessionId = ref<string | null>(null)
+const showEarlier = ref(false)
 let historyGeneration = 0
 const allTasks = computed(() => {
   const seen = new Set<string>()
@@ -29,11 +32,15 @@ const allTasks = computed(() => {
     })
     .sort((a, b) => a.createdAt - b.createdAt)
 })
+const sessionTasks = computed(() => voiceSession.value && !showEarlier.value
+  ? allTasks.value.filter((task) => task.managerSessionId === voiceSessionId.value)
+  : allTasks.value)
 const tasks = computed(() => {
-  const all = allTasks.value
+  const all = sessionTasks.value
   return all.filter((task, index) => index >= all.length - visibleCount.value || task.status === 'queued' || task.status === 'running')
 })
-const hasOlder = computed(() => archiveReady.value && (visibleCount.value < allTasks.value.length || !!archiveCursor.value))
+const hasEarlier = computed(() => voiceSession.value && allTasks.value.some((task) => task.managerSessionId !== voiceSessionId.value))
+const hasOlder = computed(() => archiveReady.value && (!voiceSession.value || showEarlier.value) && (visibleCount.value < allTasks.value.length || !!archiveCursor.value))
 const canClear = computed(() => allTasks.value.some((task) => (task.status === 'done' || task.status === 'failed') && !task.projectChoices?.length))
 async function loadOlder() {
   if (loadingOlder.value) return
@@ -60,17 +67,16 @@ async function clearConversation() {
   if (!ok) return
   historyGeneration++
   try {
-    await api.queueClearFinished()
+    const remaining = new Set((await api.queueClearFinished()).map((task) => task.id))
     archived.value = []
     archiveCursor.value = undefined
     visibleCount.value = 50
-    spokenTasks.clear()
+    for (const id of spokenTasks.keys()) if (!remaining.has(id)) spokenTasks.delete(id)
   } catch (e) { toast(String((e as Error).message)) }
 }
 const voiceSetup = ref(false)
 const voicePending = ref(0)
 const voicePhase = ref<'idle' | 'generating' | 'playing'>('idle')
-const voiceSession = ref(false)
 let enableVoiceAfterSetup = false
 const managerVoiceId = '__manager__'
 const voicePlatform = api.platform === 'darwin' || api.platform === 'linux'
@@ -82,6 +88,8 @@ const scopeLabel = computed(() => {
 async function toggleConversation() {
   if (conversation.value) {
     voiceSession.value = false
+    voiceSessionId.value = null
+    showEarlier.value = false
     await api.voiceCancel(managerVoiceId).catch(() => undefined)
     try { await saveSettings({ managerConversationVoice: false }) } catch (e) { toast(String((e as Error).message)) }
     return
@@ -93,6 +101,8 @@ async function toggleConversation() {
       return
     }
     await saveSettings({ managerConversationVoice: true })
+    voiceSessionId.value = crypto.randomUUID()
+    showEarlier.value = false
     voiceSession.value = true
   } catch (e) { toast(String((e as Error).message)) }
 }
@@ -101,6 +111,8 @@ async function closeVoiceSetup() {
   try {
     if (enableVoiceAfterSetup && (await api.voiceStatus().catch(() => null))?.ready) {
       await saveSettings({ managerConversationVoice: true })
+      voiceSessionId.value = crypto.randomUUID()
+      showEarlier.value = false
       voiceSession.value = true
     }
   } catch (e) { toast(String((e as Error).message)) }
@@ -219,11 +231,12 @@ watch(() => state.queue.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
     <div ref="feed" class="feed">
+      <button v-if="hasEarlier" class="ghost older" @click="showEarlier = !showEarlier">{{ showEarlier ? 'Voltar à conversa atual' : 'Ver histórico anterior' }}</button>
       <button v-if="hasOlder" class="ghost older" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Carregando…' : 'Ver mensagens anteriores' }}</button>
       <div v-if="!tasks.length" class="intro">
         <Icon name="bot" :size="28" />
-        <strong>O que precisa ser feito?</strong>
-        <p>Consulte os agentes de qualquer projeto ou peça uma tarefa. Para executar, escolha um projeto ou cite o nome dele.</p>
+        <strong>{{ conversation ? 'Conversa iniciada' : 'O que precisa ser feito?' }}</strong>
+        <p>{{ conversation ? hasEarlier ? 'Pode falar com o gerenciador. O histórico anterior está disponível acima.' : 'Pode falar com o gerenciador.' : 'Consulte os agentes de qualquer projeto ou peça uma tarefa. Para executar, escolha um projeto ou cite o nome dele.' }}</p>
       </div>
       <article v-for="t in tasks" :key="t.id" class="exchange">
         <div class="user-message">
@@ -274,7 +287,7 @@ watch(() => state.queue.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       </article>
     </div>
     <div class="manager-composer" :class="{ conversation }">
-      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
+      <MiniComposer manager :cwd="cwd" :extra-dirs="extraDirs" :manager-session-id="voiceSessionId ?? undefined" :known="known" :auto-send-dictation="conversation" :voice-speaking="voicePending > 0" :voice-phase="voicePhase" :placeholder="conversation ? 'Escreva sua mensagem…' : 'Pergunte ou peça algo ao gerenciador…'" @manager-task="managerTaskSent" @end-conversation="toggleConversation">
         <template #scope><div class="project-scope"><RepoSelect v-model="cwd" v-model:extra="extraDirs" any any-label="Todos os projetos" class="repo" /></div></template>
       </MiniComposer>
     </div>

@@ -195,6 +195,14 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   const pending = queue.add({ text: 'Ajustar novamente a tela do flexi', managed: true, config }).at(-1)!
   await vi.waitFor(() => expect(pending.managerThinking).toBe(false))
   expect(pending.projectChoices?.length).toBeGreaterThan(1)
+  fake.rootAnswers.set('Flex dois.', '{"action":"reply","reply":"Qual é a sua pergunta?"}')
+  const freshCall = queue.add({ text: 'Flex dois.', managed: true, managerSessionId: 'new-call', config }).at(-1)!
+  await vi.waitFor(() => expect(freshCall.status).toBe('done'))
+  expect(freshCall.reply).toBe('Qual é a sua pergunta?')
+  expect(freshCall.resumedTaskId).toBeUndefined()
+  expect(pending.projectChoices?.length).toBeGreaterThan(1)
+  const freshPrompt = vi.mocked(quickAsk).mock.calls.find((call) => call[1].includes('Pedido atual: "Flex dois."'))?.[1]
+  expect(freshPrompt).not.toContain('Ajustar novamente a tela do flexi')
   const spokenChoice = queue.add({ text: 'Flex dois.', managed: true }).at(-1)!
   expect(spokenChoice.resumedTaskId).toBe(pending.id)
   expect(spokenChoice.reply).toContain('flexi2')

@@ -12,7 +12,7 @@ import ModelPicker from './ModelPicker.vue'
  * de várias linhas, anexos (botão, arrastar, colar), texto grande colado como cartão, modelo e esforço, modo e o
  * botão redondo de enviar. No gerenciador, usa as preferências salvas; numa conversa, acompanha o agente.
  */
-const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
+const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: string; extraDirs?: string[]; managerSessionId?: string; known: KnownModels | null; placeholder?: string; autoSendDictation?: boolean; voiceSpeaking?: boolean; voicePhase?: 'idle' | 'generating' | 'playing' }>()
 const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
@@ -216,7 +216,7 @@ async function send() {
         dictation.cancel()
       }
       if (props.autoSendDictation) await api.voiceCancel('__manager__').catch(() => undefined)
-      const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
+      const tasks = await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, managerSessionId: props.managerSessionId, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
       const task = tasks.at(-1)
       if (task) emit('managerTask', task)
       if (props.autoSendDictation) typing.value = false
