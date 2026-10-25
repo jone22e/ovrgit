@@ -39,13 +39,24 @@ vi.mock('../src/main/agentChat', () => ({
   onAgentSnapshot: vi.fn()
 }))
 
-it('aceita o nome falado ou a posição da opção sem confundir uma pergunta com escolha', async () => {
-  const { chosenProject, mentionedProjects, parseManagerDecision, projectOptions } = await import('../src/main/manager')
+it('aceita o nome falado e exige clareza quando número e projeto se confundem', async () => {
+  const { agentOpeningQuestion, agentToShow, ambiguousProjectNumber, chosenProject, correctedWords, mentionedProjects, newAgentProject, parseManagerDecision, projectOptions } = await import('../src/main/manager')
   const flexi = path.join(userData, 'flexi2')
   const lite = path.join(userData, 'flexi-lite')
   const choices = projectOptions([flexi, lite])
   expect(chosenProject('Flex dois.', choices)).toBe(flexi)
+  expect(chosenProject('Eu disse Flex dois.', choices)).toBe(flexi)
+  expect(chosenProject('Dois.', choices)).toBeNull()
+  expect(ambiguousProjectNumber('Dois.', choices)).toMatchObject({ number: 2, option: 'flexi-lite', projects: ['flexi2'] })
   expect(chosenProject('a segunda opção', choices)).toBe(lite)
+  expect(correctedWords('Eu disse Flex dois.')).toBe('flex dois')
+  expect(agentOpeningQuestion('Abre o novo agente.')?.reply).toContain('Não encaminhei nenhuma tarefa')
+  expect(newAgentProject('Criar novo agente no Flex dois.', [flexi, lite], [])).toBe(flexi)
+  expect(newAgentProject('Cria agente no Flex dois.', [flexi, lite], [])).toBe(flexi)
+  expect(newAgentProject('Abre agente no Flex dois.', [flexi, lite], [])).toBeNull()
+  expect(newAgentProject('Criar novo agente no flexi.', [flexi, lite], [])).toBeNull()
+  expect(agentOpeningQuestion('Criar novo agente no flexi.')?.reply).toContain('nome exato do projeto')
+  expect(agentToShow('Abra o agente Estoque do Flexi', [{ uid: 'agent-1', title: 'Estoque do Flexi' } as any])).toEqual({ uid: 'agent-1' })
   expect(chosenProject('Quais projetos tem aberto?', choices)).toBeNull()
   expect(mentionedProjects('Ajustar a tela do Flex dois', [flexi, lite], [])).toEqual([flexi])
   expect(parseManagerDecision('```json\n{"action":"reply","reply":"Posso explicar.","speech":"Posso explicar."}\n```')).toEqual({ action: 'reply', reply: 'Posso explicar.', speech: 'Posso explicar.' })
@@ -121,6 +132,18 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
     { uid: 'flexi-agent', cwd: flexi, project: 'flexi2', provider: 'codex', status: 'live', title: 'Estoque do Flexi', lastUser: 'Conferir estoque', summary: '', paths: [] },
     { uid: 'flexi-lite-agent', cwd: flexiLite, project: 'flexi-lite', provider: 'codex', status: 'done', title: 'Tela do Flexi Lite', lastUser: '', summary: '', paths: [] }
   )
+  const openedBeforeControl = fake.opened.length
+  const vagueOpen = queue.add({ text: 'Abre o novo agente.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(vagueOpen.reply).toContain('Não encaminhei nenhuma tarefa')
+  const bareNumber = queue.add({ text: 'Dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(bareNumber.reply).toContain('Não há uma escolha clara')
+  const correctionWithoutChoice = queue.add({ text: 'Eu disse Flex dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(correctionWithoutChoice.reply).toContain('Não criei outra tarefa')
+  const explicitOpen = queue.add({ text: 'Criar novo agente no Flex dois.', managed: true, config }).at(-1)!
+  expect(explicitOpen.managerUiAction).toEqual({ type: 'newAgent', cwd: flexi })
+  const showExisting = queue.add({ text: 'Abra o agente Estoque do Flexi.', managed: true, config }).at(-1)!
+  expect(showExisting.managerUiAction).toEqual({ type: 'showAgent', uid: 'flexi-agent' })
+  expect(fake.opened).toHaveLength(openedBeforeControl)
   const openedBefore = fake.opened.length
   const actionsBefore = fake.actions.length
   const status = queue.add({ text: 'Tem algum agente trabalhando no flexi?', cwd: flexi, managed: true }).at(-1)!
@@ -192,18 +215,18 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(conflicting.projectChoices?.map((choice) => choice.cwd)).toContain(flexi)
   expect(conflicting.status).toBe('done')
 
-  const pending = queue.add({ text: 'Ajustar novamente a tela do flexi', managed: true, config }).at(-1)!
+  const pending = queue.add({ text: 'Ajustar novamente a tela do flexi', managed: true, managerSessionId: 'voice-selection', config }).at(-1)!
   await vi.waitFor(() => expect(pending.managerThinking).toBe(false))
   expect(pending.projectChoices?.length).toBeGreaterThan(1)
-  fake.rootAnswers.set('Flex dois.', '{"action":"reply","reply":"Qual é a sua pergunta?"}')
+  const ambiguousChoice = queue.add({ text: 'Dois.', managed: true, managerSessionId: 'voice-selection', config }).at(-1)!
+  expect(ambiguousChoice.reply).toContain('opção 2')
+  expect(ambiguousChoice.resumedTaskId).toBeUndefined()
+  expect(pending.projectChoices?.length).toBeGreaterThan(1)
   const freshCall = queue.add({ text: 'Flex dois.', managed: true, managerSessionId: 'new-call', config }).at(-1)!
-  await vi.waitFor(() => expect(freshCall.status).toBe('done'))
-  expect(freshCall.reply).toBe('Qual é a sua pergunta?')
+  expect(freshCall.reply).toContain('Entendi o projeto flexi2')
   expect(freshCall.resumedTaskId).toBeUndefined()
   expect(pending.projectChoices?.length).toBeGreaterThan(1)
-  const freshPrompt = vi.mocked(quickAsk).mock.calls.find((call) => call[1].includes('Pedido atual: "Flex dois."'))?.[1]
-  expect(freshPrompt).not.toContain('Ajustar novamente a tela do flexi')
-  const spokenChoice = queue.add({ text: 'Flex dois.', managed: true }).at(-1)!
+  const spokenChoice = queue.add({ text: 'Eu disse Flex dois.', managed: true, managerSessionId: 'voice-selection' }).at(-1)!
   expect(spokenChoice.resumedTaskId).toBe(pending.id)
   expect(spokenChoice.reply).toContain('flexi2')
   expect(pending.cwd).toBe(flexi)

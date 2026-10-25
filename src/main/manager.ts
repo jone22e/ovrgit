@@ -33,9 +33,62 @@ export function projectOptions(roots: string[]): NonNullable<QueueTask['projectC
   return roots.map((cwd, index) => ({ cwd, label: names.filter((name) => name === names[index]).length > 1 ? `${names[index]} (${path.dirname(cwd)})` : names[index] }))
 }
 
+/** Uma correção falada não é, por si só, um pedido novo de trabalho. */
+export function correctedWords(text: string): string | null {
+  const match = plain(text).trim().match(/^(?:eu disse|eu quis dizer|quis dizer|na verdade|corrigindo|nao,? eu disse)\s+(.+?)\s*[.!?]?$/)
+  return match?.[1]?.trim() || null
+}
+
+/** "Dois" pode ser tanto a opção 2 quanto o projeto flexi2. */
+export function ambiguousProjectNumber(text: string, choices: NonNullable<QueueTask['projectChoices']>): { number: number; option: string; projects: string[] } | null {
+  const raw = words(text)
+  if (raw.length !== 1) return null
+  const numberWords: Record<string, number> = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10 }
+  const number = numberWords[raw[0]] ?? Number(raw[0])
+  if (!Number.isInteger(number) || number < 1 || !choices[number - 1]) return null
+  const named = choices.filter(({ cwd }) => Number(nameOf(cwd).match(/\d+$/)?.[0]) === number && cwd !== choices[number - 1].cwd)
+  return named.length ? { number, option: choices[number - 1].label, projects: named.map((choice) => choice.label) } : null
+}
+
+/** Comando de interface sem alvo claro: não deve virar trabalho de código. */
+const newAgentRequest = (query: string) => /^(?:(?:crie|criar|cria|inicie|iniciar) (?:um |o )?(?:novo agente|agente novo|agente)|(?:abre|abra|abrir) (?:um |o )?(?:novo agente|agente novo)) (?:no|na|em|para|pro) (?:projeto )?/.test(query)
+
+export function agentOpeningQuestion(text: string): { reply: string; speech: string } | null {
+  const query = words(text).join(' ')
+  if (newAgentRequest(query)) {
+    return {
+      reply: 'Não identifiquei um projeto único para o novo agente. Diga o nome exato do projeto; não criei nenhum agente.',
+      speech: 'Preciso do nome exato do projeto para abrir um novo agente.'
+    }
+  }
+  if (!/^(?:abre|abra|abrir|mostra|mostrar|crie|cria|criar) (?:o |um )?(?:novo |nova )?agente$/.test(query) && !/^(?:novo|nova) agente$/.test(query)) return null
+  return {
+    reply: 'Você quer abrir um agente existente ou iniciar uma conversa nova? Para criar, diga “criar novo agente no projeto” e o nome do projeto. Para abrir um existente, diga o nome do agente. Não encaminhei nenhuma tarefa.',
+    speech: 'Você quer abrir um agente existente ou criar um novo? Diga o nome do agente ou o projeto.'
+  }
+}
+
+/** Só abre a tela Novo agente quando o projeto foi identificado de forma única no pedido. */
+export function newAgentProject(text: string, roots: string[], groups: RepoGroup[]): string | null {
+  const query = words(text).join(' ')
+  if (!newAgentRequest(query)) return null
+  const mentioned = mentionedProjects(text, roots, groups)
+  return mentioned.length === 1 ? mentioned[0] : null
+}
+
+/** Só mostra uma conversa existente quando o nome corresponde a um único agente aberto. */
+export function agentToShow(text: string, agents: AgentSnapshot[]): { uid?: string } | null {
+  const query = words(text).join(' ')
+  const match = query.match(/^(?:abre|abra|abrir|mostra|mostrar) (?:a conversa (?:do|da) )?(?:o |a )?agente (.+)$/)
+  if (!match) return null
+  const found = agents.filter((agent) => words(agent.title).join(' ') === match[1])
+  return { uid: found.length === 1 ? found[0].uid : undefined }
+}
+
 /** Uma resposta curta de escolha só vale quando identifica uma única opção real. */
 export function chosenProject(text: string, choices: NonNullable<QueueTask['projectChoices']>): string | null {
-  const raw = words(text)
+  if (ambiguousProjectNumber(text, choices)) return null
+  const raw = words(correctedWords(text) ?? text)
   if (!raw.length || raw.length > 8) return null
   const numberWords: Record<string, number> = { um: 1, uma: 1, primeiro: 1, primeira: 1, dois: 2, segundo: 2, segunda: 2, tres: 3, terceiro: 3, terceira: 3, quatro: 4, quarto: 4, quarta: 4, cinco: 5, quinto: 5, quinta: 5, seis: 6, sexto: 6, sexta: 6, sete: 7, setimo: 7, setima: 7, oito: 8, oitavo: 8, oitava: 8, nove: 9, nono: 9, nona: 9, dez: 10, decimo: 10, decima: 10 }
   if ((raw[0] === 'opcao' || raw[0] === 'numero') && raw.length === 2) {
@@ -175,7 +228,8 @@ export function managerPrompt(request: string, roots: string[], agents: AgentSna
     'Você é o agente raiz do Ovseer e conversa em português do Brasil. Você coordena os agentes dos projetos e também responde diretamente quando pode.',
     'Escolha uma ação para o pedido atual:',
     '- reply: responda por conta própria a conversa, explicação, planejamento ou pergunta que possa ser resolvida com o contexto fornecido, raciocínio e, quando houver um projeto acessível, leitura de arquivos. Cite os arquivos usados. Use somente fatos observados para afirmações sobre projetos e agentes. Se faltarem dados, diga precisamente o que falta.',
-    '- delegate: quando for necessário executar comandos, modificar código, consultar dados indisponíveis ou acompanhar um agente existente. Escolha cwd somente entre os caminhos conhecidos. Use agentUid somente quando houver prova de que aquela conversa é o destino certo e ela usa o provedor selecionado; caso contrário, deixe vazio.',
+    '- delegate: somente para um pedido explícito de trabalho que exija executar comandos, modificar código ou acompanhar um agente existente. Escolha cwd somente entre os caminhos conhecidos. Use agentUid somente quando houver prova de que aquela conversa é o destino certo e ela usa o provedor selecionado; caso contrário, deixe vazio.',
+    'Perguntas sobre o que foi feito, comandos de interface, frases curtas e correções como "eu disse flexi2" não autorizam criar tarefas. Use reply com os fatos disponíveis ou peça esclarecimento, sem inventar resultados e sem delegar.',
     'Você pode consultar arquivos somente em modo leitura no projeto acessível indicado. Não altere arquivos. Não afirme que uma alteração ou tarefa foi feita quando precisa delegar. O projeto selecionado é o destino padrão das tarefas, não limita as perguntas globais.',
     'Responda APENAS um objeto JSON, sem markdown: {"action":"reply","reply":"texto para o chat","speech":"uma frase curta para falar em voz alta"} OU {"action":"delegate","cwd":"caminho conhecido se identificado","agentUid":"uid existente se identificado"}.',
     'Na fala, não leia listas ou detalhes: diga que os mostrou no chat. Se não houver caminho seguro para delegar, deixe cwd vazio; o app apresentará as opções.',

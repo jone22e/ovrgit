@@ -479,6 +479,8 @@ export interface QueueTask {
   managed?: boolean
   /** Chamada de voz do gerenciador à qual este pedido pertence. */
   managerSessionId?: string
+  /** Ação de interface validada pelo gerenciador, sem delegar uma tarefa de código. */
+  managerUiAction?: { type: 'newAgent'; cwd: string } | { type: 'showAgent'; uid: string }
   /** Resposta do próprio gerenciador baseada na situação dos agentes ou pedindo um projeto exato */
   reply?: string
   /** Versão curta da resposta para o modo conversa, sem ler os detalhes exibidos no chat */

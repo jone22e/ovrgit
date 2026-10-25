@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
-import { api, ask, saveSettings, state, toast } from '../store'
+import { api, ask, loadProject, openNewAgent, saveSettings, state, toast } from '../store'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
@@ -137,6 +137,17 @@ function announceTask(task: QueueTask) {
   else speakManagerReply(`Recebi seu pedido para ${where(task)}. Vou acompanhar o agente e avisar quando terminar.`)
 }
 function managerTaskSent(task: QueueTask) {
+  const action = task.managerUiAction
+  if (action) {
+    void (async () => {
+      if (conversation.value) await toggleConversation()
+      if (action.type === 'newAgent') {
+        await loadProject(action.cwd)
+        if (state.repo?.root === action.cwd) openNewAgent()
+      } else await api.agentShow(action.uid)
+    })().catch((e) => toast(String((e as Error).message)))
+    return
+  }
   if (!conversation.value) return
   if (task.resumedTaskId) {
     const resumed = state.queue.find((item) => item.id === task.resumedTaskId)

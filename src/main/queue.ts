@@ -7,7 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
-import { agentStatusReply, chosenProject, knownProjects, knownProjectsReply, managerPrompt, mentionedProjects, openProjectsReply, parseManagerDecision, projectOptions } from './manager'
+import { agentOpeningQuestion, agentStatusReply, agentToShow, ambiguousProjectNumber, chosenProject, correctedWords, knownProjects, knownProjectsReply, managerPrompt, mentionedProjects, newAgentProject, openProjectsReply, parseManagerDecision, projectOptions } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -197,10 +197,19 @@ export function chooseProject(id: string, cwd: string): QueueTask[] {
 export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; managerSessionId?: string; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
+  let clarification: { reply: string; speech: string } | null = null
   if (task.managed && !task.attachments?.length) {
     restoreProjectChoices()
     const awaiting = [...tasks].reverse().find((item) => item.managed && item.projectChoices?.length && item.status === 'done' && (!task.managerSessionId || item.managerSessionId === task.managerSessionId))
-    const selected = awaiting?.projectChoices && chosenProject(text, awaiting.projectChoices)
+    const ambiguity = awaiting?.projectChoices && ambiguousProjectNumber(text, awaiting.projectChoices)
+    if (ambiguity) {
+      const names = ambiguity.projects.join(', ')
+      clarification = {
+        reply: `“${text.trim()}” pode significar o projeto ${names} ou a opção ${ambiguity.number}, ${ambiguity.option}. Diga o nome completo do projeto ou “opção ${ambiguity.number}” para eu continuar o pedido certo.`,
+        speech: `Você quis dizer o projeto ${names} ou a opção numerada ${ambiguity.option}?`
+      }
+    }
+    const selected = !ambiguity && awaiting?.projectChoices && chosenProject(text, awaiting.projectChoices)
     if (awaiting && selected) {
       chooseProject(awaiting.id, selected)
       const label = path.basename(selected)
@@ -216,18 +225,57 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
     }
   }
   let cwd = task.cwd
-  let reply: string | null = null
-  let spokenReply: string | undefined
+  let reply: string | null = clarification?.reply ?? null
+  let spokenReply: string | undefined = clarification?.speech
   let projectChoices: QueueTask['projectChoices']
+  let managerUiAction: QueueTask['managerUiAction']
   let managerThinking = false
   if (task.managed) {
     const settings = getSettings()
     const agents = agentChat.agentSnapshots()
     const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
-    const answer = openProjectsReply(text, agents) ?? knownProjectsReply(text, roots, agents)
-      ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
-    reply = answer?.reply ?? null
-    spokenReply = answer?.speech
+    if (!reply) {
+      const newAgent = newAgentProject(text, roots, settings.repoGroups ?? [])
+      const control = agentOpeningQuestion(text)
+      const existingAgent = agentToShow(text, agents)
+      const correction = correctedWords(text)
+      const projectOnly = chosenProject(text, projectOptions(roots))
+      if (newAgent) {
+        cwd = newAgent
+        reply = `Vou abrir a tela Novo agente em ${path.basename(newAgent)}. Nenhuma tarefa foi enviada ao agente.`
+        spokenReply = `Vou abrir a tela Novo agente em ${path.basename(newAgent)}.`
+        managerUiAction = { type: 'newAgent', cwd: newAgent }
+      } else if (control) {
+        reply = control.reply
+        spokenReply = control.speech
+      } else if (existingAgent) {
+        const target = agents.find((agent) => agent.uid === existingAgent.uid)
+        reply = target ? `Vou mostrar a conversa de ${target.title}. Nenhuma tarefa nova foi enviada.` : 'Não encontrei um agente único com esse nome. Diga o título como aparece na lista; não criei outra tarefa.'
+        spokenReply = target ? `Vou mostrar ${target.title}.` : reply
+        if (target) managerUiAction = { type: 'showAgent', uid: target.uid }
+      } else if (correction) {
+        const corrected = mentionedProjects(correction, roots, settings.repoGroups ?? [])
+        const previousChoice = [...tasks].reverse().find((item) => item.resumedTaskId && (!task.managerSessionId || item.managerSessionId === task.managerSessionId))
+        const label = corrected.length === 1 ? path.basename(corrected[0]) : null
+        reply = label
+          ? previousChoice?.cwd && previousChoice.cwd !== corrected[0]
+            ? `Entendi: você quis dizer ${label}. O pedido anterior foi enviado para ${path.basename(previousChoice.cwd)}. Não criei outra tarefa. Se quiser refazer em ${label}, diga o pedido completo.`
+            : `Entendi: você quis dizer ${label}. Não criei outra tarefa. Qual pedido devo fazer nesse projeto?`
+          : 'Entendi que você está corrigindo a fala anterior. Diga o nome completo do projeto ou repita o pedido; não criei outra tarefa.'
+        spokenReply = reply
+      } else if (/^(?:um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|\d+)\.?$/i.test(text)) {
+        reply = 'Não há uma escolha clara para esse número. Diga o nome do projeto ou “opção” seguida do número.'
+        spokenReply = reply
+      } else if (projectOnly) {
+        reply = `Entendi o projeto ${path.basename(projectOnly)}. O que você quer fazer nele? Não encaminhei nenhuma tarefa.`
+        spokenReply = `Entendi o projeto ${path.basename(projectOnly)}. O que você quer fazer nele?`
+      } else {
+        const answer = openProjectsReply(text, agents) ?? knownProjectsReply(text, roots, agents)
+          ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+        reply = answer?.reply ?? null
+        spokenReply = answer?.speech
+      }
+    }
     managerThinking = !reply && !!task.config && !task.attachments?.length
     if (!reply && !managerThinking) {
       const mentioned = mentionedProjects(text, roots, settings.repoGroups ?? [])
@@ -257,7 +305,7 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   })
   const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true, ...(task.managerSessionId ? { managerSessionId: task.managerSessionId } : {}) } : {}), ...(managerThinking ? { managerThinking: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true, ...(task.managerSessionId ? { managerSessionId: task.managerSessionId } : {}) } : {}), ...(managerUiAction ? { managerUiAction } : {}), ...(managerThinking ? { managerThinking: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (!reply) {
