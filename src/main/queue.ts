@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { AgentAttachment, AgentSnapshot, AgentStatus, QueueTask } from '../shared/types'
@@ -20,6 +20,7 @@ import { agentStatusReply, chosenProject, knownProjects, knownProjectsReply, man
  */
 
 let tasks: QueueTask[] = []
+let archivedFiles: string[] = []
 /** Agentes que já receberam uma tarefa e ainda não avisaram que estão rodando */
 const busy = new Set<string>()
 /** Agentes mandados abrir uma conversa nova, esperando ficarem zerados */
@@ -28,10 +29,47 @@ const resetting = new Set<string>()
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
 const managerPlanning = new Set<string>()
 const START_TIMEOUT = 30_000
+const RECENT_FINISHED = 100
+const HISTORY_PAGE = 50
 let notify: (tasks: QueueTask[]) => void = () => undefined
 
 const file = () => path.join(app.getPath('userData'), 'queue.json')
+const archiveDir = () => path.join(app.getPath('userData'), 'queue-archive')
 const attachmentsDir = () => path.join(app.getPath('userData'), 'queue-attachments')
+
+const archiveName = (task: QueueTask) => `${String(task.createdAt).padStart(16, '0')}-${task.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
+
+/** Mantém a fila pequena sem descartar histórico nem escolhas de projeto pendentes. */
+function archiveFinished(): boolean {
+  const finished = tasks.filter((task) => (task.status === 'done' || task.status === 'failed') && !task.projectChoices?.length)
+  const excess = finished.length - RECENT_FINISHED
+  if (excess <= 0) return false
+  const archived = new Set<string>()
+  const knownArchived = new Set(archivedFiles)
+  for (const task of finished.sort((a, b) => (a.finishedAt ?? a.createdAt) - (b.finishedAt ?? b.createdAt)).slice(0, excess)) {
+    const name = archiveName(task)
+    const target = path.join(archiveDir(), name)
+    try {
+      mkdirSync(archiveDir(), { recursive: true })
+      if (!existsSync(target)) {
+        const temporary = `${target}.tmp`
+        writeFileSync(temporary, JSON.stringify(task))
+        renameSync(temporary, target)
+      }
+      if (!knownArchived.has(name)) {
+        archivedFiles.push(name)
+        knownArchived.add(name)
+      }
+      archived.add(task.id)
+    } catch (e) {
+      console.error('Fila: não consegui arquivar uma conversa:', (e as Error).message)
+    }
+  }
+  if (!archived.size) return false
+  archivedFiles.sort()
+  tasks = tasks.filter((task) => !archived.has(task.id))
+  return true
+}
 
 /** Guarda anexos temporários antes de o gerenciador escolher a conversa que vai recebê-los. */
 export function keepFile(filePath: string): AgentAttachment {
@@ -55,9 +93,12 @@ export function saveBlob(file: { name: string; type: string; data: Uint8Array })
 }
 
 function save() {
+  archiveFinished()
   try {
     mkdirSync(path.dirname(file()), { recursive: true })
-    writeFileSync(file(), JSON.stringify(tasks, null, 2))
+    const temporary = `${file()}.tmp`
+    writeFileSync(temporary, JSON.stringify(tasks))
+    renameSync(temporary, file())
   } catch (e) {
     console.error('Fila: não consegui gravar:', (e as Error).message)
   }
@@ -66,6 +107,7 @@ function save() {
 
 export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
   notify = onChange
+  try { archivedFiles = readdirSync(archiveDir()).filter((name) => name.endsWith('.json')).sort() } catch { archivedFiles = [] }
   try {
     if (existsSync(file())) tasks = (JSON.parse(readFileSync(file(), 'utf8')) as QueueTask[]).filter((t) => t && typeof t.id === 'string')
   } catch {
@@ -80,6 +122,7 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
     if (tasks.some((t) => t.managed && t.status === 'queued' && !t.uid)) void dispatch()
   })
   for (const t of tasks) if (t.stage === 'reasoning' && !t.analysis) analyze(t.id)
+  if (tasks.filter((task) => (task.status === 'done' || task.status === 'failed') && !task.projectChoices?.length).length > RECENT_FINISHED) save()
 }
 
 /** Só encaminha depois que as janelas anteriores tiverem sido restauradas. */
@@ -90,6 +133,27 @@ export function resume() {
 }
 
 export const list = (): QueueTask[] => tasks
+
+/** Página anterior do histórico, lida do disco apenas quando a conversa é expandida. */
+export function historyPage(before?: string): { tasks: QueueTask[]; nextCursor?: string } {
+  let end = archivedFiles.length
+  if (before) {
+    let left = 0
+    while (left < end) {
+      const middle = (left + end) >>> 1
+      if (archivedFiles[middle] < before) left = middle + 1
+      else end = middle
+    }
+    end = left
+  }
+  const start = Math.max(0, end - HISTORY_PAGE)
+  const page: QueueTask[] = []
+  for (const name of archivedFiles.slice(start, end)) {
+    try { page.push(JSON.parse(readFileSync(path.join(archiveDir(), name), 'utf8')) as QueueTask) }
+    catch (e) { console.error('Fila: não consegui ler uma conversa arquivada:', (e as Error).message) }
+  }
+  return { tasks: page, nextCursor: start > 0 ? archivedFiles[start] : undefined }
+}
 
 /** Pedidos gravados antes das opções clicáveis continuam podendo receber uma escolha. */
 function restoreProjectChoices() {
@@ -386,6 +450,13 @@ async function runAnalysis(id: string): Promise<void> {
 export function remove(id: string): QueueTask[] {
   // uma tarefa entregue não sai: ela já pode estar na fila local da conversa
   tasks = tasks.filter((t) => t.id !== id || t.status === 'running' || (t.managed && !!t.uid && t.status === 'queued'))
+  const archived = archivedFiles.find((name) => name.endsWith(`-${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`))
+  if (archived) {
+    try {
+      unlinkSync(path.join(archiveDir(), archived))
+      archivedFiles = archivedFiles.filter((name) => name !== archived)
+    } catch (e) { console.error('Fila: não consegui remover conversa arquivada:', (e as Error).message) }
+  }
   save()
   return tasks
 }
@@ -419,20 +490,35 @@ export function retry(id: string): QueueTask[] {
 }
 
 export function clearFinished(): QueueTask[] {
-  tasks = tasks.filter((t) => t.status === 'queued' || t.status === 'running')
+  tasks = tasks.filter((t) => t.status === 'queued' || t.status === 'running' || !!t.projectChoices?.length)
+  for (const name of archivedFiles) {
+    try { unlinkSync(path.join(archiveDir(), name)) }
+    catch (e) { console.error('Fila: não consegui limpar conversa arquivada:', (e as Error).message) }
+  }
+  try { archivedFiles = readdirSync(archiveDir()).filter((name) => name.endsWith('.json')).sort() }
+  catch { archivedFiles = [] }
   save()
   return tasks
 }
 
+function recentCompleted(uid: string): string[] {
+  const previous: string[] = []
+  for (let i = tasks.length - 1; i >= 0 && previous.length < 3; i--) {
+    const task = tasks[i]
+    if (task.status === 'done' && task.uid === uid) previous.push(task.text.slice(0, 240))
+  }
+  return previous.reverse()
+}
+
 /** O que a conversa de um agente já tratou (para medir a afinidade com a tarefa nova) */
 function contextOf(a: agentChat.AvailableAgent): AgentContext {
-  const done = tasks.filter((t) => t.status === 'done' && t.uid === a.uid).map((t) => t.text)
+  const done = recentCompleted(a.uid)
   const parts = [a.title, a.summary, a.lastUser ? `Último pedido: ${a.lastUser}` : '', done.length ? `Tarefas feitas: ${done.join(' | ')}` : '', a.paths.length ? `Arquivos: ${a.paths.slice(0, 12).join(' ')}` : '']
   return { uid: a.uid, cwd: a.cwd, title: a.title, fresh: a.fresh, context: parts.filter(Boolean).join('. ') }
 }
 
 function managedContextOf(a: AgentSnapshot): AgentContext {
-  const done = tasks.filter((t) => t.status === 'done' && t.uid === a.uid).map((t) => t.text)
+  const done = recentCompleted(a.uid)
   return {
     uid: a.uid, cwd: a.cwd, title: a.title || 'Novo agente',
     fresh: a.status === 'idle' && !a.lastUser && !a.summary && !done.length,

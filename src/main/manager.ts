@@ -158,14 +158,18 @@ export type ManagerDecision =
 
 /** Contexto factual do agente raiz. Ele decide; o processo principal valida o destino antes de executar. */
 export function managerPrompt(request: string, roots: string[], agents: AgentSnapshot[], history: QueueTask[], selectedCwd?: string, readableCwd?: string, selectedProvider?: string): string {
-  const projects = projectOptions(roots).map((project) => ({ ...project, agents: agents.filter((agent) => agent.cwd === project.cwd).length }))
+  const agentCounts = new Map<string, number>()
+  for (const agent of agents) agentCounts.set(agent.cwd, (agentCounts.get(agent.cwd) ?? 0) + 1)
+  const projects = projectOptions(roots).map((project) => ({ ...project, agents: agentCounts.get(project.cwd) ?? 0 }))
   const snapshots = agents.map((agent) => ({
     uid: agent.uid, cwd: agent.cwd, title: agent.title, status: statusLabel[agent.status], provider: agent.provider,
-    activity: agent.activity?.slice(0, 240), lastUser: agent.lastUser?.slice(0, 240), summary: agent.summary?.slice(0, 240)
+    context: (agent.status === 'live' ? agent.activity || agent.lastUser || agent.summary
+      : agent.status === 'waiting' ? agent.lastUser || agent.activity || agent.summary
+        : agent.summary || agent.lastUser || agent.activity)?.slice(0, 180)
   }))
-  const previous = history.filter((task) => task.managed).slice(-10).map((task) => ({
-    request: task.text.slice(0, 700), cwd: task.cwd, agentUid: task.uid, agentTitle: task.agentTitle,
-    status: task.status, reply: task.reply?.slice(0, 900)
+  const previous = history.filter((task) => task.managed).slice(-6).map((task) => ({
+    request: task.text.slice(0, 400), cwd: task.cwd, agentUid: task.uid, agentTitle: task.agentTitle,
+    status: task.status, reply: task.reply?.slice(0, 500)
   }))
   return [
     'Você é o agente raiz do Ovseer e conversa em português do Brasil. Você coordena os agentes dos projetos e também responde diretamente quando pode.',

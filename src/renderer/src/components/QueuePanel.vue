@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
-import { api, saveSettings, state, toast } from '../store'
+import { api, ask, saveSettings, state, toast } from '../store'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
@@ -13,7 +13,60 @@ const cwd = ref('')
 const extraDirs = ref<string[]>([])
 const known = ref<KnownModels | null>(null)
 const feed = ref<HTMLElement>()
-const tasks = computed(() => state.queue)
+const archived = ref<QueueTask[]>([])
+const archiveCursor = ref<string>()
+const archiveReady = ref(false)
+const visibleCount = ref(50)
+const loadingOlder = ref(false)
+let historyGeneration = 0
+const allTasks = computed(() => {
+  const seen = new Set<string>()
+  return [...state.queue, ...archived.value]
+    .filter((task) => {
+      if (seen.has(task.id)) return false
+      seen.add(task.id)
+      return true
+    })
+    .sort((a, b) => a.createdAt - b.createdAt)
+})
+const tasks = computed(() => {
+  const all = allTasks.value
+  return all.filter((task, index) => index >= all.length - visibleCount.value || task.status === 'queued' || task.status === 'running')
+})
+const hasOlder = computed(() => archiveReady.value && (visibleCount.value < allTasks.value.length || !!archiveCursor.value))
+const canClear = computed(() => allTasks.value.some((task) => (task.status === 'done' || task.status === 'failed') && !task.projectChoices?.length))
+async function loadOlder() {
+  if (loadingOlder.value) return
+  const el = feed.value
+  const before = el?.scrollHeight ?? 0
+  if (visibleCount.value < allTasks.value.length) visibleCount.value += 50
+  else if (archiveCursor.value) {
+    loadingOlder.value = true
+    const generation = historyGeneration
+    try {
+      const page = await api.queueHistory(archiveCursor.value)
+      if (generation !== historyGeneration) return
+      archived.value = [...page.tasks, ...archived.value]
+      archiveCursor.value = page.nextCursor
+      visibleCount.value += 50
+    } catch (e) { toast(String((e as Error).message)) }
+    finally { loadingOlder.value = false }
+  }
+  await nextTick()
+  if (el) el.scrollTop += el.scrollHeight - before
+}
+async function clearConversation() {
+  const ok = await ask({ title: 'Limpar histórico do gerenciador?', message: 'Remove os pedidos concluídos e com erro. Pedidos em andamento e escolhas pendentes continuam.', confirmLabel: 'Limpar histórico', danger: true })
+  if (!ok) return
+  historyGeneration++
+  try {
+    await api.queueClearFinished()
+    archived.value = []
+    archiveCursor.value = undefined
+    visibleCount.value = 50
+    spokenTasks.clear()
+  } catch (e) { toast(String((e as Error).message)) }
+}
 const voiceSetup = ref(false)
 const voicePending = ref(0)
 const voicePhase = ref<'idle' | 'generating' | 'playing'>('idle')
@@ -74,14 +127,16 @@ function announceTask(task: QueueTask) {
 function managerTaskSent(task: QueueTask) {
   if (!conversation.value) return
   if (task.resumedTaskId) {
-    const resumed = tasks.value.find((item) => item.id === task.resumedTaskId)
+    const resumed = state.queue.find((item) => item.id === task.resumedTaskId)
     if (resumed) spokenTasks.set(resumed.id, { status: resumed.status, announced: true })
   }
   spokenTasks.set(task.id, { status: task.status, announced: !task.managerThinking })
   if (!task.managerThinking) announceTask(task)
 }
-watch(() => tasks.value.map((t) => `${t.id}:${t.status}:${!!t.managerThinking}:${t.reply ?? ''}`).join('|'), () => {
-  for (const task of tasks.value) {
+watch(() => state.queue.map((t) => `${t.id}:${t.status}:${!!t.managerThinking}`).join('|'), () => {
+  const current = new Set(state.queue.map((task) => task.id))
+  for (const id of spokenTasks.keys()) if (!current.has(id)) spokenTasks.delete(id)
+  for (const task of state.queue) {
     const previous = spokenTasks.get(task.id)
     if (!previous || task.managerThinking) continue
     if (!previous.announced) announceTask(task)
@@ -139,7 +194,17 @@ async function openTask(t: QueueTask) {
 const scrollEnd = () => nextTick(() => { if (feed.value) feed.value.scrollTop = feed.value.scrollHeight })
 onMounted(scrollEnd)
 onMounted(() => api.knownModels().then((models) => (known.value = models)).catch(() => undefined))
-watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
+onMounted(async () => {
+  const generation = historyGeneration
+  try {
+    const page = await api.queueHistory()
+    if (generation !== historyGeneration) return
+    archived.value = page.tasks
+    archiveCursor.value = page.nextCursor
+  } catch (e) { toast(String((e as Error).message)) }
+  finally { archiveReady.value = true }
+})
+watch(() => state.queue.map((t) => [t.id, t.status, t.uid].join(':')).join('|'), scrollEnd)
 </script>
 
 <template>
@@ -148,11 +213,13 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
       <span class="avatar"><Icon name="bot" :size="19" /></span>
       <span><strong>Gerenciador de agentes</strong><small>{{ scopeLabel }}</small></span>
       <span class="head-spacer" />
+      <button v-if="canClear" class="ghost icon" title="Limpar histórico concluído" aria-label="Limpar histórico concluído" @click="clearConversation"><Icon name="trash" :size="14" /></button>
       <button v-if="voicePlatform" class="ghost icon voice-toggle" :class="{ on: conversation }" :title="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" :aria-label="conversation ? 'Encerrar conversa por voz' : 'Iniciar conversa por voz'" :aria-pressed="conversation" @click="toggleConversation"><Icon name="phone" :size="18" /></button>
       <button v-if="voicePlatform && voicePending" class="ghost icon" title="Interromper fala do gerenciador" @click="api.voiceCancel(managerVoiceId)"><Icon name="stop" :size="13" /></button>
       <button v-if="voicePlatform" class="ghost icon" title="Instalar e testar voz local" @click="voiceSetup = true"><Icon name="settings" :size="14" /></button>
     </header>
     <div ref="feed" class="feed">
+      <button v-if="hasOlder" class="ghost older" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Carregando…' : 'Ver mensagens anteriores' }}</button>
       <div v-if="!tasks.length" class="intro">
         <Icon name="bot" :size="28" />
         <strong>O que precisa ser feito?</strong>
@@ -227,6 +294,7 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
 .avatar, .message-avatar { display: grid; place-items: center; flex: none; color: var(--accent); background: var(--accent-soft); }
 .avatar { width: 34px; height: 34px; border-radius: 11px; }
 .feed { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding: 16px 12px; }
+.older { align-self: center; flex: none; color: var(--muted); font-size: 11px; }
 .intro { margin: auto 4px; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; color: var(--muted); }
 .intro > svg { color: var(--accent); }
 .intro strong { color: var(--text); font-size: 13px; }

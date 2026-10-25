@@ -377,6 +377,7 @@ const api: OvseerApi = {
   dockSnapshot: () => ipcRenderer.invoke('orchestrator:snapshot'),
   agentDocked: (uid) => ipcRenderer.invoke('agent:docked', uid),
   queueList: () => ipcRenderer.invoke('queue:list'),
+  queueHistory: (before) => ipcRenderer.invoke('queue:history', before),
   queueAdd: (task) => ipcRenderer.invoke('queue:add', task),
   queuePickFiles: (cwd) => ipcRenderer.invoke('queue:pick', cwd),
   queueKeepFile: (path) => ipcRenderer.invoke('queue:keepFile', path),

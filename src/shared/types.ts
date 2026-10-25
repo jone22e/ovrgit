@@ -1313,6 +1313,7 @@ export interface OvseerApi {
   agentDocked(uid: string): Promise<boolean>
   /** Fila de tarefas para os agentes em espera */
   queueList(): Promise<QueueTask[]>
+  queueHistory(before?: string): Promise<{ tasks: QueueTask[]; nextCursor?: string }>
   queueAdd(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): Promise<QueueTask[]>
   /** Anexos do compositor do gerenciador, antes de escolher o agente */
   queuePickFiles(cwd?: string): Promise<AgentAttachment[]>
