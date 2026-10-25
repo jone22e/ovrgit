@@ -32,6 +32,7 @@ const props = defineProps<{
   fresh?: boolean
   /** Rodando sem sinal do agente há tempo demais */
   stalled?: boolean
+  compact?: boolean
 }>()
 const emit = defineEmits<{ pick: []; act: [action: AgentAction] }>()
 const group = computed(() => groupOf(state.settings?.repoGroups ?? [], props.a.cwd, props.a.extraDirs))
@@ -243,7 +244,7 @@ async function saveRename() {
 </script>
 
 <template>
-  <article class="acard" :class="[tone, { sel: selected, fresh }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
+  <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
     <div class="top">
       <span v-if="n !== null" class="num mono" :title="`⌘${n}: mostra esta conversa`">{{ n }}</span>
       <div class="ttl">
@@ -482,6 +483,25 @@ async function saveRename() {
 .pin.pinned { color: var(--accent); }
 .close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); }
 .close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
+
+/* Uma conversa por linha, com projeto, situação e atividade preservados. */
+.acard.compact { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 9px 38px 9px 10px; border-radius: 9px; }
+.compact .top { grid-column: 1; grid-row: 1; align-items: center; padding-right: 0; gap: 6px; }
+.compact .num { min-width: 18px; height: 18px; padding: 0 3px; margin: 0; font-size: 10px; }
+.compact .title { display: block; min-height: 0; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-size: 12.5px; }
+.compact .project { min-height: 16px; gap: 4px; }
+.compact .project :deep(svg) { width: 15px; height: 15px; }
+.compact .project .ellipsis { font-size: 10px; }
+.compact .top > .ring, .compact .top > .buddy, .compact .top > .badge { display: none; }
+.compact .status { grid-column: 2; grid-row: 1; align-self: center; }
+.compact .status > :not(.pill) { display: none; }
+.compact .pill { height: 18px; padding: 0 6px; font-size: 10px; }
+.compact .say { grid-column: 1 / -1; grid-row: 2; height: 16px; margin-left: 24px; white-space: nowrap; }
+.compact .detail { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
+.compact .chips { flex-wrap: nowrap; overflow: hidden; }
+.compact .chip { white-space: nowrap; }
+.compact .track-steps, .compact .foot { display: none; }
+.compact .close { top: 10px; right: 8px; }
 
 /* menu do botão direito (vive no body) */
 .ctx {

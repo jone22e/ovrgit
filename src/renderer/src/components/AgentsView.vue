@@ -20,6 +20,11 @@ import Modal from './Modal.vue'
  * sem sair daqui. As ações vão para a janela do agente, que executa.
  */
 const snaps = computed(() => state.agentSnaps)
+const compactList = ref(localStorage.getItem('ovseer.agents.list') === '1')
+function setCompactList(value: boolean) {
+  compactList.value = value
+  localStorage.setItem('ovseer.agents.list', value ? '1' : '0')
+}
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
 /** Dentro de cada situação, as conversas fixadas vêm primeiro; o resto segue a ordem dada */
 const pinnedFirst = (list: AgentSnapshot[], by: (a: AgentSnapshot, b: AgentSnapshot) => number = () => 0) =>
@@ -360,6 +365,10 @@ function pick(a: AgentSnapshot) {
         <Icon name="bot" :size="14" /><span class="lbl">Gerenciador de agentes</span><span v-if="queuedCount" class="cnt">{{ queuedCount }}</span>
       </button>
       <span class="gap" />
+      <div class="view-switch" role="group" aria-label="Visualização dos agentes">
+        <button type="button" class="ghost icon" :class="{ on: !compactList }" title="Cartões de agentes" aria-label="Cartões de agentes" :aria-pressed="!compactList" @click="setCompactList(false)"><Icon name="grid" :size="14" /></button>
+        <button type="button" class="ghost icon" :class="{ on: compactList }" title="Lista compacta de agentes" aria-label="Lista compacta de agentes" :aria-pressed="compactList" @click="setCompactList(true)"><Icon name="list" :size="14" /></button>
+      </div>
     </div>
 
     <div class="body">
@@ -389,13 +398,13 @@ function pick(a: AgentSnapshot) {
 
       <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa).
            Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
-      <section v-if="order.length" class="orch-list">
+      <section v-if="order.length" class="orch-list" :class="{ compact: compactList }">
         <div class="list">
-          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" />
+          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" :compact="compactList" @pick="pick(a)" @act="(action) => act(a, action)" />
         </div>
       </section>
 
-      <section v-if="closedPinned.length">
+      <section v-if="closedPinned.length" :class="{ 'pinned-compact': compactList }">
         <h3 class="sec">
           <span class="sec-title"><Icon name="pin" :size="11" /> Fixadas</span>
           <span class="sec-actions">
@@ -478,6 +487,12 @@ function pick(a: AgentSnapshot) {
 /* cartões: quantas colunas couberem na largura da lista; os que esperam resposta ocupam a linha inteira */
 .orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: stretch; }
 .orch-list { margin-top: 14px; }
+.orch-list.compact .list { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+.pinned-compact .list { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+.orch .pinned-compact .item.closed { padding: 8px 10px; border-radius: 9px; }
+.view-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; }
+.view-switch button { width: 25px; height: 24px; padding: 0; color: var(--muted); }
+.view-switch button.on { color: var(--accent); background: var(--accent-soft); }
 /* fixadas sem janela: cartão simples, no mesmo espírito */
 .orch .item.closed { flex-wrap: wrap; align-items: flex-start; margin: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
 .orch .item.closed > .dot { margin-top: 6px; }
