@@ -9,12 +9,16 @@ const other = mkdtempSync(path.join(os.tmpdir(), 'ovseer-other-'))
 const fake = vi.hoisted(() => ({
   snapshots: [] as any[],
   opened: [] as any[],
-  actions: [] as { uid: string; action: any }[]
+  actions: [] as { uid: string; action: any }[],
+  rootAnswers: new Map<string, string>()
 }))
 
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
 vi.mock('../src/main/settings', () => ({ getSettings: () => ({ provider: 'codex', queueReuse: true, queueSmart: true, codexModel: '' }) }))
-vi.mock('../src/main/quickAi', () => ({ quickAsk: vi.fn(async () => '0') }))
+vi.mock('../src/main/quickAi', () => ({ quickAsk: vi.fn(async (_provider: string, prompt: string) => {
+  if (!prompt.startsWith('Você é o agente raiz')) return '0'
+  return [...fake.rootAnswers].find(([request]) => prompt.includes(`Pedido atual: ${JSON.stringify(request)}`))?.[1] ?? '{"action":"delegate"}'
+}) }))
 vi.mock('../src/main/reasoner', () => ({ reasonAbout: vi.fn() }))
 vi.mock('../src/main/agentChat', () => ({
   agentSnapshots: () => fake.snapshots,
@@ -36,7 +40,7 @@ vi.mock('../src/main/agentChat', () => ({
 }))
 
 it('aceita o nome falado ou a posição da opção sem confundir uma pergunta com escolha', async () => {
-  const { chosenProject, mentionedProjects, projectOptions } = await import('../src/main/manager')
+  const { chosenProject, mentionedProjects, parseManagerDecision, projectOptions } = await import('../src/main/manager')
   const flexi = path.join(userData, 'flexi2')
   const lite = path.join(userData, 'flexi-lite')
   const choices = projectOptions([flexi, lite])
@@ -44,6 +48,9 @@ it('aceita o nome falado ou a posição da opção sem confundir uma pergunta co
   expect(chosenProject('a segunda opção', choices)).toBe(lite)
   expect(chosenProject('Quais projetos tem aberto?', choices)).toBeNull()
   expect(mentionedProjects('Ajustar a tela do Flex dois', [flexi, lite], [])).toEqual([flexi])
+  expect(parseManagerDecision('```json\n{"action":"reply","reply":"Posso explicar.","speech":"Posso explicar."}\n```')).toEqual({ action: 'reply', reply: 'Posso explicar.', speech: 'Posso explicar.' })
+  expect(parseManagerDecision('{"action":"delegate","cwd":"/projeto","agentUid":"agent-1"}')).toEqual({ action: 'delegate', cwd: '/projeto', agentUid: 'agent-1' })
+  expect(parseManagerDecision('resposta sem decisão')).toBeNull()
 })
 
 it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria agente quando não há relação', async () => {
@@ -57,6 +64,24 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(existsSync(image.path)).toBe(true)
   expect(image.name).toBe('captura.png')
   const config = { provider: 'codex' as const, model: 'gpt-6-sol', effort: 'high' as const, mode: 'full' as const }
+  fake.rootAnswers.set('Explique o papel do gerenciador.', '{"action":"reply","reply":"Eu acompanho os agentes e encaminho tarefas aos projetos.","speech":"Eu acompanho os agentes e encaminho tarefas."}')
+  const answered = queue.add({ text: 'Explique o papel do gerenciador.', managed: true, config }).at(-1)!
+  expect(answered.managerThinking).toBe(true)
+  await vi.waitFor(() => expect(answered.status).toBe('done'))
+  expect(answered.reply).toContain('Eu acompanho os agentes')
+  expect(answered.spokenReply).toBe('Eu acompanho os agentes e encaminho tarefas.')
+  expect(answered.uid).toBeUndefined()
+  const { quickAsk } = await import('../src/main/quickAi')
+  expect(vi.mocked(quickAsk).mock.calls.find((call) => call[1].includes('Pedido atual: "Explique o papel do gerenciador."'))?.[3]).toMatchObject(config)
+  fake.rootAnswers.set('Responda esta pergunta por conta própria.', 'resposta fora do formato')
+  const failedBrain = queue.add({ text: 'Responda esta pergunta por conta própria.', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(failedBrain.status).toBe('failed'))
+  expect(failedBrain.managerBrainFailed).toBe(true)
+  expect(failedBrain.uid).toBeUndefined()
+  fake.rootAnswers.set('Responda esta pergunta por conta própria.', '{"action":"reply","reply":"Resposta recuperada."}')
+  queue.retry(failedBrain.id)
+  await vi.waitFor(() => expect(failedBrain.status).toBe('done'))
+  expect(failedBrain.reply).toBe('Resposta recuperada.')
 
   const first = queue.add({ text: 'Ajustar mensagem de acesso negado no login', cwd: project, managed: true, attachments: [image], config }).at(-1)!
   await vi.waitFor(() => expect(fake.actions).toHaveLength(1))
@@ -67,11 +92,22 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   queue.finished(first.id, 'related', true)
   expect(first.status).toBe('done')
 
+  fake.rootAnswers.set('Peça ao agente do login revisar os testes', JSON.stringify({ action: 'delegate', agentUid: 'related' }))
+  const directed = queue.add({ text: 'Peça ao agente do login revisar os testes', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(fake.actions.some((item) => item.action.taskId === directed.id)).toBe(true))
+  expect(directed.preferredUid).toBe('related')
+  expect(fake.actions.find((item) => item.action.taskId === directed.id)?.uid).toBe('related')
+  fake.rootAnswers.set('Peça ao agente que foi fechado revisar os testes', '{"action":"delegate","agentUid":"closed-agent"}')
+  const missingAgent = queue.add({ text: 'Peça ao agente que foi fechado revisar os testes', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(missingAgent.status).toBe('done'))
+  expect(missingAgent.reply).toContain('não está mais disponível')
+  expect(missingAgent.uid).toBeUndefined()
+
   const second = queue.add({ text: 'Criar exportação em PDF', cwd: project, managed: true, attachments: [image], config }).at(-1)!
   await vi.waitFor(() => expect(fake.opened).toHaveLength(1))
   expect(fake.opened[0]).toMatchObject({ cwd: project, firstMessage: second.text, firstFiles: [image.path], firstAttachments: [{ name: image.name, path: image.path }], managerTaskId: second.id, model: 'gpt-6-sol', quiet: true })
   expect(second.via).toBe('new')
-  expect(fake.actions).toHaveLength(1)
+  expect(fake.actions).toHaveLength(2)
 
   queue.add({ text: 'Ajustar login de novo', cwd: project, managed: true, config: { ...config, provider: 'claude', model: 'sonnet' } })
   await vi.waitFor(() => expect(fake.opened).toHaveLength(2))
@@ -132,22 +168,32 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(allProjects.reply).toContain('projetos conhecidos')
   expect(allProjects.reply).toContain('flexi2: 1 agente aberto')
   expect(allProjects.reply).toContain('flexi-lite: 1 agente aberto')
+  fake.rootAnswers.set('Rode os testes', JSON.stringify({ action: 'delegate', cwd: flexi }))
+  const unspecified = queue.add({ text: 'Rode os testes', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(unspecified.status).toBe('done'))
+  expect(unspecified.projectChoices?.map((choice) => choice.cwd)).toContain(flexi)
+  expect(unspecified.uid).toBeUndefined()
 
   const ambiguous = queue.add({ text: 'Ajustar a tela do flexi', managed: true }).at(-1)!
   expect(ambiguous.reply).toContain('mais de um projeto')
   expect(ambiguous.status).toBe('done')
   expect(ambiguous.projectChoices?.map((choice) => choice.label)).toEqual(expect.arrayContaining(['flexi2', 'flexi-lite']))
   const routed = queue.add({ text: 'Ajustar a tela do flexi2', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(routed.managerThinking).toBe(false))
   expect(routed.cwd).toBe(flexi)
   expect(routed.reply).toBeUndefined()
+  expect(vi.mocked(quickAsk).mock.calls.find((call) => call[1].includes('Pedido atual: "Ajustar a tela do flexi2"'))?.[3]).toMatchObject({ cwd: flexi })
   const spokenName = queue.add({ text: 'Ajustar a tela do Flex dois', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(spokenName.managerThinking).toBe(false))
   expect(spokenName.cwd).toBe(flexi)
   expect(spokenName.reply).toBeUndefined()
   const conflicting = queue.add({ text: 'Ajustar a tela do flexi2', cwd: other, managed: true, config }).at(-1)!
-  expect(conflicting.reply).toContain('O seletor está em')
+  await vi.waitFor(() => expect(conflicting.managerThinking).toBe(false))
+  expect(conflicting.projectChoices?.map((choice) => choice.cwd)).toContain(flexi)
   expect(conflicting.status).toBe('done')
 
   const pending = queue.add({ text: 'Ajustar novamente a tela do flexi', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(pending.managerThinking).toBe(false))
   expect(pending.projectChoices?.length).toBeGreaterThan(1)
   const spokenChoice = queue.add({ text: 'Flex dois.', managed: true }).at(-1)!
   expect(spokenChoice.resumedTaskId).toBe(pending.id)
@@ -158,12 +204,14 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   expect(['queued', 'running', 'done']).toContain(pending.status)
 
   const anotherPending = queue.add({ text: 'Ajustar outra tela do flexi', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(anotherPending.managerThinking).toBe(false))
   expect(() => queue.chooseProject(anotherPending.id, other)).toThrow('não está mais disponível')
   queue.chooseProject(anotherPending.id, flexiLite)
   expect(anotherPending.cwd).toBe(flexiLite)
   expect(anotherPending.projectChoices).toBeUndefined()
 
   const legacy = queue.add({ text: 'Ajustar a integração do flexi', managed: true, config }).at(-1)!
+  await vi.waitFor(() => expect(legacy.managerThinking).toBe(false))
   legacy.projectChoices = undefined
   legacy.reply = 'Encontrei mais de um projeto no pedido: flexi2, flexi-lite. Escolha o projeto principal no seletor.'
   queue.resume()

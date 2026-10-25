@@ -482,6 +482,12 @@ export interface QueueTask {
   projectChoices?: { cwd: string; label: string }[]
   /** Mensagem curta que confirma uma escolha por voz e aponta para o pedido retomado */
   resumedTaskId?: string
+  /** O agente raiz está decidindo se responde ou delega, sem bloquear a interface */
+  managerThinking?: boolean
+  /** A chamada ao modelo do agente raiz falhou; permite repetir a decisão */
+  managerBrainFailed?: boolean
+  /** Agente específico escolhido pelo agente raiz para continuar o pedido */
+  preferredUid?: string
   /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
   stage?: 'reasoning'
   /** Análise do agente de raciocínio (markdown), quando e se está sendo refeita */

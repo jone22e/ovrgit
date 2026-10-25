@@ -65,26 +65,29 @@ function speakManagerReply(reply: string) {
     : first
   void api.voiceSpeak(managerVoiceId, speech).catch((e) => toast(String((e as Error).message)))
 }
-const spokenTasks = new Map<string, QueueTask['status']>()
+const spokenTasks = new Map<string, { status: QueueTask['status']; announced: boolean }>()
+function announceTask(task: QueueTask) {
+  if (task.reply) speakManagerReply(task.spokenReply ?? task.reply)
+  else if (task.status === 'done') speakManagerReply(`${agentName(task)} concluiu o pedido. A resposta completa está na conversa dele.`)
+  else if (task.status === 'failed') speakManagerReply(task.managerBrainFailed ? 'Não consegui consultar o modelo. Mostrei o erro no chat.' : `${agentName(task)} não conseguiu concluir o pedido. Mostrei o motivo no chat.`)
+  else speakManagerReply(`Recebi seu pedido para ${where(task)}. Vou acompanhar o agente e avisar quando terminar.`)
+}
 function managerTaskSent(task: QueueTask) {
   if (!conversation.value) return
   if (task.resumedTaskId) {
     const resumed = tasks.value.find((item) => item.id === task.resumedTaskId)
-    if (resumed) spokenTasks.set(resumed.id, resumed.status)
+    if (resumed) spokenTasks.set(resumed.id, { status: resumed.status, announced: true })
   }
-  if (task.reply) return speakManagerReply(task.spokenReply ?? task.reply)
-  spokenTasks.set(task.id, task.status)
-  if (task.status === 'done') speakManagerReply('O agente concluiu o pedido. A resposta completa está na conversa dele.')
-  else if (task.status === 'failed') speakManagerReply('Não consegui concluir esse pedido. Mostrei o motivo no chat.')
-  else speakManagerReply(`Recebi seu pedido para ${where(task)}. Vou acompanhar o agente e avisar quando terminar.`)
+  spokenTasks.set(task.id, { status: task.status, announced: !task.managerThinking })
+  if (!task.managerThinking) announceTask(task)
 }
-watch(() => tasks.value.map((t) => `${t.id}:${t.status}`).join('|'), () => {
+watch(() => tasks.value.map((t) => `${t.id}:${t.status}:${!!t.managerThinking}:${t.reply ?? ''}`).join('|'), () => {
   for (const task of tasks.value) {
     const previous = spokenTasks.get(task.id)
-    if (!previous || previous === task.status) continue
-    spokenTasks.set(task.id, task.status)
-    if (task.status === 'done') speakManagerReply(`${agentName(task)} concluiu o pedido. A resposta completa está na conversa dele.`)
-    else if (task.status === 'failed') speakManagerReply(`${agentName(task)} não conseguiu concluir o pedido. Mostrei o motivo no chat.`)
+    if (!previous || task.managerThinking) continue
+    if (!previous.announced) announceTask(task)
+    else if (previous.status !== task.status && (task.status === 'done' || task.status === 'failed')) announceTask(task)
+    spokenTasks.set(task.id, { status: task.status, announced: true })
   }
 })
 const offVoiceQueue = api.onVoiceQueue((q) => { if (q.uid === managerVoiceId) voicePending.value = q.pending })
@@ -105,11 +108,11 @@ const busyChoice = ref<string | null>(null)
 async function chooseProject(t: QueueTask, selected: string) {
   if (!selected || busyChoice.value) return
   busyChoice.value = t.id
-  spokenTasks.set(t.id, t.status)
+  spokenTasks.set(t.id, { status: t.status, announced: true })
   try {
     const next = await api.queueChooseProject(t.id, selected)
     const resumed = next.find((item) => item.id === t.id)
-    if (resumed) spokenTasks.set(t.id, resumed.status)
+    if (resumed) spokenTasks.set(t.id, { status: resumed.status, announced: true })
     speakManagerReply(`Certo, selecionei ${name(selected)} e retomei o pedido.`)
   } catch (e) {
     spokenTasks.delete(t.id)
@@ -167,7 +170,8 @@ watch(voiceUiState, scrollEnd)
           <span class="message-avatar"><Icon :name="t.projectChoices?.length ? 'bot' : t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
           <div class="message-body">
             <template v-if="t.managed">
-              <p v-if="t.reply" class="manager-reply">{{ t.reply }}</p>
+              <p v-if="t.managerThinking">Estou analisando o pedido e verificando os agentes…</p>
+              <p v-else-if="t.reply" class="manager-reply">{{ t.reply }}</p>
               <p v-else-if="t.status === 'queued' && !t.uid">Estou procurando o agente mais adequado em {{ where(t) }}…</p>
               <p v-else-if="t.status === 'queued'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) : 'Encaminhei para ' + agentName(t) }}. O pedido aguarda a vez dele.</p>
               <p v-else-if="t.status === 'running'">{{ t.via === 'new' ? 'Criei um novo agente: ' + agentName(t) + '.' : 'Encaminhei para ' + agentName(t) + '.' }} {{ agentOf(t)?.status === 'waiting' ? 'Ele aguarda sua resposta.' : 'Ele está trabalhando agora.' }}</p>

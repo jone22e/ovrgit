@@ -151,3 +151,50 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
   })
   return { reply: [intro, ...names].join('\n'), speech: `${intro.slice(0, -1)}. Mostrei os nomes no chat.` }
 }
+
+export type ManagerDecision =
+  | { action: 'reply'; reply: string; speech?: string }
+  | { action: 'delegate'; cwd?: string; agentUid?: string }
+
+/** Contexto factual do agente raiz. Ele decide; o processo principal valida o destino antes de executar. */
+export function managerPrompt(request: string, roots: string[], agents: AgentSnapshot[], history: QueueTask[], selectedCwd?: string, readableCwd?: string, selectedProvider?: string): string {
+  const projects = projectOptions(roots).map((project) => ({ ...project, agents: agents.filter((agent) => agent.cwd === project.cwd).length }))
+  const snapshots = agents.map((agent) => ({
+    uid: agent.uid, cwd: agent.cwd, title: agent.title, status: statusLabel[agent.status], provider: agent.provider,
+    activity: agent.activity?.slice(0, 240), lastUser: agent.lastUser?.slice(0, 240), summary: agent.summary?.slice(0, 240)
+  }))
+  const previous = history.filter((task) => task.managed).slice(-10).map((task) => ({
+    request: task.text.slice(0, 700), cwd: task.cwd, agentUid: task.uid, agentTitle: task.agentTitle,
+    status: task.status, reply: task.reply?.slice(0, 900)
+  }))
+  return [
+    'Você é o agente raiz do Ovseer e conversa em português do Brasil. Você coordena os agentes dos projetos e também responde diretamente quando pode.',
+    'Escolha uma ação para o pedido atual:',
+    '- reply: responda por conta própria a conversa, explicação, planejamento ou pergunta que possa ser resolvida com o contexto fornecido, raciocínio e, quando houver um projeto acessível, leitura de arquivos. Cite os arquivos usados. Use somente fatos observados para afirmações sobre projetos e agentes. Se faltarem dados, diga precisamente o que falta.',
+    '- delegate: quando for necessário executar comandos, modificar código, consultar dados indisponíveis ou acompanhar um agente existente. Escolha cwd somente entre os caminhos conhecidos. Use agentUid somente quando houver prova de que aquela conversa é o destino certo e ela usa o provedor selecionado; caso contrário, deixe vazio.',
+    'Você pode consultar arquivos somente em modo leitura no projeto acessível indicado. Não altere arquivos. Não afirme que uma alteração ou tarefa foi feita quando precisa delegar. O projeto selecionado é o destino padrão das tarefas, não limita as perguntas globais.',
+    'Responda APENAS um objeto JSON, sem markdown: {"action":"reply","reply":"texto para o chat","speech":"uma frase curta para falar em voz alta"} OU {"action":"delegate","cwd":"caminho conhecido se identificado","agentUid":"uid existente se identificado"}.',
+    'Na fala, não leia listas ou detalhes: diga que os mostrou no chat. Se não houver caminho seguro para delegar, deixe cwd vazio; o app apresentará as opções.',
+    '',
+    `Contexto factual: ${JSON.stringify({ selectedCwd: selectedCwd || null, readableCwd: readableCwd || null, selectedProvider: selectedProvider || null, projects, agents: snapshots, previous })}`,
+    `Pedido atual: ${JSON.stringify(request)}`
+  ].join('\n')
+}
+
+export function parseManagerDecision(text: string): ManagerDecision | null {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    const value = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
+    if (value.action === 'reply' && typeof value.reply === 'string' && value.reply.trim()) {
+      return { action: 'reply', reply: value.reply.trim().slice(0, 8000), speech: typeof value.speech === 'string' ? value.speech.trim().slice(0, 300) || undefined : undefined }
+    }
+    if (value.action === 'delegate') return {
+      action: 'delegate',
+      cwd: typeof value.cwd === 'string' ? value.cwd : undefined,
+      agentUid: typeof value.agentUid === 'string' ? value.agentUid : undefined
+    }
+  } catch { /* resposta fora do formato: o gerenciador mantém o pedido sem executar */ }
+  return null
+}

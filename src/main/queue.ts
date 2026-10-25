@@ -7,7 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
-import { agentStatusReply, chosenProject, knownProjects, knownProjectsReply, mentionedProjects, openProjectsReply, projectOptions } from './manager'
+import { agentStatusReply, chosenProject, knownProjects, knownProjectsReply, managerPrompt, mentionedProjects, openProjectsReply, parseManagerDecision, projectOptions } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -26,6 +26,7 @@ const busy = new Set<string>()
 const resetting = new Set<string>()
 /** Entregue e sem sinal de vida: passado o prazo, a tarefa volta para a fila */
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
+const managerPlanning = new Set<string>()
 const START_TIMEOUT = 30_000
 let notify: (tasks: QueueTask[]) => void = () => undefined
 
@@ -84,6 +85,7 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
 /** Só encaminha depois que as janelas anteriores tiverem sido restauradas. */
 export function resume() {
   restoreProjectChoices()
+  for (const task of tasks) if (task.managerThinking && task.status === 'queued') void decideManager(task)
   void dispatch()
 }
 
@@ -115,6 +117,7 @@ export function chooseProject(id: string, cwd: string): QueueTask[] {
   if (!task?.projectChoices?.some((choice) => choice.cwd === cwd)) throw new Error('Esta escolha de projeto não está mais disponível.')
   if (!existsSync(cwd)) throw new Error('A pasta do projeto escolhido não existe mais.')
   task.cwd = cwd
+  task.preferredUid = undefined
   delete task.extraDirs
   task.status = 'queued'
   delete task.reply
@@ -152,6 +155,7 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   let reply: string | null = null
   let spokenReply: string | undefined
   let projectChoices: QueueTask['projectChoices']
+  let managerThinking = false
   if (task.managed) {
     const settings = getSettings()
     const agents = agentChat.agentSnapshots()
@@ -160,7 +164,8 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
       ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
     reply = answer?.reply ?? null
     spokenReply = answer?.speech
-    if (!reply) {
+    managerThinking = !reply && !!task.config && !task.attachments?.length
+    if (!reply && !managerThinking) {
       const mentioned = mentionedProjects(text, roots, settings.repoGroups ?? [])
       if (cwd && mentioned.length && !mentioned.some((p) => p === cwd || task.extraDirs?.includes(p))) {
         reply = `O seletor está em ${path.basename(cwd)}, mas o pedido menciona ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto certo antes de encaminhar.`
@@ -179,7 +184,8 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
         }
       }
     }
-    if (!reply && (!cwd || !existsSync(cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
+    if (!reply && !managerThinking && (!cwd || !existsSync(cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
+    if (managerThinking && cwd && !existsSync(cwd)) throw new Error('O projeto selecionado não existe mais.')
   }
   const attachments = (task.attachments ?? []).slice(0, 20).map((a) => {
     if (!existsSync(a.path)) throw new Error(`Anexo não encontrado: ${a.name}`)
@@ -187,14 +193,82 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   })
   const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(managerThinking ? { managerThinking: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (!reply) {
-    if (stage) analyze(t.id)
+    if (managerThinking) void decideManager(t)
+    else if (stage) analyze(t.id)
     else void dispatch()
   }
   return tasks
+}
+
+/** O raiz decide sem bloquear o compositor; somente caminhos e agentes observados podem ser usados. */
+async function decideManager(task: QueueTask): Promise<void> {
+  if (!task.config || managerPlanning.has(task.id)) return
+  managerPlanning.add(task.id)
+  const settings = getSettings()
+  const agents = agentChat.agentSnapshots()
+  const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
+  const previous = tasks.filter((item) => item !== task)
+  const mentioned = mentionedProjects(task.text, roots, settings.repoGroups ?? [])
+  const readableCwd = task.cwd ?? (mentioned.length === 1 ? mentioned[0] : undefined)
+  try {
+    const output = await quickAsk(task.config.provider, managerPrompt(task.text, roots, agents, previous, task.cwd, readableCwd, task.config.provider), 90_000,
+      { ...task.config, cwd: readableCwd, extraDirs: task.cwd ? task.extraDirs : undefined })
+    if (!tasks.includes(task) || task.status !== 'queued' || !task.managerThinking) return
+    const decision = parseManagerDecision(output)
+    if (!decision) throw new Error('A resposta do modelo não veio no formato esperado.')
+    task.managerThinking = false
+    if (decision.action === 'reply') {
+      task.status = 'done'
+      task.reply = decision.reply
+      task.spokenReply = decision.speech || (decision.reply.length <= 220 ? decision.reply : 'Respondi no chat e deixei os detalhes por escrito.')
+      task.finishedAt = Date.now()
+      save()
+      return
+    }
+    const target = decision.agentUid ? agents.find((agent) => agent.uid === decision.agentUid && agent.status !== 'error') : undefined
+    if ((decision.agentUid && !target) || (target && target.provider !== task.config.provider)) {
+      task.status = 'done'
+      task.reply = !target ? 'O agente indicado não está mais disponível. Diga qual agente ou projeto devo usar.'
+        : `${target.title || 'Esse agente'} usa outro provedor. Selecione ${target.provider} no compositor para continuar a conversa dele.`
+      task.spokenReply = 'Preciso que você escolha o agente ou provedor correto. Expliquei no chat.'
+      task.finishedAt = Date.now()
+      save()
+      return
+    }
+    const suggested = target?.cwd ?? (decision.cwd && roots.includes(decision.cwd) ? decision.cwd : undefined)
+    if ((task.cwd && suggested && task.cwd !== suggested) || (task.cwd && mentioned.length && !mentioned.includes(task.cwd))) {
+      task.projectChoices = projectOptions([...new Set([task.cwd, ...(suggested ? [suggested] : []), ...mentioned])])
+    } else if (!task.cwd) {
+      if (mentioned.length > 1) task.projectChoices = projectOptions(mentioned)
+      else task.cwd = mentioned[0] ?? target?.cwd
+      if (!task.cwd && !task.projectChoices) task.projectChoices = projectOptions(mentioned.length ? mentioned : roots)
+    }
+    if (task.projectChoices || !task.cwd) {
+      task.status = 'done'
+      task.reply = task.projectChoices?.length ? 'Para encaminhar este pedido, escolha o projeto abaixo ou diga o nome ou número da opção.' : 'Não encontrei um projeto conhecido para encaminhar este pedido.'
+      task.spokenReply = task.projectChoices?.length ? 'Qual projeto devo usar? Mostrei as opções no chat.' : task.reply
+      task.finishedAt = Date.now()
+      save()
+      return
+    }
+    if (target && target.cwd === task.cwd && target.provider === task.config.provider) task.preferredUid = target.uid
+    save()
+    void dispatch()
+  } catch (e) {
+    if (!tasks.includes(task) || task.status !== 'queued') return
+    task.managerThinking = false
+    task.managerBrainFailed = true
+    task.status = 'failed'
+    task.reason = `Não consegui consultar o modelo do agente raiz: ${String((e as Error).message).slice(0, 250)}.`
+    task.finishedAt = Date.now()
+    save()
+  } finally {
+    managerPlanning.delete(task.id)
+  }
 }
 
 /** Tarefa anterior revisada pelo usuário: passa a ser encaminhada pelo gerenciador. */
@@ -325,6 +399,7 @@ export function move(id: string, dir: -1 | 1): QueueTask[] {
 export function retry(id: string): QueueTask[] {
   const t = tasks.find((x) => x.id === id)
   if (t && t.status === 'failed') {
+    const retryManager = !!t.managerBrainFailed
     t.status = 'queued'
     t.uid = undefined
     t.sessionId = undefined
@@ -333,8 +408,12 @@ export function retry(id: string): QueueTask[] {
     t.finishedAt = undefined
     t.via = undefined
     t.reason = undefined
+    t.preferredUid = undefined
+    t.managerBrainFailed = false
+    t.managerThinking = retryManager
     save()
-    void dispatch()
+    if (retryManager) void decideManager(t)
+    else void dispatch()
   }
   return tasks
 }
@@ -375,9 +454,16 @@ async function routeManaged(task: QueueTask): Promise<void> {
   if (agentChat.agentWindowInfos().some((a) => a.cwd === task.cwd && (!task.config || a.provider === task.config.provider) && !visible.has(a.uid))) return
   const contexts = available.map(managedContextOf)
   const related = rankRelated(task.text, contexts)
-  let chosen: AgentContext | undefined
-  if (related.length && clearlyRelated(related[0])) chosen = related[0].agent
-  else {
+  let chosen: AgentContext | undefined = task.preferredUid ? contexts.find((context) => context.uid === task.preferredUid) : undefined
+  if (task.preferredUid && !chosen) {
+    task.status = 'failed'
+    task.reason = 'O agente escolhido pelo gerenciador não está mais disponível neste projeto.'
+    task.finishedAt = Date.now()
+    save()
+    return
+  }
+  if (!chosen && related.length && clearlyRelated(related[0])) chosen = related[0].agent
+  else if (!chosen) {
     const ordered = [...related.map((r) => r.agent), ...contexts.filter((c) => !c.fresh).reverse()]
     const candidates = ordered.filter((c, i) => ordered.findIndex((x) => x.uid === c.uid) === i).slice(0, 8)
     if (candidates.length) {
@@ -448,7 +534,7 @@ async function dispatch() {
   dispatching = true
   try {
     for (const task of [...tasks]) {
-      if (task.status !== 'queued' || task.stage === 'reasoning') continue
+      if (task.status !== 'queued' || task.stage === 'reasoning' || task.managerThinking) continue
       if (task.managed) {
         if (!task.uid) await routeManaged(task)
         continue
