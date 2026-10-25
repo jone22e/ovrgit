@@ -379,6 +379,7 @@ const api: OvseerApi = {
   queueStarted: (id, uid) => ipcRenderer.invoke('queue:started', id, uid),
   queueFinished: (id, uid, success) => ipcRenderer.invoke('queue:finished', id, uid, success),
   queueManage: (id, cwd, extraDirs) => ipcRenderer.invoke('queue:manage', id, cwd, extraDirs),
+  queueChooseProject: (id, cwd) => ipcRenderer.invoke('queue:chooseProject', id, cwd),
   queueRemove: (id) => ipcRenderer.invoke('queue:remove', id),
   queueMove: (id, dir) => ipcRenderer.invoke('queue:move', id, dir),
   queueRetry: (id) => ipcRenderer.invoke('queue:retry', id),

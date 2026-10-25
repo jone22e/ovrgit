@@ -748,6 +748,7 @@ function registerIpc() {
   ipcMain.handle('queue:started', (_e, id: string, uid: string) => taskQueue.started(String(id), String(uid)))
   ipcMain.handle('queue:finished', (_e, id: string, uid: string, success: boolean) => taskQueue.finished(String(id), String(uid), success === true))
   ipcMain.handle('queue:manage', (_e, id: string, cwd?: string, extraDirs?: string[]) => taskQueue.manage(String(id), typeof cwd === 'string' ? cwd : undefined, Array.isArray(extraDirs) ? extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined))
+  ipcMain.handle('queue:chooseProject', (_e, id: string, cwd: string) => taskQueue.chooseProject(String(id), String(cwd)))
   ipcMain.handle('queue:remove', (_e, id: string) => taskQueue.remove(String(id)))
   ipcMain.handle('queue:move', (_e, id: string, dir: number) => taskQueue.move(String(id), dir < 0 ? -1 : 1))
   ipcMain.handle('queue:retry', (_e, id: string) => taskQueue.retry(String(id)))

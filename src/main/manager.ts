@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { AgentSnapshot, RepoGroup } from '../shared/types'
+import type { AgentSnapshot, QueueTask, RepoGroup } from '../shared/types'
 
 type Agent = Pick<AgentSnapshot, 'cwd' | 'project' | 'title' | 'status'>
 
@@ -15,12 +15,62 @@ export function knownProjects(recent: string[], groups: RepoGroup[], agents: Age
 export function mentionedProjects(text: string, roots: string[], groups: RepoGroup[]): string[] {
   const query = new Set(words(text).filter((w) => w.length >= 4))
   const phrase = ` ${words(text).join(' ')} `
-  const matches = roots.filter((root) => words(nameOf(root)).some((part) => [...query].some((w) => part === w || part.startsWith(w))))
+  const exact = roots.filter((root) => {
+    const name = words(nameOf(root)).join(' ')
+    return phrase.includes(` ${name} `) || (name === 'flexi2' && /\bflexi? (dois|2)\b/.test(phrase))
+  })
+  const matches = exact.length ? exact : roots.filter((root) => words(nameOf(root)).some((part) => [...query].some((w) => part === w || part.startsWith(w))))
   for (const group of groups) {
     const groupName = words(group.name).join(' ')
     if (groupName && phrase.includes(` ${groupName} `)) for (const root of group.dirs) if (roots.includes(root) && !matches.includes(root)) matches.push(root)
   }
   return matches
+}
+
+export function projectOptions(roots: string[]): NonNullable<QueueTask['projectChoices']> {
+  const names = roots.map(nameOf)
+  return roots.map((cwd, index) => ({ cwd, label: names.filter((name) => name === names[index]).length > 1 ? `${names[index]} (${path.dirname(cwd)})` : names[index] }))
+}
+
+/** Uma resposta curta de escolha só vale quando identifica uma única opção real. */
+export function chosenProject(text: string, choices: NonNullable<QueueTask['projectChoices']>): string | null {
+  const raw = words(text)
+  if (!raw.length || raw.length > 8) return null
+  const numberWords: Record<string, number> = { um: 1, uma: 1, primeiro: 1, primeira: 1, dois: 2, segundo: 2, segunda: 2, tres: 3, terceiro: 3, terceira: 3, quatro: 4, quarto: 4, quarta: 4, cinco: 5, quinto: 5, quinta: 5, seis: 6, sexto: 6, sexta: 6, sete: 7, setimo: 7, setima: 7, oito: 8, oitavo: 8, oitava: 8, nove: 9, nono: 9, nona: 9, dez: 10, decimo: 10, decima: 10 }
+  if ((raw[0] === 'opcao' || raw[0] === 'numero') && raw.length === 2) {
+    const index = numberWords[raw[1]] ?? Number(raw[1])
+    return choices[index - 1]?.cwd ?? null
+  }
+  if (raw.length === 1) {
+    const index = numberWords[raw[0]] ?? Number(raw[0])
+    if (Number.isInteger(index) && index > 0) return choices[index - 1]?.cwd ?? null
+  }
+  const filler = new Set(['eu', 'escolho', 'escolha', 'quero', 'prefiro', 'pode', 'ser', 'e', 'o', 'a', 'no', 'na', 'projeto', 'opcao', 'numero', 'de', 'do', 'da', 'por', 'favor', 'vai', 'para', 'esse', 'essa'])
+  const selection = raw.filter((word) => !filler.has(word))
+  if (selection.length === 1 && numberWords[selection[0]]) return choices[numberWords[selection[0]] - 1]?.cwd ?? null
+  const key = selection.join('')
+  const found = choices.filter(({ cwd }) => {
+    const name = words(nameOf(cwd)).join('')
+    if (key === name) return true
+    // O ditado costuma escrever “Flex dois” para o nome flexi2.
+    return name === 'flexi2' && (key === 'flexdois' || key === 'flexidois' || key === 'flex2')
+  })
+  return found.length === 1 ? found[0].cwd : null
+}
+
+/** Consulta global: projetos com conversas de agentes abertas neste momento. */
+export function openProjectsReply(text: string, agents: Agent[]): { reply: string; speech: string } | null {
+  const query = plain(text)
+  if (!/\b(projetos?|repositorios?)\b/.test(query) || !/\b(abertos?|abertas?|ativos?|ativas?)\b/.test(query)) return null
+  if (!/\b(quais|quantos|qual|liste|mostre|diga|tem|tenho|ha|existem)\b/.test(query)) return null
+  const counts = new Map<string, number>()
+  for (const agent of agents) counts.set(agent.cwd, (counts.get(agent.cwd) ?? 0) + 1)
+  if (!counts.size) return { reply: 'Não há projetos com conversas de agentes abertas agora.', speech: 'Não há projetos com agentes abertos agora.' }
+  const projects = [...counts].sort(([a], [b]) => nameOf(a).localeCompare(nameOf(b), 'pt'))
+  return {
+    reply: [`${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} com agentes abertos agora:`, ...projects.map(([root, count]) => `• ${nameOf(root)}: ${count} ${count === 1 ? 'agente' : 'agentes'}`)].join('\n'),
+    speech: `Há ${projects.length} ${projects.length === 1 ? 'projeto' : 'projetos'} com agentes abertos. Mostrei a lista no chat.`
+  }
 }
 
 const STATUS: { pattern: RegExp; label: string; statuses: AgentSnapshot['status'][] }[] = [

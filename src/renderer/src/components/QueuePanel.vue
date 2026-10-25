@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
@@ -62,6 +62,10 @@ function speakManagerReply(reply: string) {
 const spokenTasks = new Map<string, QueueTask['status']>()
 function managerTaskSent(task: QueueTask) {
   if (!conversation.value) return
+  if (task.resumedTaskId) {
+    const resumed = tasks.value.find((item) => item.id === task.resumedTaskId)
+    if (resumed) spokenTasks.set(resumed.id, resumed.status)
+  }
   if (task.reply) return speakManagerReply(task.spokenReply ?? task.reply)
   spokenTasks.set(task.id, task.status)
   if (task.status === 'done') speakManagerReply('O agente concluiu o pedido. A resposta completa está na conversa dele.')
@@ -88,6 +92,24 @@ const agentOf = (t: QueueTask) => state.agentSnaps.find((a) => a.uid === t.uid)
 const agentName = (t: QueueTask) => agentOf(t)?.title || t.agentTitle || 'agente'
 const configLabel = (t: QueueTask) => t.config ? [PROVIDER_LABEL[t.config.provider], t.config.model || 'modelo padrão', MODES.find((m) => m.id === t.config?.mode)?.label].filter(Boolean).join(' · ') : ''
 const liveAgent = (t: QueueTask) => !!t.uid && state.agentSnaps.some((a) => a.uid === t.uid)
+const chosenChoice = reactive<Record<string, string>>({})
+const busyChoice = ref<string | null>(null)
+async function chooseProject(t: QueueTask, selected: string) {
+  if (!selected || busyChoice.value) return
+  busyChoice.value = t.id
+  spokenTasks.set(t.id, t.status)
+  try {
+    const next = await api.queueChooseProject(t.id, selected)
+    const resumed = next.find((item) => item.id === t.id)
+    if (resumed) spokenTasks.set(t.id, resumed.status)
+    speakManagerReply(`Certo, selecionei ${name(selected)} e retomei o pedido.`)
+  } catch (e) {
+    spokenTasks.delete(t.id)
+    toast(String((e as Error).message))
+  } finally {
+    busyChoice.value = null
+  }
+}
 
 async function manage(t: QueueTask) {
   try {
@@ -132,8 +154,8 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
           <div v-if="t.attachments?.length" class="sent-attachments"><span v-for="a in t.attachments" :key="a.path" :title="a.path"><Icon name="paperclip" :size="11" />{{ a.name }}</span></div>
           <small>{{ where(t) }}<template v-if="t.config"> · {{ configLabel(t) }}</template></small>
         </div>
-        <div class="manager-message" :class="t.status">
-          <span class="message-avatar"><Icon :name="t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
+        <div class="manager-message" :class="t.projectChoices?.length ? 'awaiting' : t.status">
+          <span class="message-avatar"><Icon :name="t.projectChoices?.length ? 'bot' : t.status === 'done' ? 'check' : t.status === 'failed' ? 'alert' : 'bot'" :size="13" /></span>
           <div class="message-body">
             <template v-if="t.managed">
               <p v-if="t.reply" class="manager-reply">{{ t.reply }}</p>
@@ -150,6 +172,19 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
               <p v-else>Pedido da fila anterior falhou com {{ agentName(t) }}.</p>
               <details v-if="t.analysis" class="analysis"><summary>Ver raciocínio anterior</summary><pre>{{ t.analysis }}</pre></details>
             </template>
+            <div v-if="t.projectChoices?.length" class="project-choices">
+              <small class="choice-hint">Escolha para continuar este pedido:</small>
+              <template v-if="t.projectChoices.length <= 6">
+                <button v-for="(choice, index) in t.projectChoices" :key="choice.cwd" type="button" class="project-option" :disabled="!!busyChoice" :title="choice.cwd" @click="chooseProject(t, choice.cwd)">{{ index + 1 }}. {{ choice.label }}</button>
+              </template>
+              <template v-else>
+                <select v-model="chosenChoice[t.id]" :disabled="!!busyChoice" :aria-label="`Projeto para ${t.text}`">
+                  <option value="">Escolha um projeto…</option>
+                  <option v-for="(choice, index) in t.projectChoices" :key="choice.cwd" :value="choice.cwd">{{ index + 1 }}. {{ choice.label }}</option>
+                </select>
+                <button type="button" class="project-option" :disabled="!chosenChoice[t.id] || !!busyChoice" @click="chooseProject(t, chosenChoice[t.id])">Continuar pedido</button>
+              </template>
+            </div>
             <div class="message-actions">
               <button v-if="!t.managed && t.status === 'queued'" class="ghost link" :disabled="t.analyzing" @click="manage(t)">{{ t.analyzing ? 'Analisando…' : 'Encaminhar com gerenciador' }}</button>
               <button v-if="t.uid && (liveAgent(t) || t.sessionId)" class="ghost link" @click="openTask(t)">Abrir conversa</button>
@@ -195,9 +230,17 @@ watch(() => tasks.value.map((t) => [t.id, t.status, t.uid].join(':')).join('|'),
 .message-avatar { width: 22px; height: 22px; border-radius: 7px; }
 .manager-message.done .message-avatar { color: var(--add); background: color-mix(in srgb, var(--add) 15%, transparent); }
 .manager-message.failed .message-avatar { color: var(--del); background: color-mix(in srgb, var(--del) 15%, transparent); }
+.manager-message.awaiting .message-avatar { color: var(--mod); background: color-mix(in srgb, var(--mod) 15%, transparent); }
 .message-body { min-width: 0; flex: 1; padding-top: 2px; }
 .message-body p { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .message-body .manager-reply { white-space: pre-line; }
+.project-choices { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.choice-hint { width: 100%; color: var(--muted); font-size: 10px; }
+.project-option, .project-choices select { min-height: 27px; max-width: 100%; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 7px; background: var(--accent-soft); color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
+.project-option { cursor: pointer; }
+.project-option:hover:not(:disabled) { border-color: var(--accent); }
+.project-option:disabled { opacity: .5; cursor: default; }
+.project-choices select { min-width: 0; max-width: 100%; background: var(--panel); }
 .message-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
 .message-actions:empty { display: none; }
 .link { min-height: 22px; padding: 0; color: var(--accent); font-size: 11px; }

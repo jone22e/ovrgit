@@ -35,6 +35,17 @@ vi.mock('../src/main/agentChat', () => ({
   onAgentSnapshot: vi.fn()
 }))
 
+it('aceita o nome falado ou a posição da opção sem confundir uma pergunta com escolha', async () => {
+  const { chosenProject, mentionedProjects, projectOptions } = await import('../src/main/manager')
+  const flexi = path.join(userData, 'flexi2')
+  const lite = path.join(userData, 'flexi-lite')
+  const choices = projectOptions([flexi, lite])
+  expect(chosenProject('Flex dois.', choices)).toBe(flexi)
+  expect(chosenProject('a segunda opção', choices)).toBe(lite)
+  expect(chosenProject('Quais projetos tem aberto?', choices)).toBeNull()
+  expect(mentionedProjects('Ajustar a tela do Flex dois', [flexi, lite], [])).toEqual([flexi])
+})
+
 it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria agente quando não há relação', async () => {
   fake.snapshots.push(
     { uid: 'related', cwd: project, provider: 'codex', status: 'live', title: 'Login: acesso negado', lastUser: 'Corrigir mensagem de acesso negado no login', summary: '', paths: [] },
@@ -96,14 +107,48 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
   const globalStatus = queue.add({ text: 'Quais agentes estão trabalhando?', managed: true }).at(-1)!
   expect(globalStatus.reply).toContain('Estoque do Flexi (flexi2)')
   expect(globalStatus.reply).toContain('Login: acesso negado')
+  const projectsStatus = queue.add({ text: 'Quais projetos tem aberto.', managed: true }).at(-1)!
+  expect(projectsStatus.reply).toContain('projetos com agentes abertos')
+  expect(projectsStatus.reply).toContain('flexi2: 1 agente')
+  expect(projectsStatus.reply).toContain('flexi-lite: 1 agente')
+  expect(projectsStatus.projectChoices).toBeUndefined()
 
   const ambiguous = queue.add({ text: 'Ajustar a tela do flexi', managed: true }).at(-1)!
   expect(ambiguous.reply).toContain('mais de um projeto')
   expect(ambiguous.status).toBe('done')
+  expect(ambiguous.projectChoices?.map((choice) => choice.label)).toEqual(expect.arrayContaining(['flexi2', 'flexi-lite']))
   const routed = queue.add({ text: 'Ajustar a tela do flexi2', managed: true, config }).at(-1)!
   expect(routed.cwd).toBe(flexi)
   expect(routed.reply).toBeUndefined()
+  const spokenName = queue.add({ text: 'Ajustar a tela do Flex dois', managed: true, config }).at(-1)!
+  expect(spokenName.cwd).toBe(flexi)
+  expect(spokenName.reply).toBeUndefined()
   const conflicting = queue.add({ text: 'Ajustar a tela do flexi2', cwd: other, managed: true, config }).at(-1)!
   expect(conflicting.reply).toContain('O seletor está em')
   expect(conflicting.status).toBe('done')
+
+  const pending = queue.add({ text: 'Ajustar novamente a tela do flexi', managed: true, config }).at(-1)!
+  expect(pending.projectChoices?.length).toBeGreaterThan(1)
+  const spokenChoice = queue.add({ text: 'Flex dois.', managed: true }).at(-1)!
+  expect(spokenChoice.resumedTaskId).toBe(pending.id)
+  expect(spokenChoice.reply).toContain('flexi2')
+  expect(pending.cwd).toBe(flexi)
+  expect(pending.reply).toBeUndefined()
+  expect(pending.projectChoices).toBeUndefined()
+  expect(['queued', 'running', 'done']).toContain(pending.status)
+
+  const anotherPending = queue.add({ text: 'Ajustar outra tela do flexi', managed: true, config }).at(-1)!
+  expect(() => queue.chooseProject(anotherPending.id, other)).toThrow('não está mais disponível')
+  queue.chooseProject(anotherPending.id, flexiLite)
+  expect(anotherPending.cwd).toBe(flexiLite)
+  expect(anotherPending.projectChoices).toBeUndefined()
+
+  const legacy = queue.add({ text: 'Ajustar a integração do flexi', managed: true, config }).at(-1)!
+  legacy.projectChoices = undefined
+  legacy.reply = 'Encontrei mais de um projeto no pedido: flexi2, flexi-lite. Escolha o projeto principal no seletor.'
+  queue.resume()
+  expect(legacy.projectChoices?.map((choice) => choice.cwd)).toContain(flexi)
+  projectsStatus.reply = 'Escolha um projeto no seletor ou cite o nome dele.'
+  queue.resume()
+  expect(projectsStatus.projectChoices).toBeUndefined()
 })

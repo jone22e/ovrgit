@@ -478,6 +478,10 @@ export interface QueueTask {
   reply?: string
   /** Versão curta da resposta para o modo conversa, sem ler os detalhes exibidos no chat */
   spokenReply?: string
+  /** Projetos aceitos para continuar um pedido que ficou aguardando escolha */
+  projectChoices?: { cwd: string; label: string }[]
+  /** Mensagem curta que confirma uma escolha por voz e aponta para o pedido retomado */
+  resumedTaskId?: string
   /** Fila de raciocínio: ainda não vai para um agente; um agente de leitura analisa e o usuário comenta até mover para a execução */
   stage?: 'reasoning'
   /** Análise do agente de raciocínio (markdown), quando e se está sendo refeita */
@@ -1310,6 +1314,8 @@ export interface OvseerApi {
   queueFinished(id: string, uid: string, success: boolean): Promise<void>
   /** Encaminha uma tarefa da fila antiga pelo gerenciador */
   queueManage(id: string, cwd?: string, extraDirs?: string[]): Promise<QueueTask[]>
+  /** Continua um pedido do gerenciador depois de escolher o projeto */
+  queueChooseProject(id: string, cwd: string): Promise<QueueTask[]>
   queueRemove(id: string): Promise<QueueTask[]>
   /** Sobe ou desce uma tarefa na fila */
   queueMove(id: string, dir: -1 | 1): Promise<QueueTask[]>

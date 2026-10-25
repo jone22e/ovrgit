@@ -7,7 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
-import { agentStatusReply, knownProjects, mentionedProjects } from './manager'
+import { agentStatusReply, chosenProject, knownProjects, mentionedProjects, openProjectsReply, projectOptions } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -83,36 +83,99 @@ export function setupQueue(onChange: (tasks: QueueTask[]) => void) {
 
 /** Só encaminha depois que as janelas anteriores tiverem sido restauradas. */
 export function resume() {
+  restoreProjectChoices()
   void dispatch()
 }
 
 export const list = (): QueueTask[] => tasks
 
+/** Pedidos gravados antes das opções clicáveis continuam podendo receber uma escolha. */
+function restoreProjectChoices() {
+  const settings = getSettings()
+  const agents = agentChat.agentSnapshots()
+  const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
+  if (!roots.length) return
+  let changed = false
+  for (const task of tasks) {
+    if (!task.managed || task.status !== 'done' || !task.reply || task.projectChoices?.length) continue
+    if (!/^(Escolha um projeto no seletor|Encontrei mais de um projeto no pedido:|O seletor está em .+ Escolha o projeto certo)/.test(task.reply)) continue
+    if (openProjectsReply(task.text, agents) || chosenProject(task.text, projectOptions(roots))) continue
+    const mentioned = mentionedProjects(task.text, roots, settings.repoGroups ?? [])
+    const choices = projectOptions(task.cwd && mentioned.length ? [...new Set([task.cwd, ...mentioned])] : mentioned.length ? mentioned : roots)
+    if (!choices.length) continue
+    task.projectChoices = choices
+    changed = true
+  }
+  if (changed) save()
+}
+
+/** Retoma exatamente o pedido que pediu um projeto; o caminho deve constar nas opções oferecidas. */
+export function chooseProject(id: string, cwd: string): QueueTask[] {
+  const task = tasks.find((t) => t.id === id && t.managed && t.projectChoices?.length && t.status === 'done')
+  if (!task?.projectChoices?.some((choice) => choice.cwd === cwd)) throw new Error('Esta escolha de projeto não está mais disponível.')
+  if (!existsSync(cwd)) throw new Error('A pasta do projeto escolhido não existe mais.')
+  task.cwd = cwd
+  delete task.extraDirs
+  task.status = 'queued'
+  delete task.reply
+  delete task.spokenReply
+  delete task.projectChoices
+  delete task.finishedAt
+  save()
+  void dispatch()
+  return tasks
+}
+
 /** Tarefa nova: inicia no raciocínio ou vai direto para a fila de execução */
 export function add(task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; attachments?: AgentAttachment[]; config?: QueueTask['config'] }): QueueTask[] {
   const text = String(task.text ?? '').trim().slice(0, 20000)
   if (!text) return tasks
+  if (task.managed && !task.attachments?.length) {
+    restoreProjectChoices()
+    const awaiting = [...tasks].reverse().find((item) => item.managed && item.projectChoices?.length && item.status === 'done')
+    const selected = awaiting?.projectChoices && chosenProject(text, awaiting.projectChoices)
+    if (awaiting && selected) {
+      chooseProject(awaiting.id, selected)
+      const label = path.basename(selected)
+      const acknowledgement: QueueTask = {
+        id: crypto.randomUUID(), text, cwd: selected, status: 'done', managed: true,
+        reply: `Escolhi ${label} e retomei o pedido anterior.`,
+        spokenReply: `Certo, selecionei ${label} e retomei o pedido.`,
+        resumedTaskId: awaiting.id, createdAt: Date.now(), finishedAt: Date.now()
+      }
+      tasks.push(acknowledgement)
+      save()
+      return tasks
+    }
+  }
   let cwd = task.cwd
   let reply: string | null = null
   let spokenReply: string | undefined
+  let projectChoices: QueueTask['projectChoices']
   if (task.managed) {
     const settings = getSettings()
     const agents = agentChat.agentSnapshots()
     const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
-    const answer = agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
+    const answer = openProjectsReply(text, agents) ?? agentStatusReply(text, agents, roots, settings.repoGroups ?? [], cwd ? [cwd, ...(task.extraDirs ?? [])] : undefined)
     reply = answer?.reply ?? null
     spokenReply = answer?.speech
     if (!reply) {
       const mentioned = mentionedProjects(text, roots, settings.repoGroups ?? [])
       if (cwd && mentioned.length && !mentioned.some((p) => p === cwd || task.extraDirs?.includes(p))) {
         reply = `O seletor está em ${path.basename(cwd)}, mas o pedido menciona ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto certo antes de encaminhar.`
-        spokenReply = 'O projeto selecionado é diferente do que você mencionou. Mostrei as opções no chat.'
+        projectChoices = projectOptions([...new Set([cwd, ...mentioned])])
+        spokenReply = 'O projeto selecionado é diferente do pedido. Escolha uma das opções no chat.'
       } else if (!cwd) {
         if (mentioned.length === 1) cwd = mentioned[0]
-        else reply = mentioned.length
-          ? `Encontrei mais de um projeto no pedido: ${mentioned.map((p) => path.basename(p)).join(', ')}. Escolha o projeto principal no seletor.`
-          : 'Escolha um projeto no seletor ou cite o nome de um projeto conhecido no pedido para eu encaminhá-lo.'
-        if (reply) spokenReply = 'Preciso que você escolha o projeto antes de encaminhar esse pedido. Mostrei as opções no chat.'
+        else {
+          projectChoices = projectOptions(mentioned.length ? mentioned : roots)
+          reply = mentioned.length
+            ? `Encontrei mais de um projeto no pedido. Escolha uma opção abaixo ou diga o nome exato.`
+            : projectChoices.length ? 'Escolha um projeto abaixo ou diga o nome dele para eu continuar seu pedido.' : 'Escolha um projeto no seletor para eu continuar seu pedido.'
+          spokenReply = projectChoices.length
+            ? 'Preciso saber o projeto. Diga o nome ou o número de uma opção; elas também estão no chat.'
+            : 'Preciso saber o projeto antes de continuar o pedido.'
+        }
       }
     }
     if (!reply && (!cwd || !existsSync(cwd))) throw new Error('Escolha um repositório válido para o gerenciador.')
@@ -123,7 +186,7 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   })
   const extraDirs = cwd && task.extraDirs?.length ? task.extraDirs.filter((d) => d !== cwd) : undefined
   const stage = task.managed || task.stage === 'ready' ? undefined : 'reasoning'
-  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, finishedAt: Date.now() } : {}), createdAt: Date.now() }
+  const t: QueueTask = { id: crypto.randomUUID(), text, cwd: cwd || undefined, extraDirs: extraDirs?.length ? extraDirs : undefined, attachments: attachments.length ? attachments : undefined, config: task.managed ? task.config : undefined, status: reply ? 'done' : 'queued', ...(task.managed ? { managed: true } : {}), ...(stage ? { stage } : {}), ...(reply ? { reply, spokenReply, projectChoices, finishedAt: Date.now() } : {}), createdAt: Date.now() }
   tasks.push(t)
   save()
   if (!reply) {
