@@ -50,30 +50,66 @@ export function ambiguousProjectNumber(text: string, choices: NonNullable<QueueT
   return named.length ? { number, option: choices[number - 1].label, projects: named.map((choice) => choice.label) } : null
 }
 
-/** Comando de interface sem alvo claro: não deve virar trabalho de código. */
-const newAgentRequest = (query: string) => /^(?:(?:crie|criar|cria|inicie|iniciar) (?:um |o )?(?:novo agente|agente novo|agente)|(?:abre|abra|abrir) (?:um |o )?(?:novo agente|agente novo)) (?:no|na|em|para|pro) (?:projeto )?/.test(query)
+/**
+ * Pedido de abrir uma conversa nova (um agente novo), em linguagem natural: "cria um novo agente pra mim com o Flex
+ * dois", "novo agente no flexi2", "quero abrir um chat novo para o scrap". Devolve o que sobrou depois do pedido (o
+ * nome do projeto, ou nada). Um pedido com trabalho junto ("cria um agente de scraping no flexi2") não é isso.
+ */
+const CREATE = '(?:criar|cria|crie|iniciar|inicia|inicie|comecar|comeca|comece|gerar|gera|gere)'
+const OPEN = '(?:abrir|abre|abra)'
+const LEAD = '(?:(?:por favor|quero|queria|gostaria de|pode|poderia|voce pode|me|preciso de|preciso que voce|eu quero|eu preciso de) )*'
+const ARTICLE = '(?:(?:um|uma|o|a|mais um|mais uma|outro|outra) )?'
+const NOUN = '(?:agente|chat|conversa)'
+const FILLER = '(?: (?:pra mim|para mim|aqui|ai|por favor|agora|ja))*'
+const LINK = '(?: (?:no|na|em|para|pro|pra|com|do|da|de|o|a|um|uma|projeto|repositorio|repo|pasta))*'
+const NEW_AGENT = new RegExp(`^${LEAD}(?:${CREATE} ${ARTICLE}(?:(?:novo|nova) )?${NOUN}(?: (?:novo|nova))?|${OPEN} ${ARTICLE}(?:(?:novo|nova) ${NOUN}|${NOUN} (?:novo|nova))|${ARTICLE}(?:novo|nova) ${NOUN})${FILLER}${LINK}(?: (.+?))?${FILLER}$`)
+
+export function newAgentIntent(text: string): { tail: string } | null {
+  const match = words(text).join(' ').match(NEW_AGENT)
+  return match ? { tail: match[1] ?? '' } : null
+}
+
+/** O resto do pedido é só o nome do projeto (ou do grupo), sem outras palavras que indiquem trabalho a fazer */
+function onlyProjectName(tail: string, root: string, groups: RepoGroup[]): boolean {
+  const parts = words(nameOf(root))
+  const groupWords = groups.filter((g) => g.dirs.includes(root)).flatMap((g) => words(g.name))
+  const skip = new Set(['projeto', 'repositorio', 'repo', 'pasta', 'o', 'a', 'do', 'da', 'de'])
+  return words(tail).every((w) => skip.has(w) || parts.some((part) => part === w || part.startsWith(w)) || groupWords.includes(w)
+    || (parts.join('') === 'flexi2' && (w === 'dois' || w === '2' || w === 'flex' || w === 'flexi')))
+}
 
 export function agentOpeningQuestion(text: string): { reply: string; speech: string } | null {
   const query = words(text).join(' ')
-  if (newAgentRequest(query)) {
+  const intent = newAgentIntent(text)
+  if (intent?.tail) {
     return {
       reply: 'Não identifiquei um projeto único para o novo agente. Diga o nome exato do projeto; não criei nenhum agente.',
       speech: 'Preciso do nome exato do projeto para abrir um novo agente.'
     }
   }
-  if (!/^(?:abre|abra|abrir|mostra|mostrar|crie|cria|criar) (?:o |um )?(?:novo |nova )?agente$/.test(query) && !/^(?:novo|nova) agente$/.test(query)) return null
+  if (intent) {
+    return {
+      reply: 'Em qual projeto devo criar o novo agente? Diga o nome dele ou selecione um projeto no seletor. Não encaminhei nenhuma tarefa.',
+      speech: 'Em qual projeto devo criar o novo agente?'
+    }
+  }
+  if (!/^(?:abre|abra|abrir|mostra|mostrar) (?:o |um )?agente$/.test(query)) return null
   return {
     reply: 'Você quer abrir um agente existente ou iniciar uma conversa nova? Para criar, diga “criar novo agente no projeto” e o nome do projeto. Para abrir um existente, diga o nome do agente. Não encaminhei nenhuma tarefa.',
     speech: 'Você quer abrir um agente existente ou criar um novo? Diga o nome do agente ou o projeto.'
   }
 }
 
-/** Só abre a tela Novo agente quando o projeto foi identificado de forma única no pedido. */
-export function newAgentProject(text: string, roots: string[], groups: RepoGroup[]): string | null {
-  const query = words(text).join(' ')
-  if (!newAgentRequest(query)) return null
-  const mentioned = mentionedProjects(text, roots, groups)
-  return mentioned.length === 1 ? mentioned[0] : null
+/**
+ * Projeto onde abrir a conversa nova: o único citado no pedido ou, quando o pedido não cita nenhum, o selecionado.
+ * Qualquer outra situação devolve null, e o gerenciador pergunta em vez de adivinhar.
+ */
+export function newAgentProject(text: string, roots: string[], groups: RepoGroup[], selectedCwd?: string): string | null {
+  const intent = newAgentIntent(text)
+  if (!intent) return null
+  if (!intent.tail) return selectedCwd && roots.includes(selectedCwd) ? selectedCwd : null
+  const mentioned = mentionedProjects(intent.tail, roots, groups)
+  return mentioned.length === 1 && onlyProjectName(intent.tail, mentioned[0], groups) ? mentioned[0] : null
 }
 
 /** Só mostra uma conversa existente quando o nome corresponde a um único agente aberto. */
@@ -208,6 +244,7 @@ export function agentStatusReply(text: string, agents: Agent[], roots: string[],
 export type ManagerDecision =
   | { action: 'reply'; reply: string; speech?: string }
   | { action: 'delegate'; cwd?: string; agentUid?: string }
+  | { action: 'newAgent'; cwd?: string }
 
 /** Contexto factual do agente raiz. Ele decide; o processo principal valida o destino antes de executar. */
 export function managerPrompt(request: string, roots: string[], agents: AgentSnapshot[], history: QueueTask[], selectedCwd?: string, readableCwd?: string, selectedProvider?: string): string {
@@ -229,9 +266,10 @@ export function managerPrompt(request: string, roots: string[], agents: AgentSna
     'Escolha uma ação para o pedido atual:',
     '- reply: responda por conta própria a conversa, explicação, planejamento ou pergunta que possa ser resolvida com o contexto fornecido, raciocínio e, quando houver um projeto acessível, leitura de arquivos. Cite os arquivos usados. Use somente fatos observados para afirmações sobre projetos e agentes. Se faltarem dados, diga precisamente o que falta.',
     '- delegate: somente para um pedido explícito de trabalho que exija executar comandos, modificar código ou acompanhar um agente existente. Escolha cwd somente entre os caminhos conhecidos. Use agentUid somente quando houver prova de que aquela conversa é o destino certo e ela usa o provedor selecionado; caso contrário, deixe vazio.',
+    '- newAgent: quando o pedido é só abrir uma conversa nova (um agente novo, um chat novo) num projeto, sem trabalho a fazer. O app cria a conversa na lista de agentes. Informe cwd entre os caminhos conhecidos; se o pedido não identificar o projeto, use o selecionado ou deixe vazio. Nunca delegue "criar agente" a outro agente: agentes não criam agentes.',
     'Perguntas sobre o que foi feito, comandos de interface, frases curtas e correções como "eu disse flexi2" não autorizam criar tarefas. Use reply com os fatos disponíveis ou peça esclarecimento, sem inventar resultados e sem delegar.',
     'Você pode consultar arquivos somente em modo leitura no projeto acessível indicado. Não altere arquivos. Não afirme que uma alteração ou tarefa foi feita quando precisa delegar. O projeto selecionado é o destino padrão das tarefas, não limita as perguntas globais.',
-    'Responda APENAS um objeto JSON, sem markdown: {"action":"reply","reply":"texto para o chat","speech":"uma frase curta para falar em voz alta"} OU {"action":"delegate","cwd":"caminho conhecido se identificado","agentUid":"uid existente se identificado"}.',
+    'Responda APENAS um objeto JSON, sem markdown: {"action":"reply","reply":"texto para o chat","speech":"uma frase curta para falar em voz alta"} OU {"action":"delegate","cwd":"caminho conhecido se identificado","agentUid":"uid existente se identificado"} OU {"action":"newAgent","cwd":"caminho conhecido"}.',
     'Na fala, não leia listas ou detalhes: diga que os mostrou no chat. Se não houver caminho seguro para delegar, deixe cwd vazio; o app apresentará as opções.',
     '',
     `Contexto factual: ${JSON.stringify({ selectedCwd: selectedCwd || null, readableCwd: readableCwd || null, selectedProvider: selectedProvider || null, projects, agents: snapshots, previous })}`,
@@ -248,6 +286,7 @@ export function parseManagerDecision(text: string): ManagerDecision | null {
     if (value.action === 'reply' && typeof value.reply === 'string' && value.reply.trim()) {
       return { action: 'reply', reply: value.reply.trim().slice(0, 8000), speech: typeof value.speech === 'string' ? value.speech.trim().slice(0, 300) || undefined : undefined }
     }
+    if (value.action === 'newAgent') return { action: 'newAgent', cwd: typeof value.cwd === 'string' ? value.cwd : undefined }
     if (value.action === 'delegate') return {
       action: 'delegate',
       cwd: typeof value.cwd === 'string' ? value.cwd : undefined,

@@ -3,7 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import type { KnownModels, QueueTask } from '@shared/types'
 import { groupOf } from '@shared/repoGroups'
 import { MODES, PROVIDER_LABEL } from '@shared/models'
-import { api, ask, loadProject, openNewAgent, saveSettings, state, toast } from '../store'
+import { api, ask, saveSettings, state, toast } from '../store'
+import { readAgentPrefs } from '../agentPrefs'
 import Icon from './Icon.vue'
 import MiniComposer from './MiniComposer.vue'
 import RepoSelect from './RepoSelect.vue'
@@ -141,17 +142,30 @@ function announceTask(task: QueueTask) {
   else if (task.status === 'failed') speakManagerReply(task.managerBrainFailed ? 'Não consegui consultar o modelo. Mostrei o erro no chat.' : `${agentName(task)} não conseguiu concluir o pedido. Mostrei o motivo no chat.`)
   else speakManagerReply(`Recebi seu pedido para ${where(task)}. Vou acompanhar o agente e avisar quando terminar.`)
 }
-function managerTaskSent(task: QueueTask) {
+/**
+ * Ação de interface decidida pelo gerenciador, executada uma vez por pedido. Conversa nova: o chat é criado direto
+ * na lista de agentes, com o modelo e o modo escolhidos no compositor, e a chamada de voz continua.
+ */
+const uiActionsRun = new Set<string>()
+async function runUiAction(task: QueueTask) {
   const action = task.managerUiAction
-  if (action) {
-    void (async () => {
+  if (!action || uiActionsRun.has(task.id)) return
+  uiActionsRun.add(task.id)
+  try {
+    if (action.type === 'newAgent') {
+      const prefs = readAgentPrefs()
+      const config = task.config ?? { provider: prefs.provider, model: prefs.model[prefs.provider], effort: prefs.effort[prefs.provider], mode: prefs.mode }
+      await api.agentOpen({ ...config, cwd: action.cwd, extraDirs: task.extraDirs ? [...task.extraDirs] : undefined })
+    } else {
       if (conversation.value) await toggleConversation()
-      if (action.type === 'newAgent') {
-        await loadProject(action.cwd)
-        if (state.repo?.root === action.cwd) openNewAgent()
-      } else await api.agentShow(action.uid)
-    })().catch((e) => toast(String((e as Error).message)))
-    return
+      await api.agentShow(action.uid)
+    }
+  } catch (e) { toast(String((e as Error).message)) }
+}
+function managerTaskSent(task: QueueTask) {
+  if (task.managerUiAction) {
+    void runUiAction(task)
+    if (task.managerUiAction.type !== 'newAgent') return
   }
   if (!conversation.value) return
   if (task.resumedTaskId) {
@@ -169,6 +183,7 @@ watch(() => state.queue.map((t) => `${t.id}:${t.status}:${!!t.managerThinking}`)
     if (!previous || task.managerThinking) continue
     if (!previous.announced) announceTask(task)
     else if (previous.status !== task.status && (task.status === 'done' || task.status === 'failed')) announceTask(task)
+    if (task.status === 'done' && task.managerUiAction) void runUiAction(task)
     spokenTasks.set(task.id, { status: task.status, announced: true })
   }
 })

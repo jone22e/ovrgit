@@ -7,7 +7,7 @@ import * as agentChat from './agentChat'
 import { getSettings } from './settings'
 import { quickAsk } from './quickAi'
 import { reasonAbout } from './reasoner'
-import { agentOpeningQuestion, agentStatusReply, agentToShow, ambiguousProjectNumber, chosenProject, correctedWords, knownProjects, knownProjectsReply, managerPrompt, mentionedProjects, newAgentProject, openProjectsReply, parseManagerDecision, projectOptions } from './manager'
+import { agentOpeningQuestion, agentStatusReply, agentToShow, ambiguousProjectNumber, chosenProject, correctedWords, knownProjects, knownProjectsReply, managerPrompt, mentionedProjects, newAgentIntent, newAgentProject, openProjectsReply, parseManagerDecision, projectOptions } from './manager'
 
 /**
  * Pedidos do gerenciador e tarefas anteriores da fila. Na fila anterior, se passar pelo raciocínio, um agente
@@ -188,6 +188,16 @@ export function chooseProject(id: string, cwd: string): QueueTask[] {
   delete task.spokenReply
   delete task.projectChoices
   delete task.finishedAt
+  // um pedido de conversa nova não vira tarefa: com o projeto escolhido, a conversa é criada na lista
+  if (newAgentIntent(task.text)) {
+    task.status = 'done'
+    task.managerUiAction = { type: 'newAgent', cwd }
+    task.reply = newAgentReply(cwd).reply
+    task.spokenReply = newAgentReply(cwd).speech
+    task.finishedAt = Date.now()
+    save()
+    return tasks
+  }
   save()
   void dispatch()
   return tasks
@@ -235,19 +245,24 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
     const agents = agentChat.agentSnapshots()
     const roots = knownProjects(settings.recentProjects ?? [], settings.repoGroups ?? [], agents).filter(existsSync)
     if (!reply) {
-      const newAgent = newAgentProject(text, roots, settings.repoGroups ?? [])
+      const newAgent = newAgentProject(text, roots, settings.repoGroups ?? [], cwd)
       const control = agentOpeningQuestion(text)
       const existingAgent = agentToShow(text, agents)
       const correction = correctedWords(text)
       const projectOnly = chosenProject(text, projectOptions(roots))
       if (newAgent) {
         cwd = newAgent
-        reply = `Vou abrir a tela Novo agente em ${path.basename(newAgent)}. Nenhuma tarefa foi enviada ao agente.`
-        spokenReply = `Vou abrir a tela Novo agente em ${path.basename(newAgent)}.`
+        reply = newAgentReply(newAgent).reply
+        spokenReply = newAgentReply(newAgent).speech
         managerUiAction = { type: 'newAgent', cwd: newAgent }
       } else if (control) {
         reply = control.reply
         spokenReply = control.speech
+        // conversa nova sem projeto único: as opções ficam no chat, e a escolha cria a conversa
+        if (newAgentIntent(text)) {
+          const mentioned = mentionedProjects(newAgentIntent(text)?.tail ?? '', roots, settings.repoGroups ?? [])
+          projectChoices = projectOptions(mentioned.length ? mentioned : roots)
+        }
       } else if (existingAgent) {
         const target = agents.find((agent) => agent.uid === existingAgent.uid)
         reply = target ? `Vou mostrar a conversa de ${target.title}. Nenhuma tarefa nova foi enviada.` : 'Não encontrei um agente único com esse nome. Diga o título como aparece na lista; não criei outra tarefa.'
@@ -316,6 +331,12 @@ export function add(task: { text: string; cwd?: string; extraDirs?: string[]; st
   return tasks
 }
 
+/** Conversa nova criada na lista de agentes, sem tarefa: a resposta diz isso por escrito e em voz */
+const newAgentReply = (cwd: string) => ({
+  reply: `Abri um novo agente em ${path.basename(cwd)}. Ele está na lista de agentes, pronto para receber um pedido. Nenhuma tarefa foi enviada.`,
+  speech: `Abri um novo agente em ${path.basename(cwd)}.`
+})
+
 /** O raiz decide sem bloquear o compositor; somente caminhos e agentes observados podem ser usados. */
 async function decideManager(task: QueueTask): Promise<void> {
   if (!task.config || managerPlanning.has(task.id)) return
@@ -337,6 +358,23 @@ async function decideManager(task: QueueTask): Promise<void> {
       task.status = 'done'
       task.reply = decision.reply
       task.spokenReply = decision.speech || (decision.reply.length <= 220 ? decision.reply : 'Respondi no chat e deixei os detalhes por escrito.')
+      task.finishedAt = Date.now()
+      save()
+      return
+    }
+    if (decision.action === 'newAgent') {
+      const cwd = decision.cwd && roots.includes(decision.cwd) ? decision.cwd : mentioned.length === 1 ? mentioned[0] : task.cwd && roots.includes(task.cwd) ? task.cwd : undefined
+      task.status = 'done'
+      if (cwd) {
+        task.cwd = cwd
+        task.managerUiAction = { type: 'newAgent', cwd }
+        task.reply = newAgentReply(cwd).reply
+        task.spokenReply = newAgentReply(cwd).speech
+      } else {
+        task.projectChoices = projectOptions(mentioned.length ? mentioned : roots)
+        task.reply = 'Em qual projeto devo criar o novo agente? Escolha abaixo ou diga o nome dele. Não encaminhei nenhuma tarefa.'
+        task.spokenReply = 'Em qual projeto devo criar o novo agente? As opções estão no chat.'
+      }
       task.finishedAt = Date.now()
       save()
       return

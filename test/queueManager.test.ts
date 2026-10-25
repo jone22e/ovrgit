@@ -56,6 +56,19 @@ it('aceita o nome falado e exige clareza quando número e projeto se confundem',
   expect(newAgentProject('Abre agente no Flex dois.', [flexi, lite], [])).toBeNull()
   expect(newAgentProject('Criar novo agente no flexi.', [flexi, lite], [])).toBeNull()
   expect(agentOpeningQuestion('Criar novo agente no flexi.')?.reply).toContain('nome exato do projeto')
+  // frases naturais, como saem do ditado
+  expect(newAgentProject('Cria um novo agente pra mim com o Flex dois.', [flexi, lite], [])).toBe(flexi)
+  expect(newAgentProject('Novo agente no flexi2', [flexi, lite], [])).toBe(flexi)
+  expect(newAgentProject('Quero abrir um chat novo para o Flex dois, por favor', [flexi, lite], [])).toBe(flexi)
+  expect(newAgentProject('Cria um agente do projeto flexi-lite', [flexi, lite], [])).toBe(lite)
+  // pedido com trabalho junto não é conversa nova
+  expect(newAgentProject('Cria um agente de scraping no Flex dois', [flexi, lite], [])).toBeNull()
+  expect(newAgentProject('Criar um novo agente no Flex dois para revisar o login', [flexi, lite], [])).toBeNull()
+  // sem projeto no pedido: o selecionado serve; sem seleção, pergunta
+  expect(newAgentProject('Cria um novo agente.', [flexi, lite], [], flexi)).toBe(flexi)
+  expect(newAgentProject('Cria um novo agente.', [flexi, lite], [])).toBeNull()
+  expect(agentOpeningQuestion('Cria um novo agente.')?.reply).toContain('Em qual projeto')
+  expect(parseManagerDecision('{"action":"newAgent","cwd":"/projeto"}')).toEqual({ action: 'newAgent', cwd: '/projeto' })
   expect(agentToShow('Abra o agente Estoque do Flexi', [{ uid: 'agent-1', title: 'Estoque do Flexi' } as any])).toEqual({ uid: 'agent-1' })
   expect(chosenProject('Quais projetos tem aberto?', choices)).toBeNull()
   expect(mentionedProjects('Ajustar a tela do Flex dois', [flexi, lite], [])).toEqual([flexi])
@@ -133,14 +146,29 @@ it('encaminha para uma conversa relacionada e ocupada do mesmo projeto; cria age
     { uid: 'flexi-lite-agent', cwd: flexiLite, project: 'flexi-lite', provider: 'codex', status: 'done', title: 'Tela do Flexi Lite', lastUser: '', summary: '', paths: [] }
   )
   const openedBeforeControl = fake.opened.length
-  const vagueOpen = queue.add({ text: 'Abre o novo agente.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
-  expect(vagueOpen.reply).toContain('Não encaminhei nenhuma tarefa')
   const bareNumber = queue.add({ text: 'Dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
   expect(bareNumber.reply).toContain('Não há uma escolha clara')
   const correctionWithoutChoice = queue.add({ text: 'Eu disse Flex dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
   expect(correctionWithoutChoice.reply).toContain('Não criei outra tarefa')
+  // conversa nova sem projeto: pergunta com as opções, e a escolha por voz cria a conversa, não uma tarefa
+  const vagueOpen = queue.add({ text: 'Abre o novo agente.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(vagueOpen.reply).toContain('Não encaminhei nenhuma tarefa')
+  expect(vagueOpen.projectChoices?.map((c) => c.cwd)).toContain(flexi)
+  const vagueChoice = queue.add({ text: 'Flex dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(vagueChoice.resumedTaskId).toBe(vagueOpen.id)
+  expect(queue.list().find((item) => item.id === vagueOpen.id)).toMatchObject({ status: 'done', managerUiAction: { type: 'newAgent', cwd: flexi } })
   const explicitOpen = queue.add({ text: 'Criar novo agente no Flex dois.', managed: true, config }).at(-1)!
   expect(explicitOpen.managerUiAction).toEqual({ type: 'newAgent', cwd: flexi })
+  const naturalOpen = queue.add({ text: 'Cria um novo agente pra mim com o Flex dois.', managed: true, managerSessionId: 'voice-call', config }).at(-1)!
+  expect(naturalOpen.status).toBe('done')
+  expect(naturalOpen.managerUiAction).toEqual({ type: 'newAgent', cwd: flexi })
+  expect(naturalOpen.spokenReply).toBe('Abri um novo agente em flexi2.')
+  const ambiguousOpen = queue.add({ text: 'Criar novo agente no flexi.', managed: true, config }).at(-1)!
+  expect(ambiguousOpen.managerUiAction).toBeUndefined()
+  expect(ambiguousOpen.projectChoices?.map((c) => c.cwd)).toEqual([flexi, flexiLite])
+  const chosenOpen = queue.chooseProject(ambiguousOpen.id, flexiLite).find((item) => item.id === ambiguousOpen.id)!
+  expect(chosenOpen.status).toBe('done')
+  expect(chosenOpen.managerUiAction).toEqual({ type: 'newAgent', cwd: flexiLite })
   const showExisting = queue.add({ text: 'Abra o agente Estoque do Flexi.', managed: true, config }).at(-1)!
   expect(showExisting.managerUiAction).toEqual({ type: 'showAgent', uid: 'flexi-agent' })
   expect(fake.opened).toHaveLength(openedBeforeControl)
