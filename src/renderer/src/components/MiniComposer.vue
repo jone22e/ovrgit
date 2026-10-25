@@ -138,7 +138,7 @@ async function send() {
     if (!props.cwd) return void (attachError.value = 'Escolha um repositório para o pedido.')
     sending.value = true
     try {
-      await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
+      await api.queueAdd({ text: t || (attachments.length === 1 ? 'Veja o arquivo anexado.' : 'Veja os arquivos anexados.'), cwd: props.cwd, extraDirs: props.extraDirs ? [...props.extraDirs] : undefined, managed: true, attachments, config: { provider: provider.value, model: model.value, effort: effort.value, mode: mode.value } })
       try {
         localStorage.setItem(AGENT_PREFS, JSON.stringify({ ...prefs, provider: provider.value, model: { ...prefs.model, [provider.value]: model.value }, effort: { ...prefs.effort, [provider.value]: effort.value }, mode: mode.value } satisfies AgentPrefs))
       } catch { /* preferência local indisponível: o pedido já foi salvo */ }
