@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyGroup, groupMatches, groupMembers, groupOf, hasWords, repoMatches, repoName, sameRepos, saveGroup, searchWords } from '../src/shared/repoGroups'
+import { applyGroup, groupMatches, groupMembers, groupOf, hasWords, promoteConversationIcons, repoMatches, repoName, sameRepos, saveGroup, searchWords } from '../src/shared/repoGroups'
 
 const g = { id: '1', name: 'SmartConnect', dirs: ['/w/gateway', '/w/receiver', '/w/reader'] }
 
@@ -17,6 +17,30 @@ describe('groupOf', () => {
     expect(groupOf([g], '/w/gateway', ['/w/reader'])).toBeUndefined()
     expect(groupOf([g], '/w/gateway', ['/w/reader', '/w/receiver', '/w/outro'])).toBeUndefined()
     expect(groupOf([], '/w/gateway', [])).toBeUndefined()
+  })
+})
+
+describe('promoteConversationIcons', () => {
+  it('leva uma imagem antiga para o grupo inteiro e um símbolo para o repositório', () => {
+    const image = 'data:image/png;base64,abc='
+    const result = promoteConversationIcons([g], {}, [
+      { cwd: '/w/gateway', extraDirs: ['/w/reader', '/w/receiver'], icon: image },
+      { cwd: '/w/receiver', extraDirs: ['/w/gateway', '/w/reader'] },
+      { cwd: '/w/other', icon: 'archive' }
+    ])
+    expect(result.repoGroups[0].icon).toBe(image)
+    expect(result.repoIcons).toEqual({ '/w/other': 'archive' })
+  })
+
+  it('preserva ícones do grupo/repositório e não escolhe entre conversas conflitantes', () => {
+    const result = promoteConversationIcons([{ ...g, icon: 'folder' }], { '/w/other': 'server' }, [
+      { cwd: '/w/gateway', extraDirs: ['/w/reader', '/w/receiver'], icon: 'archive' },
+      { cwd: '/w/other', icon: 'cloud' },
+      { cwd: '/w/conflict', icon: 'archive' },
+      { cwd: '/w/conflict', icon: 'server' }
+    ])
+    expect(result.repoGroups[0].icon).toBe('folder')
+    expect(result.repoIcons).toEqual({ '/w/other': 'server' })
   })
 })
 

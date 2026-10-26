@@ -339,6 +339,8 @@ export interface Settings {
   repoGroups: RepoGroup[]
   /** Ícones escolhidos para repositórios, pela pasta */
   repoIcons: Record<string, string>
+  /** Ícones antigos de conversas já foram promovidos para grupo/repositório */
+  agentIconsPromoted?: boolean
   /** Ao abrir o app, reabre os agentes que estavam abertos ao fechar (conversas retomadas, em espera, a da área do orquestrador) */
   restoreAgents: boolean
   /** Canto do cartão do agente trabalhando (orquestrador): o anel de progresso, ou o mascote em miniatura */

@@ -23,6 +23,38 @@ export function groupOf(groups: RepoGroup[], cwd: string, extra: string[] = []):
   return groups.find((g) => sameRepos(g.dirs, [cwd, ...extra]))
 }
 
+/** Aproveita ícones antigos de conversa quando há uma única escolha para o mesmo grupo ou repositório. */
+export function promoteConversationIcons(
+  groups: RepoGroup[],
+  repoIcons: Record<string, string>,
+  conversations: { cwd: string; extraDirs?: string[]; icon?: string }[]
+): { repoGroups: RepoGroup[]; repoIcons: Record<string, string> } {
+  const groupChoices = new Map<string, Set<string>>()
+  const repoChoices = new Map<string, Set<string>>()
+  for (const conversation of conversations) {
+    if (!conversation.icon || !conversation.cwd) continue
+    const group = groupOf(groups, conversation.cwd, conversation.extraDirs)
+    if (group) {
+      if (!groupChoices.has(group.id)) groupChoices.set(group.id, new Set())
+      groupChoices.get(group.id)!.add(conversation.icon)
+    } else if (!conversation.extraDirs?.length) {
+      if (!repoChoices.has(conversation.cwd)) repoChoices.set(conversation.cwd, new Set())
+      repoChoices.get(conversation.cwd)!.add(conversation.icon)
+    }
+  }
+  const onlyIcon = (choices?: Set<string>) => choices?.size === 1 ? [...choices][0] : undefined
+  const repoGroups = groups.map((g) => {
+    const icon = onlyIcon(groupChoices.get(g.id))
+    return g.icon || !icon ? g : { ...g, icon }
+  })
+  const promotedRepos = { ...repoIcons }
+  for (const [cwd, choices] of repoChoices) {
+    const icon = onlyIcon(choices)
+    if (icon && !promotedRepos[cwd]) promotedRepos[cwd] = icon
+  }
+  return { repoGroups, repoIcons: promotedRepos }
+}
+
 /** "a + b + c": os nomes das pastas do grupo */
 export const groupMembers = (g: RepoGroup) => g.dirs.map(repoName).join(' + ')
 

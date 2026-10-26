@@ -256,6 +256,10 @@ function implement(mode: AgentMode) {
 /** Repositórios da conversa: o nome do grupo salvo, quando é um; senão o principal e quantos foram juntados */
 const workspaceLabel = (h: { cwd: string; project: string; extraDirs?: string[] }) =>
   groupOf(state.settings?.repoGroups ?? [], h.cwd, h.extraDirs)?.name ?? `${h.project}${h.extraDirs?.length ? ` +${h.extraDirs.length}` : ''}`
+const historyWorkspaceIcon = (h: AgentHistoryItem) => {
+  const group = groupOf(state.settings?.repoGroups ?? [], h.cwd, h.extraDirs)
+  return { icon: group ? group.icon ?? null : state.settings?.repoIcons?.[h.cwd] ?? null, favicon: group ? null : projectIcons.get(h.cwd), group: !!group }
+}
 
 // ---------- modo orquestrador: cartões à esquerda, a conversa do agente escolhido à direita ----------
 /**
@@ -495,7 +499,7 @@ function pick(a: AgentSnapshot) {
         <div class="list">
         <div v-for="h in closedPinned" :key="h.sessionId" class="item closed" :title="'Reabrir a conversa'" @click="reopen(h)">
           <span v-if="compactList" class="pinned-avatar" :title="`${workspaceLabel(h)} · ${CLOSED_LABEL[closedStatus(h)] || 'fixada'}`">
-            <RepoIcon :icon="h.icon ?? state.settings?.repoIcons?.[h.cwd] ?? null" :favicon="projectIcons.get(h.cwd)" :size="34" />
+            <RepoIcon v-bind="historyWorkspaceIcon(h)" :size="34" />
             <i :class="closedStatus(h)" />
           </span>
           <span v-else class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />

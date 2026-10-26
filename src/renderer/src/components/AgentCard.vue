@@ -3,10 +3,10 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { AgentAction, AgentSnapshot } from '@shared/types'
 import { ago } from '../ago'
 import { EFFORT_LABEL, MODES } from '@shared/models'
-import { api, ask, loadProjectIcon, projectIcons, state } from '../store'
+import { api, ask, loadProjectIcon, projectIcons, saveSettings, state } from '../store'
 import { groupOf } from '@shared/repoGroups'
 import AgentBuddy from './AgentBuddy.vue'
-import AgentIconPicker from './AgentIconPicker.vue'
+import RepoIconPicker from './RepoIconPicker.vue'
 import AgentLogo from './AgentLogo.vue'
 import ContextBattery from './ContextBattery.vue'
 import Heartbeat from './Heartbeat.vue'
@@ -38,7 +38,11 @@ const props = defineProps<{
 const emit = defineEmits<{ pick: []; act: [action: AgentAction] }>()
 const group = computed(() => groupOf(state.settings?.repoGroups ?? [], props.a.cwd, props.a.extraDirs))
 const repoIcon = computed(() => state.settings?.repoIcons?.[props.a.cwd] ?? null)
-const iconPicker = ref(false)
+const workspaceIcon = computed(() => group.value ? group.value.icon ?? null : repoIcon.value)
+const iconTarget = ref<{ kind: 'group' | 'repo'; id: string; name: string } | null>(null)
+const currentIcon = computed(() => iconTarget.value?.kind === 'group'
+  ? state.settings?.repoGroups.find((g) => g.id === iconTarget.value?.id)?.icon
+  : iconTarget.value ? state.settings?.repoIcons?.[iconTarget.value.id] : null)
 watch(() => props.a.cwd, loadProjectIcon, { immediate: true })
 
 /** Configurações: o canto do cartão mostra o mascote em miniatura no lugar do anel */
@@ -190,12 +194,24 @@ function pinFromMenu() {
 }
 function openIconPicker() {
   closeMenu()
-  iconPicker.value = true
+  iconTarget.value = group.value
+    ? { kind: 'group', id: group.value.id, name: group.value.name }
+    : { kind: 'repo', id: props.a.cwd, name: props.a.project }
 }
 async function chooseIcon(icon: string | null) {
+  const target = iconTarget.value
+  if (!target) return
   try {
-    await api.agentSetIcon(props.a.uid, icon)
-    iconPicker.value = false
+    const settings = await api.getSettings()
+    if (target.kind === 'group') {
+      await saveSettings({ repoGroups: settings.repoGroups.map((g) => g.id === target.id ? { ...g, icon: icon ?? undefined } : g) })
+    } else {
+      const repoIcons = { ...settings.repoIcons }
+      if (icon) repoIcons[target.id] = icon
+      else delete repoIcons[target.id]
+      await saveSettings({ repoIcons })
+    }
+    iconTarget.value = null
   } catch (e) {
     state.error = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
   }
@@ -259,7 +275,7 @@ async function saveRename() {
 
 <template>
   <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
-    <span v-if="compact" class="list-avatar" :class="{ running: tone === 'live' }" :title="`${a.project} · ${statusLabel}`"><RepoIcon :icon="a.icon ?? repoIcon" :favicon="projectIcons.get(a.cwd)" :size="34" /><i :class="tone" /></span>
+    <span v-if="compact" class="list-avatar" :class="{ running: tone === 'live' }" :title="`${group?.name ?? a.project} · ${statusLabel}`"><RepoIcon :icon="workspaceIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="34" /><i :class="tone" /></span>
     <div v-if="compact" class="list-copy">
       <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
       <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
@@ -294,7 +310,7 @@ async function saveRename() {
           @blur="saveRename"
         />
         <strong v-else class="title" title="Botão direito: renomear e mais"><AgentLogo :source="a.provider" :size="13" class="logo" />{{ shownTitle }}</strong>
-        <small class="faint project"><RepoIcon :icon="a.icon ?? (group ? group.icon : repoIcon)" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group && !a.icon" :size="22" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
+        <small class="faint project"><RepoIcon :icon="workspaceIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="22" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
       <!-- mascote no lugar do anel (Configurações): trabalhando, esperando você ou cochilando (parado) -->
@@ -370,14 +386,14 @@ async function saveRename() {
         <button v-if="a.floating" type="button" class="item" @click="hostFromMenu('dock')"><Icon name="columns" :size="14" /><span class="nm">Trazer de volta para a área ao lado</span></button>
         <button v-else type="button" class="item" @click="hostFromMenu('popOut')"><Icon name="external" :size="14" /><span class="nm">Abrir em janela</span></button>
         <button type="button" class="item" @click="startRename"><Icon name="pencil" :size="14" /><span class="nm">Renomear…</span></button>
-        <button type="button" class="item" @click="openIconPicker"><Icon name="grid" :size="14" /><span class="nm">Escolher ícone…</span></button>
+        <button type="button" class="item" @click="openIconPicker"><Icon name="grid" :size="14" /><span class="nm">{{ group ? 'Ícone do grupo…' : 'Ícone do repositório…' }}</span></button>
         <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar a conversa' : 'Fixar a conversa (fica na lista ao fechar)' }}</span></button>
         <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
         <div class="sep" />
         <button type="button" class="item" @click="closeFromMenu"><Icon name="archive" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Arquivar (interrompe o agente)' : 'Arquivar a conversa' }}</span></button>
       </div>
     </Teleport>
-    <AgentIconPicker v-if="iconPicker" :current="a.icon" @close="iconPicker = false" @choose="chooseIcon" />
+    <RepoIconPicker v-if="iconTarget" :title="iconTarget.name" :current="currentIcon" @close="iconTarget = null" @choose="chooseIcon" />
   </article>
 </template>
 
