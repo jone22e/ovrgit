@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { AgentAction, AgentHistoryItem, AgentMode, AgentSnapshot, KnownModels } from '@shared/types'
-import { api, ask, openNewAgent, saveSettings, setPane, setShowDock, setShowQueue, state, toast } from '../store'
+import { api, ask, loadProjectIcon, openNewAgent, projectIcons, saveSettings, setPane, setShowDock, setShowQueue, state, toast } from '../store'
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { ago as agoSince } from '../ago'
@@ -13,6 +13,7 @@ import AskCard from './AskCard.vue'
 import AgentWindowMenu from './AgentWindowMenu.vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
+import RepoIcon from './RepoIcon.vue'
 
 /**
  * Gerenciador de agentes (orquestrador): todas as conversas abertas, de qualquer projeto, em cartões à esquerda, e a
@@ -48,6 +49,7 @@ const idle = computed(() => [...fresh.value, ...standby.value])
 const pinnedHistory = ref<AgentHistoryItem[]>([])
 async function loadPinned() {
   pinnedHistory.value = (await api.agentHistory().catch(() => [])).filter((h) => h.pinned)
+  for (const h of pinnedHistory.value) loadProjectIcon(h.cwd)
 }
 const closedPinned = computed(() =>
   pinnedHistory.value.filter((h) => !state.agentWindows.includes(h.sessionId)).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -477,18 +479,22 @@ function pick(a: AgentSnapshot) {
         </div>
       </section>
 
-      <section v-if="closedPinned.length" :class="{ 'pinned-compact': compactList }">
+      <section v-if="closedPinned.length" :class="{ 'pinned-compact list-section': compactList }">
         <h3 class="sec">
-          <span class="sec-title"><Icon name="pin" :size="11" /> Fixadas</span>
+          <span class="sec-title"><Icon name="pin" :size="11" /> Fixadas<template v-if="compactList"> · {{ closedPinned.length }}</template></span>
           <span class="sec-actions">
             <button v-if="closedPinned.length > 1" class="ghost link accent" title="Reabre todas as conversas fixadas, cada uma na sua janela" @click="reopenAllPinned">Abrir as {{ closedPinned.length }} →</button>
           </span>
         </h3>
         <div class="list">
         <div v-for="h in closedPinned" :key="h.sessionId" class="item closed" :title="'Reabrir a conversa'" @click="reopen(h)">
-          <span class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />
+          <span v-if="compactList" class="pinned-avatar" :title="`${workspaceLabel(h)} · ${CLOSED_LABEL[closedStatus(h)] || 'fixada'}`">
+            <RepoIcon :icon="state.settings?.repoIcons?.[h.cwd] ?? null" :favicon="projectIcons.get(h.cwd)" :size="34" />
+            <i :class="closedStatus(h)" />
+          </span>
+          <span v-else class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />
           <span class="text">
-            <strong class="ellipsis light">{{ h.title }}</strong>
+            <strong class="ellipsis" :class="{ light: !compactList }">{{ h.title }}</strong>
             <small class="faint ellipsis">{{ workspaceLabel(h) }} · {{ h.model }}{{ CLOSED_LABEL[closedStatus(h)] ? ` · ${CLOSED_LABEL[closedStatus(h)]}` : '' }}</small>
           </span>
           <span v-if="reopening === h.sessionId" class="spinner" />
@@ -561,8 +567,6 @@ function pick(a: AgentSnapshot) {
 .orch .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: stretch; }
 .orch-list { margin-top: 14px; }
 .orch-list.compact .list { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-.pinned-compact .list { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-.orch .pinned-compact .item.closed { padding: 8px 10px; border-radius: 9px; }
 .view-switch { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; }
 .view-switch button { width: 25px; height: 24px; padding: 0; color: var(--muted); }
 .view-switch button.on { color: var(--accent); background: var(--accent-soft); }
@@ -574,6 +578,26 @@ function pick(a: AgentSnapshot) {
 /* a segunda linha (tempo, alfinete e abrir) se alinha pelo meio: o alinhamento pelo topo é só para a bolinha da primeira */
 .orch .item.closed > .when, .orch .item.closed > .pin, .orch .item.closed > .go, .orch .item.closed > .spinner { align-self: center; }
 .orch .item.closed > .go { display: block; margin: 0 5px; }
+/* Fixadas no modo lista: mesmas dimensões e colunas das linhas de agentes concluídos. */
+.orch .pinned-compact .sec { align-items: center; margin: 0 10px 8px; color: var(--faint); font-size: 10px; letter-spacing: .13em; }
+.orch .pinned-compact .list { display: flex; flex-direction: column; gap: 0; }
+.orch .pinned-compact .item.closed { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto 24px 13px; align-items: center; gap: 12px; min-height: 68px; margin: 0; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; }
+.orch .pinned-compact .item.closed:not(:last-child) { border-bottom-color: var(--border); border-radius: 0; }
+.orch .pinned-compact .item.closed:hover { background: var(--hover); }
+.pinned-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); }
+.pinned-avatar i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: var(--faint); }
+.pinned-avatar i.done { background: var(--add); }
+.pinned-avatar i.waiting { background: var(--mod); }
+.pinned-avatar i.error { background: var(--del); }
+.orch .pinned-compact .item.closed > .text { grid-column: 2; min-width: 0; gap: 3px; }
+.pinned-compact .text strong { font-size: 14px; font-weight: 600; }
+.pinned-compact .text small { font-size: 12px; }
+.orch .pinned-compact .item.closed > .spinner { grid-column: 3; }
+.orch .pinned-compact .item.closed > .when { grid-column: 4; justify-self: end; margin: 0; text-align: right; }
+.orch .pinned-compact .item.closed > .pin { grid-column: 5; margin: 0; }
+.orch .pinned-compact .item.closed > .go { grid-column: 6; margin: 0; }
+@container (max-width: 680px) { .orch .pinned-compact .item.closed { gap: 8px; } }
+@container (max-width: 460px) { .orch .pinned-compact .item.closed > .when { display: none; } }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .scroll.list-mode { padding: 0 0 24px; container-type: inline-size; }
