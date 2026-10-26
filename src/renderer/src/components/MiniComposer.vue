@@ -347,7 +347,7 @@ onUnmounted(() => {
 .mini.conversation:focus-within { border-color: var(--border); }
 .mini.conversation .compose-body { padding: 0 10px 10px; }
 .voice-stage { box-sizing: border-box; display: flex; flex-direction: column; align-items: center; width: 100%; height: clamp(310px, 43vh, 410px); padding: 12px 12px 16px; border-radius: 22px 22px 0 0; background: color-mix(in srgb, var(--panel-2) 80%, var(--bg)); text-align: center; }
-.voice-stage.typing { height: 170px; }
+.voice-stage.typing { height: auto; min-height: 170px; }
 .voice-grip { display: block; width: 35px; height: 4px; border-radius: 4px; background: var(--border); flex: none; }
 .voice-session { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 16px; margin-top: 13px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .1em; }
 .voice-led { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
@@ -386,6 +386,7 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) { .voice-ring, .voice-dots i, .voice-bars i { animation: none !important; } }
 textarea { border: 0; background: transparent; padding: 4px 6px 2px; font-size: 13px; line-height: 1.45; max-height: 160px; overflow-y: auto; resize: none; width: 100%; }
 textarea:focus { box-shadow: none; }
+.mini.conversation .compose-body textarea { box-sizing: border-box; min-height: 38px; flex: none; padding: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .spacer { flex: 1 1 auto; }
 .dictate { display: flex; align-items: center; flex: none; }
