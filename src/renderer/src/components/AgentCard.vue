@@ -254,6 +254,10 @@ async function saveRename() {
     <div v-if="compact && chips.length" class="list-chips"><span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span></div>
     <button v-if="compact && a.status === 'waiting'" type="button" class="list-review" @click.stop="emit('pick')">Revisar</button>
     <button v-else-if="compact && a.status === 'error'" type="button" class="list-review error" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
+    <span v-if="compact && (a.context || hbTone !== 'idle')" class="list-vitals">
+      <ContextBattery v-if="a.context" :context="a.context" />
+      <Heartbeat v-if="hbTone !== 'idle'" :tone="hbTone" />
+    </span>
     <small v-if="compact && since" class="list-when">{{ since }}</small>
     <button v-if="compact" type="button" class="list-more" title="Mais opções para este agente" @click.stop="onMenu"><Icon name="ellipsis" :size="18" /></button>
     <div v-if="!compact" class="top">
@@ -496,7 +500,7 @@ async function saveRename() {
 .close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 
 /* Modo lista: uma linha por agente, com estado e ações à vista. */
-.acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
+.acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
 .acard.compact:not(.sel) { border-color: transparent; }
 .acard.compact:hover { background: var(--hover); transform: none; }
 .acard.compact.sel { border-color: transparent; background: var(--accent-soft); }
@@ -520,8 +524,13 @@ async function saveRename() {
 .list-chips .chip { flex: none; white-space: nowrap; }
 .list-review { grid-column: 4; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--mod) 82%, var(--panel)); color: var(--bg); font-size: 12px; font-weight: 700; }
 .list-review.error { background: color-mix(in srgb, var(--del) 20%, var(--panel)); color: var(--del); }
-.list-when { grid-column: 5; justify-self: end; color: var(--faint); font-size: 11px; white-space: nowrap; }
-.list-more { grid-column: 6; display: grid; place-items: center; width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--faint); }
+.list-vitals { grid-column: 5; display: inline-flex; align-items: center; gap: 8px; --hb-bg: var(--bg); }
+.acard.compact:hover .list-vitals { --hb-bg: var(--hover); }
+.acard.compact.sel .list-vitals { --hb-bg: var(--accent-soft); }
+.acard.compact.waiting .list-vitals { --hb-bg: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
+.acard.compact.error .list-vitals { --hb-bg: color-mix(in srgb, var(--del) 7%, var(--panel)); }
+.list-when { grid-column: 6; justify-self: end; color: var(--faint); font-size: 11px; white-space: nowrap; }
+.list-more { grid-column: 7; display: grid; place-items: center; width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--faint); }
 .list-more:hover { color: var(--text); }
 @container (max-width: 680px) { .list-chips { display: none; } .acard.compact { gap: 8px; } }
 @container (max-width: 460px) { .list-when { display: none; } .list-meta > span:first-child { max-width: 75%; } }
