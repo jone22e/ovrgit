@@ -43,7 +43,6 @@ const done = computed(() => pinnedFirst(byStatus('done'), (a, b) => b.since - a.
 const fresh = computed(() => pinnedFirst(byStatus('idle').filter((a) => !a.standby), (a, b) => b.since - a.since))
 /** Em espera: pega tarefas da fila; fica no fim */
 const standby = computed(() => pinnedFirst(byStatus('idle').filter((a) => !!a.standby)))
-const idle = computed(() => [...fresh.value, ...standby.value])
 
 // ---------- fixadas sem janela aberta: continuam na lista depois de fechar o app; o clique reabre a conversa ----------
 const pinnedHistory = ref<AgentHistoryItem[]>([])
@@ -168,16 +167,18 @@ watch(
 const needYouShown = computed(() => needYou.value.filter(pass))
 const runningShown = computed(() => running.value.filter(pass))
 const doneShown = computed(() => done.value.filter(pass))
-const idleShown = computed(() => idle.value.filter(pass))
+const freshShown = computed(() => fresh.value.filter(pass))
+const standbyShown = computed(() => standby.value.filter(pass))
 
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
-/** Todos, pela sua última interação: a conversa em que você mandou a mensagem mais recente (ou que acabou de abrir)
- * fica no topo e só sai de lá quando você interagir com outra; mudanças de situação não mexem na ordem, para você
- * não se perder. Fixar não muda a posição: só garante que a conversa fique na lista depois de fechada. As barrinhas
- * da barra de ferramentas mostram todos, filtrados ou não */
-const allOrder = computed(() => [...snaps.value].sort((a, b) => (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)))
+/** Conversas novas, ainda sem mensagem, no topo; as demais seguem a última interação. Fixar só mantém a conversa
+ * na lista depois de fechada. As barrinhas da barra de ferramentas mostram todos, filtrados ou não. */
+const allOrder = computed(() => [...snaps.value].sort((a, b) =>
+  Number(b.status === 'idle' && !b.standby) - Number(a.status === 'idle' && !a.standby) ||
+  (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)
+))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
-const order = computed(() => compactList.value ? [...needYouShown.value, ...runningShown.value, ...doneShown.value, ...idleShown.value] : allOrder.value.filter(pass))
+const order = computed(() => compactList.value ? [...freshShown.value, ...needYouShown.value, ...runningShown.value, ...doneShown.value, ...standbyShown.value] : allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
 const root = ref<HTMLElement>()
@@ -457,14 +458,15 @@ function pick(a: AgentSnapshot) {
         <button class="primary" :disabled="!state.repo" @click="openNewAgent()"><Icon name="squarePen" :size="14" /> Novo agente</button>
       </div>
 
-      <!-- modo orquestrador: uma lista só, na ordem de prioridade (precisa de você, rodando, concluídos, sem conversa).
+      <!-- modo orquestrador: uma lista só, com as conversas novas primeiro e as disponíveis em espera no fim.
            Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
       <template v-if="compactList">
         <section v-for="section in [
+          { key: 'new', label: 'Novas conversas', agents: freshShown },
           { key: 'attention', label: 'Precisa de você', agents: needYouShown },
           { key: 'live', label: 'Rodando', agents: runningShown },
           { key: 'done', label: 'Concluídos', agents: doneShown },
-          { key: 'idle', label: 'Disponíveis', agents: idleShown }
+          { key: 'idle', label: 'Disponíveis', agents: standbyShown }
         ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
           <h3>{{ section.label }} · {{ section.agents.length }}</h3>
           <div class="list-rows">
