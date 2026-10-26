@@ -122,6 +122,7 @@ const api: OvseerApi = {
     return () => ipcRenderer.off('menu', h)
   },
   termCreate: (cols, rows, spec) => ipcRenderer.invoke('term:create', cols, rows, spec),
+  termBusy: (ids) => ipcRenderer.invoke('term:busy', ids),
   pickSshKey: () => ipcRenderer.invoke('ssh:pickKey'),
   listSshKeys: () => ipcRenderer.invoke('ssh:listKeys'),
   sshImportConfig: () => ipcRenderer.invoke('ssh:importConfig'),

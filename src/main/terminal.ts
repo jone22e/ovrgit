@@ -1,6 +1,8 @@
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import type { IPty } from '@lydell/node-pty'
 import { trackPty } from './ptyRegistry'
 import type { WebContents } from 'electron'
@@ -19,6 +21,7 @@ interface Session {
 const sessions = new Map<number, Session>()
 let nextId = 1
 const BUFFER_MAX = 400_000
+const execFileAsync = promisify(execFile)
 
 /** Shell padrão do sistema: zsh/bash no Mac/Linux, PowerShell no Windows. */
 function defaultShell(): { file: string; args: string[] } {
@@ -140,6 +143,27 @@ export function writeTerminal(id: number, data: string) {
 export function resizeTerminal(id: number, cols: number, rows: number) {
   const s = sessions.get(id)
   if (s && cols > 0 && rows > 0) s.pty.resize(cols, rows)
+}
+
+/** Terminais locais cujo grupo em primeiro plano não é mais o do shell: há um comando ocupando a aba. */
+export async function busyTerminals(ids: number[]): Promise<number[]> {
+  if (process.platform === 'win32') return []
+  const byPid = new Map<number, number>()
+  for (const id of ids.slice(0, 32)) {
+    const s = sessions.get(id)
+    if (s?.meta.spec && (s.meta.spec as { kind?: string }).kind === 'local') byPid.set(s.pty.pid, id)
+  }
+  if (!byPid.size) return []
+  try {
+    const { stdout } = await execFileAsync('ps', ['-o', 'pid=,pgid=,tpgid=', '-p', [...byPid.keys()].join(',')], { timeout: 2000 })
+    return stdout.split(/\r?\n/).flatMap((line) => {
+      const [pid, pgid, tpgid] = line.trim().split(/\s+/).map(Number)
+      const id = byPid.get(pid)
+      return id && tpgid > 0 && tpgid !== pgid ? [id] : []
+    })
+  } catch {
+    return []
+  }
 }
 
 export function killTerminal(id: number) {

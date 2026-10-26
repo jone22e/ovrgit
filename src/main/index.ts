@@ -34,7 +34,7 @@ import { livePtys, shutdownPtys } from './ptyRegistry'
 import { transcribeAudio } from './transcribe'
 import { getCliUpdates, installCli, updateCli } from './cliUpdates'
 import { commitWithHunks } from './partial'
-import { adoptTerminal, createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, setTerminalMeta, terminalMeta, writeTerminal } from './terminal'
+import { adoptTerminal, busyTerminals, createTerminal, killAllTerminals, killTerminal, listSshKeys, resizeTerminal, setTerminalMeta, terminalMeta, writeTerminal } from './terminal'
 import type { ConflictChoice } from './git'
 import { analysisHash, analyze, taskContext, cancelAnalysis, commitMessage, detectProviders, listModels } from './ai'
 import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
@@ -356,6 +356,7 @@ function registerIpc() {
     const own = spec?.kind === 'local' && typeof spec.cwd === 'string' && existsSync(spec.cwd) ? spec.cwd : null
     return createTerminal(e.sender, own ?? root ?? os.homedir(), cols, rows)
   })
+  ipcMain.handle('term:busy', (_e, ids: number[]) => busyTerminals(Array.isArray(ids) ? ids.filter((id) => Number.isInteger(id)) : []))
   // desacoplar: a aba vira uma janela própria (a sessão continua a mesma); acoplar: volta ao painel
   ipcMain.handle('term:detach', (_e, id: number, meta: { title: string; spec: TerminalSpec; cwd?: string }) => {
     setTerminalMeta(Number(id), { title: String(meta?.title ?? ''), spec: meta?.spec, cwd: meta?.cwd })

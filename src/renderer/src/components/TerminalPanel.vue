@@ -63,6 +63,18 @@ const grouped = computed(() => {
   return [...map.entries()].sort((a, b) => (a[0] === '' ? -1 : b[0] === '' ? 1 : a[0].localeCompare(b[0])))
 })
 const activeTab = computed(() => tabs.find((t) => t.uid === active.value) ?? null)
+const busyIds = ref(new Set<number>())
+let busyPoll: ReturnType<typeof setInterval> | undefined
+let checkingBusy = false
+async function refreshBusy() {
+  if (checkingBusy || !state.showTerminal) return
+  const ids = tabs.filter((t) => t.spec.kind === 'local' && !t.exited && t.termId !== null).map((t) => t.termId!)
+  if (!ids.length) { busyIds.value = new Set(); return }
+  checkingBusy = true
+  try { busyIds.value = new Set(await api.termBusy(ids)) }
+  catch { busyIds.value = new Set() }
+  finally { checkingBusy = false }
+}
 
 // ---------- aparência ----------
 const FALLBACK = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace'
@@ -549,6 +561,8 @@ onMounted(async () => {
     state.terminalRequest = null
     await openTab(spec)
   } else if (!saved.length) await openTab({ kind: 'local' })
+  void refreshBusy()
+  busyPoll = setInterval(() => void refreshBusy(), 1500)
 })
 
 const TABS_KEY = 'ovseer.terminalTabs'
@@ -597,6 +611,7 @@ watch(
   () => state.showTerminal,
   (on) => {
     if (!on) return
+    void refreshBusy()
     if (!tabs.length && !state.terminalRequest) closedPinned.length ? reopenPinned() : openTab({ kind: 'local' })
     else focusActive()
   }
@@ -626,6 +641,7 @@ watch(connections, () => {
 })
 
 onUnmounted(() => {
+  clearInterval(busyPoll)
   offs.forEach((off) => off())
   for (const t of tabs) if (t.termId !== null) api.termKill(t.termId)
   sessions.forEach((s) => s.term.dispose())
@@ -643,6 +659,7 @@ onUnmounted(() => {
           class="tab"
           :class="{
             on: t.uid === active,
+            busy: t.spec.kind === 'service' ? !t.exited : t.spec.kind === 'local' && t.termId !== null && busyIds.has(t.termId),
             dead: t.exited,
             dragging: t.uid === dragUid,
             'drop-before': dropTarget?.uid === t.uid && dropTarget.before,
@@ -796,6 +813,8 @@ header {
   color: var(--text); background: color-mix(in srgb, var(--hover) 70%, var(--panel-2));
   border-color: var(--border); padding-right: 4px; flex-shrink: 0; font-weight: 600;
 }
+.tab.busy { color: var(--text); background: color-mix(in srgb, var(--add) 14%, var(--panel-2)); border-color: color-mix(in srgb, var(--add) 50%, var(--border)); }
+.tab.busy.on { background: color-mix(in srgb, var(--add) 18%, var(--panel-2)); }
 .tab .name { flex: 1; min-width: 0; }
 .tab.dragging { opacity: 0.4; }
 /* indicador de onde a aba vai cair */

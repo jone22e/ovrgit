@@ -1392,6 +1392,8 @@ export interface OvseerApi {
   agentStatuses(): Promise<Record<string, AgentStatus>>
   onAgentStatuses(cb: (statuses: Record<string, AgentStatus>) => void): () => void
   termCreate(cols: number, rows: number, spec: TerminalSpec): Promise<number>
+  /** Abas locais com um comando ocupando o primeiro plano */
+  termBusy(ids: number[]): Promise<number[]>
   pickSshKey(): Promise<string | null>
   /** Chaves privadas encontradas em ~/.ssh (só os caminhos) */
   listSshKeys(): Promise<string[]>
