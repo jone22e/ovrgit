@@ -72,6 +72,8 @@ interface AgentWin {
   bgTasks?: BackgroundTask[]
   /** A última tarefa terminou e o CLI não retomou: passado um tempo, o stdin fecha e o processo sai */
   bgIdleTimer?: ReturnType<typeof setTimeout>
+  /** Estado do parser do processo Claude atual, reiniciado a cada mensagem enviada pelo mesmo stdin. */
+  claudeState?: ClaudeParseState
 }
 
 const wins = new Map<string, AgentWin>()
@@ -1803,20 +1805,21 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
   if (w.child) {
-    if (!w.turnDone) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
-    // tarefa em segundo plano ainda rodando: a mensagem vai pelo mesmo processo (um processo novo a mataria);
-    // modelo, esforço e modo só mudam na próxima vez que um processo nascer
-    if (w.info.provider === 'claude' && w.bgTasks?.length && w.child.stdin.writable) {
+    // O Claude aceita novas mensagens pelo stdin mesmo durante uma resposta ou uma tarefa em segundo plano.
+    // Reusar o processo mantém essas tarefas vivas; modelo, esforço e modo mudam quando nascer outro processo.
+    if (w.info.provider === 'claude' && !w.child.killed && w.child.exitCode === null && w.child.stdin.writable) {
       clearTimeout(w.bgIdleTimer)
       w.info.handoff = null
       w.handoffToken = undefined
       const { prompt, inlineImages } = composeMessage('claude', text, attachments)
+      if (w.claudeState) w.claudeState.done = false
       w.turnDone = false
       w.info.running = true
       w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
       w.child.stdin.write(claudeContextRequest())
       return
     }
+    if (!w.turnDone) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
     await w.exited // a resposta acabou, mas o processo ainda está saindo
   }
   if (opts.provider && opts.provider !== w.info.provider) {
@@ -1910,6 +1913,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.previousSessionId = null
 
   const claudeSt: ClaudeParseState = { cwd: w.info.cwd, streamed: 0, done: false }
+  w.claudeState = provider === 'claude' ? claudeSt : undefined
   const codexSt: CodexParseState = { emitted: new Map(), error: null, done: false }
   const agySt: AgyParseState = { cwd: w.info.cwd, done: false, tools: new Set() }
   const parse = (line: string) =>
@@ -1970,6 +1974,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       // o CLI retomou a conversa por conta própria (uma tarefa em segundo plano terminou): a vez recomeça
       if (w.turnDone && (ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')) {
         w.turnDone = false
+        if (provider === 'claude') claudeSt.done = false
         w.info.running = true
         clearTimeout(w.bgIdleTimer)
       }
@@ -2021,12 +2026,14 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   child.stdin.on('error', () => undefined)
   child.on('error', (e) => {
     w.child = null
+    w.claudeState = undefined
     w.info.running = false
     emit(w, { type: 'done', ok: false, error: e.message })
   })
   child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
     w.child = null
+    w.claudeState = undefined
     w.info.running = false
     clearTimeout(w.bgIdleTimer)
     // o processo saiu com tarefa em segundo plano pendente (interrompido, ou o CLI desistiu): ela não avisa mais

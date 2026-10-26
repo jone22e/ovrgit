@@ -1367,7 +1367,8 @@ async function sendAfter(p: Payload) {
 }
 /** Chamado quando uma resposta termina: primeiro o "enviar agora", depois a fila. */
 function flushQueue() {
-  if (running.value || bgTasks.value.length || resuming.value || showAsk.value || showPlanAsk.value) return
+  // O Claude recebe a próxima mensagem pelo mesmo processo enquanto tarefas em segundo plano continuam.
+  if (running.value || showAsk.value || showPlanAsk.value) return
   const next = sendAfterStop ?? queue.shift()
   // "agora" interrompeu a resposta anterior: o contador continua de onde ela começou
   const prev = sendAfterStop ? turns[turns.length - 1] : undefined
