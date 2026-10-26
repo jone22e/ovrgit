@@ -755,6 +755,8 @@ export interface DaySummary {
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {
   uid: string
+  /** Última resposta da conversa; permanece igual ao fechar e reabrir o app */
+  lastTurnId?: string
   /** Ícone escolhido para esta conversa */
   icon?: string
   title: string

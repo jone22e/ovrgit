@@ -108,8 +108,8 @@ export const state = reactive({
   agentStatuses: {} as Record<string, AgentStatus>,
   /** Resumo de cada janela de agente aberta (gerenciador de agentes) */
   agentSnaps: [] as AgentSnapshot[],
-  /** Concluídos já vistos no gerenciador (uid:momento em que concluiu): os outros aparecem como "novo" */
-  agentSeen: new Set<string>(),
+  /** Respostas concluídas já abertas no gerenciador, preservadas entre reinícios */
+  agentSeen: readAgentSeen(),
   showNewAgent: false,
   /** Tarefa do Ovseer que o novo agente vai executar (plano aprovado vira a primeira mensagem) */
   newAgentTask: null as OvseerTask | null,
@@ -155,6 +155,15 @@ function readPref(key: string): string | null {
     return localStorage.getItem(key)
   } catch {
     return null
+  }
+}
+
+function readAgentSeen(): Set<string> {
+  try {
+    const saved: unknown = JSON.parse(readPref('ovseer.agentSeen') ?? '[]')
+    return new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string').slice(-500) : [])
+  } catch {
+    return new Set<string>()
   }
 }
 

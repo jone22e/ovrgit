@@ -97,10 +97,12 @@ const elapsedTitle = (a: AgentSnapshot) => `Trabalhando há ${ago(a.startedAt ??
 const active = computed(() => snaps.value.filter((a) => a.status === 'live' || a.status === 'waiting' || a.status === 'error').length)
 
 // ---------- concluídos: novo até ser visto; o selecionado aparece aberto ----------
-const seenKey = (a: AgentSnapshot) => `${a.uid}:${a.since}`
+const seenKey = (a: AgentSnapshot) => a.lastTurnId ?? `${a.uid}:${a.since}`
 const isNew = (a: AgentSnapshot) => a.status === 'done' && !state.agentSeen.has(seenKey(a))
 function markSeen(a: AgentSnapshot) {
-  if (a.status === 'done' && !state.agentSeen.has(seenKey(a))) state.agentSeen = new Set(state.agentSeen).add(seenKey(a))
+  if (a.status !== 'done' || state.agentSeen.has(seenKey(a))) return
+  state.agentSeen = new Set([...state.agentSeen, seenKey(a)].slice(-500))
+  try { localStorage.setItem('ovseer.agentSeen', JSON.stringify([...state.agentSeen])) } catch { /* continua nesta sessão */ }
 }
 /** Etiquetas do resultado: arquivos, testes, typecheck, build e deploy vistos nos comandos do agente */
 function chips(a: AgentSnapshot): { text: string; tone: '' | 'ok' | 'bad' | 'warn' }[] {
@@ -185,7 +187,6 @@ const root = ref<HTMLElement>()
 function select(a: AgentSnapshot | undefined) {
   if (!a) return
   selUid.value = a.uid
-  markSeen(a)
   nextTick(() => root.value?.querySelector(`[data-uid="${a.uid}"]`)?.scrollIntoView({ block: 'nearest' }))
 }
 function onKey(e: KeyboardEvent) {

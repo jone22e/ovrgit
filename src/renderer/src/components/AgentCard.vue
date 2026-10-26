@@ -523,6 +523,8 @@ async function saveRename() {
 .acard.compact:not(.sel) { border-color: transparent; }
 .acard.compact:hover { background: var(--hover); transform: none; }
 .acard.compact.sel { border-color: transparent; background: var(--accent-soft); }
+.acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); box-shadow: inset 3px 0 0 var(--add); }
+:root[data-theme='terminal'] .acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); box-shadow: inset 3px 0 0 var(--add); }
 .acard.compact.waiting { background: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
 .acard.compact.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 .compact > .top, .compact > .status, .compact > .say, .compact > .track-steps, .compact > .foot, .compact > .close { display: none; }

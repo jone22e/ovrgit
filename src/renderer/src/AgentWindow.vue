@@ -1841,6 +1841,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
   const lastToolBlock = [...(cur ?? last)?.blocks ?? []].reverse().find((b): b is ToolBlock => b.kind === 'tool')
   return {
     uid,
+    lastTurnId: last?.id,
     title: chatTitle.value || info.value.title || `Nova conversa com ${providerName.value}`,
     project: info.value.project,
     provider: provider.value,
