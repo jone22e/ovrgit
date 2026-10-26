@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { count } from '@shared/plural'
-import { myDoingCount, setPane, setShowTasks, state } from '../store'
+import { myDoingCount, narrowQuery, setPane, setShowDiff, setShowTasks, state } from '../store'
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
@@ -18,6 +18,10 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
   }
   state.tab = 'changes'
   setPane(v)
+  if (v === 'changes') {
+    setShowDiff(true)
+    state.listOverlay = narrowQuery.matches
+  }
 }
 </script>
 
