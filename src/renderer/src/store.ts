@@ -134,6 +134,8 @@ export const state = reactive({
   pane: (readPref('ovseer.pane') === 'files' ? 'files' : 'changes') as Pane,
   /** Arquivos do projeto (modo "Arquivos") */
   sourceList: [] as string[],
+  /** Arquivos abertos por caminho exato, mesmo que o Git os ignore */
+  sourceExtra: new Set<string>(),
   sourceLoading: false,
   /** Arquivo aberto no editor (a aba ativa) e as abas abertas, na ordem */
   sourcePath: null as string | null,
@@ -257,17 +259,33 @@ export function setPane(v: Pane) {
 
 export async function loadSourceFiles() {
   if (!state.repo) return
+  const project = state.repo.root
   state.sourceLoading = !state.sourceList.length
   try {
-    state.sourceList = await api.sourceFiles()
+    const files = await api.sourceFiles()
+    if (state.repo?.root !== project) return
+    state.sourceList = [...new Set([...files, ...state.sourceExtra])].sort((a, b) => a.localeCompare(b))
     // arquivo apagado (e sem edição pendente): a aba fecha, como no JetBrains
     const gone = state.sourceTabs.filter((p) => !state.sourceList.includes(p) && !(p in state.sourceDrafts))
     for (const p of gone) closeSource(p)
   } catch (e) {
     state.error = cleanError(e)
   } finally {
-    state.sourceLoading = false
+    if (state.repo?.root === project) state.sourceLoading = false
   }
+}
+
+/** Abre um arquivo encontrado por caminho completo, trocando de projeto quando necessário. */
+export async function openResolvedSource(found: { root: string; path: string }) {
+  if (state.repo?.root !== found.root) {
+    await openRepo(await api.loadProject(found.root))
+    state.settings = await api.getSettings()
+  }
+  state.tab = 'changes'
+  setPane('files')
+  state.sourceExtra = new Set(state.sourceExtra).add(found.path)
+  if (!state.sourceList.includes(found.path)) state.sourceList = [...state.sourceList, found.path].sort((a, b) => a.localeCompare(b))
+  openSource(found.path)
 }
 
 /**
@@ -510,6 +528,7 @@ function applyRepo(repo: RepoStatus | null, saved: Analysis | null = null) {
     state.activeFile = null
     state.diff = ''
     state.sourceList = []
+    state.sourceExtra = new Set()
     state.sourceOpen = new Set()
     state.sourceDrafts = {}
     state.sourceMtimes = {}
@@ -1043,16 +1062,8 @@ function listenAgents() {
   api.onQueueChange((q) => (state.queue = q))
   // link de arquivo clicado numa conversa: troca de projeto se for preciso e abre o arquivo no editor
   api.onSourceOpen(async ({ root, path }) => {
-    if (state.repo?.root !== root) {
-      try {
-        await openRepo(await api.loadProject(root))
-      } catch {
-        return
-      }
-    }
-    state.tab = 'changes'
-    setPane('files')
-    openSource(path)
+    try { await openResolvedSource({ root, path }) }
+    catch { /* o arquivo não está mais disponível */ }
   })
   api.onAgentFinished((s) => {
     const where = s.cwd.split(/[\\/]/).pop()

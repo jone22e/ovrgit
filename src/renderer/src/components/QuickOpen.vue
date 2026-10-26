@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { THEMES, findTheme, type Theme } from '@shared/themes'
 import { hasWords, searchWords } from '@shared/repoGroups'
-import { loadProject, loadProjectIcon, loadSourceFiles, openNewAgent, openSource, projectIcons, saveSettings, setPane, state } from '../store'
+import { loadProject, loadProjectIcon, loadSourceFiles, openNewAgent, openResolvedSource, openSource, projectIcons, saveSettings, setPane, state } from '../store'
 import { applyTheme } from '../theme'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
@@ -34,6 +34,8 @@ interface Item {
   theme?: Theme
   /** A linha "Tema: atual", que entra na lista de temas */
   themes?: boolean
+  /** Arquivo localizado pelo caminho colado, mesmo em outro repositório ou ignorado pelo Git */
+  resolved?: { root: string; path: string }
 }
 /* temas: "tema" (ou "temas") no começo entra no modo de temas; o resto do texto filtra pelo nome */
 const THEME_MODE = /^temas?\b\s*/i
@@ -49,6 +51,19 @@ const repoItem = (path: string): Item => ({ path, repo: true })
 const KIND_LETTER: Record<string, string> = { added: 'A', untracked: 'A', modified: 'M', deleted: 'D', renamed: 'R', conflict: '!', typechange: 'T' }
 const changed = computed(() => new Map((state.repo?.files ?? []).map((f) => [f.path, KIND_LETTER[f.kind] ?? 'M'])))
 const item = (path: string): Item => ({ path, status: changed.value.get(path) })
+const resolved = ref<{ root: string; path: string } | null>(null)
+const pathQuery = (q: string) => q.includes('/') || /^[a-z]:[\\/]/i.test(q)
+let pathTimer: ReturnType<typeof setTimeout> | undefined
+let pathRequest = 0
+watch(query, (q) => {
+  clearTimeout(pathTimer)
+  resolved.value = null
+  const request = ++pathRequest
+  if (!pathQuery(q) || THEME_MODE.test(q.trim())) return
+  pathTimer = setTimeout(() => {
+    api.sourceResolvePath(q).then((found) => { if (request === pathRequest) resolved.value = found }).catch(() => undefined)
+  }, 120)
+}, { immediate: true })
 
 /** Recentes: os abertos há pouco no editor (a lista fica guardada) */
 const RECENT_KEY = 'ovseer.recentFiles'
@@ -82,11 +97,14 @@ const groups = computed<Group[]>(() => {
   }
   if (q) {
     const files = search(q)
+    const exact = resolved.value && (resolved.value.root !== state.repo?.root || !files.some((f) => f.path === resolved.value?.path))
+      ? [{ path: `${resolved.value.root}/${resolved.value.path}`, resolved: resolved.value }] : []
     const words = q.toLowerCase().split(/\s+/).filter(Boolean)
     // repositórios: pelo nome da pasta (o caminho inteiro faria "flexi" bater com tudo dentro de ~/Flexi)
     const rs = repos.value.filter((p) => words.every((w) => base(p).toLowerCase().includes(w))).slice(0, 6).map(repoItem)
     const ts = themeItems(q).slice(0, 5)
     return [
+      ...(exact.length ? [{ label: 'Caminho encontrado', items: exact }] : []),
       ...(files.length ? [{ label: 'Arquivos', items: files }] : []),
       ...(rs.length ? [{ label: 'Repositórios', items: rs }] : []),
       ...(ts.length ? [{ label: 'Tema', items: ts }] : [])
@@ -184,11 +202,19 @@ function enterThemes() {
 function activate(it: Item) {
   if (it.theme) pickTheme(it.theme.id)
   else if (it.themes) enterThemes()
+  else if (it.resolved) void openResolvedSource(it.resolved).then(() => emit('close')).catch((e) => (state.error = String((e as Error).message)))
   else if (it.repo) switchRepo(it.path)
   else open(it.path)
 }
-function choose() {
-  if (noResult.value) return themeMode.value ? undefined : ask()
+async function choose() {
+  if (pathQuery(query.value) && !resolved.value && index.value === 0) {
+    const found = await api.sourceResolvePath(query.value).catch(() => null)
+    if (found) return activate({ path: `${found.root}/${found.path}`, resolved: found })
+  }
+  if (noResult.value) {
+    if (themeMode.value) return
+    return ask()
+  }
   const it = flat.value[index.value]
   if (it) activate(it)
 }
@@ -215,7 +241,7 @@ onMounted(() => {
   input.value?.focus()
   window.addEventListener('keydown', onKey)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => { clearTimeout(pathTimer); window.removeEventListener('keydown', onKey) })
 </script>
 
 <template>
@@ -263,6 +289,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
                 <Icon name="sliders" :size="15" class="faint" />
                 <span class="name ellipsis">Tema: {{ currentTheme.name }}</span>
                 <span class="dir faint">trocar</span>
+              </template>
+              <template v-else-if="it.resolved">
+                <FileIcon :path="it.path" :size="15" />
+                <span class="name ellipsis">{{ base(it.path) }}</span>
+                <span class="dir faint ellipsis">{{ dir(it.path) }}</span>
               </template>
               <template v-else-if="it.repo">
                 <RepoIcon :icon="state.settings?.repoIcons?.[it.path]" :favicon="projectIcons.get(it.path)" :size="17" />

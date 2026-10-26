@@ -40,7 +40,7 @@ import { analysisHash, analyze, taskContext, cancelAnalysis, commitMessage, dete
 import { clearAnalysis, loadAnalysis, saveAnalysis } from './analysisStore'
 import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from './auth'
 import * as g from './git'
-import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, writeSourceFile } from './sourceFiles'
+import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, resolveSourcePath, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
@@ -405,6 +405,7 @@ function registerIpc() {
   ipcMain.handle('git:status', () => (root ? g.status(root) : null))
   ipcMain.handle('git:diff', (_e, f: FileChange) => g.diff(requireRoot(), f))
   ipcMain.handle('src:list', () => listSourceFiles(requireRoot()))
+  ipcMain.handle('src:resolvePath', (_e, input: string) => resolveSourcePath(root ?? os.homedir(), String(input ?? '')))
   ipcMain.handle('src:create', (_e, rel: string, content: string) => createSourceFile(requireRoot(), String(rel), String(content ?? '')))
   ipcMain.handle('src:image', (_e, rel: string) => readSourceImage(requireRoot(), String(rel)))
   ipcMain.handle('src:read', (_e, rel: string) => readSourceFile(requireRoot(), String(rel)))

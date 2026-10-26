@@ -47,6 +47,7 @@ const api: OvseerApi = {
   diff: (f) => ipcRenderer.invoke('git:diff', f),
   log: (limit) => ipcRenderer.invoke('git:log', limit),
   sourceFiles: () => ipcRenderer.invoke('src:list'),
+  sourceResolvePath: (input) => ipcRenderer.invoke('src:resolvePath', input),
   readSource: (p) => ipcRenderer.invoke('src:read', p),
   readSourceImage: (p) => ipcRenderer.invoke('src:image', p),
   createSource: (p, content) => ipcRenderer.invoke('src:create', p, content),

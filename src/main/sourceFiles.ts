@@ -1,5 +1,6 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { SourceFile } from '../shared/types'
 import { git, run } from './git'
 
@@ -21,6 +22,23 @@ export async function listSourceFiles(root: string): Promise<string[]> {
   ])
   const env = ignored.split('\0').filter((p) => DOTENV.test(p) && !HEAVY.test(p))
   return [...new Set([...out.split('\0'), ...env].filter(Boolean))].sort((a, b) => a.localeCompare(b))
+}
+
+/** Caminho colado na busca: arquivo existente em um repositório, inclusive se estiver ignorado pelo Git. */
+export async function resolveSourcePath(cwd: string, input: string): Promise<{ root: string; path: string } | null> {
+  let value = input.trim().replace(/(:\d+){1,2}$/, '')
+  if (!value || value.length > 4096) return null
+  if (/^file:\/\//i.test(value)) {
+    try { value = fileURLToPath(value) } catch { return null }
+  } else if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null
+  try {
+    const file = await realpath(path.resolve(cwd, value))
+    if (!(await stat(file)).isFile()) return null
+    const root = (await git(path.dirname(file), ['rev-parse', '--show-toplevel'])).trim()
+    const rel = path.relative(root, file)
+    if (!root || !rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+    return { root, path: rel.split(path.sep).join('/') }
+  } catch { return null }
 }
 
 /**

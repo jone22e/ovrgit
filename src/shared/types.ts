@@ -1070,6 +1070,8 @@ export interface OvseerApi {
   diff(file: FileChange): Promise<string>
   /** Arquivos do projeto (versionados e novos não ignorados), caminhos relativos à raiz */
   sourceFiles(): Promise<string[]>
+  /** Resolve um caminho colado para um arquivo existente de qualquer repositório local */
+  sourceResolvePath(input: string): Promise<{ root: string; path: string } | null>
   readSource(path: string): Promise<SourceFile>
   /** Imagem do projeto como data URL (png, jpg, webp, gif, svg…), para a prévia */
   readSourceImage(path: string): Promise<{ dataUrl: string; bytes: number }>

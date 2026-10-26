@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import { fileMap, loadSourceFiles, openSource, state, toggleSourceDir } from '../store'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { fileMap, loadSourceFiles, openResolvedSource, openSource, state, toggleSourceDir } from '../store'
 import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 import NewFileMenu from './NewFileMenu.vue'
@@ -21,6 +21,20 @@ interface Dir {
 }
 
 const filter = ref('')
+const resolved = ref<{ root: string; path: string } | null>(null)
+const pathQuery = (q: string) => q.includes('/') || /^[a-z]:[\\/]/i.test(q)
+let pathTimer: ReturnType<typeof setTimeout> | undefined
+let pathRequest = 0
+watch(filter, (q) => {
+  clearTimeout(pathTimer)
+  resolved.value = null
+  const request = ++pathRequest
+  if (!pathQuery(q)) return
+  pathTimer = setTimeout(() => {
+    window.ovseer.sourceResolvePath(q).then((found) => { if (request === pathRequest) resolved.value = found }).catch(() => undefined)
+  }, 120)
+})
+onUnmounted(() => clearTimeout(pathTimer))
 const MAX_MATCHES = 300
 
 const tree = computed(() => {
@@ -50,6 +64,11 @@ const matches = computed(() => {
   }
   return out
 })
+const direct = computed(() => resolved.value && (resolved.value.root !== state.repo?.root || !matches.value?.includes(resolved.value.path)) ? resolved.value : null)
+async function openDirect(found: { root: string; path: string }) {
+  try { await openResolvedSource(found) }
+  catch (e) { state.error = String((e as Error).message) }
+}
 
 const rows = computed<Row[]>(() => {
   if (matches.value) return matches.value.slice(0, MAX_MATCHES).map((p) => ({ kind: 'file', key: p, depth: 0, path: p }))
@@ -105,7 +124,14 @@ watch(
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape') filter.value = ''
-  else if (e.key === 'Enter' && matches.value?.length) openSource(matches.value[0])
+  else if (e.key === 'Enter') {
+    if (direct.value) void openDirect(direct.value)
+    else if (pathQuery(filter.value)) void window.ovseer.sourceResolvePath(filter.value).then((found) => {
+      if (found) void openDirect(found)
+      else if (matches.value?.length) openSource(matches.value[0])
+    })
+    else if (matches.value?.length) openSource(matches.value[0])
+  }
 }
 </script>
 
@@ -123,11 +149,15 @@ function onKey(e: KeyboardEvent) {
       </button>
     </div>
 
-    <div v-if="!state.sourceLoading && !rows.length" class="empty faint">
+    <div v-if="!state.sourceLoading && !rows.length && !direct" class="empty faint">
       {{ matches ? 'Nenhum arquivo com esse nome.' : 'Nenhum arquivo no projeto.' }}
     </div>
 
     <div ref="scroller" class="scroll" @contextmenu.prevent="onMenu($event, '')">
+      <div v-if="direct" class="row file" :title="`${direct.root}/${direct.path}`" @click="openDirect(direct)">
+        <FileIcon :path="direct.path" />
+        <span class="path ellipsis"><span class="faint">{{ direct.root }}/{{ dir(direct.path) }}</span>{{ name(direct.path) }}</span>
+      </div>
       <template v-for="r in rows" :key="r.key">
         <div v-if="r.kind === 'dir'" class="row dir" :style="{ paddingLeft: `${6 + r.depth * 16}px` }" @click="toggleSourceDir(r.path)" @contextmenu.prevent.stop="onMenu($event, r.path)">
           <Icon name="chevron" :size="12" class="chev" :class="{ open: state.sourceOpen.has(r.path) }" />
