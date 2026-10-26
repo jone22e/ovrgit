@@ -84,11 +84,12 @@ onMounted(() => gitOverlayQuery.addEventListener('change', onGitNarrow))
 onUnmounted(() => gitOverlayQuery.removeEventListener('change', onGitNarrow))
 const gitOverlay = computed(() => gitNarrow.value || state.showTasks)
 const gitEl = ref<HTMLElement>()
-const gitWidth = ref(Number(localStorage.getItem('ovseer.gitWidth')) || 440)
+const GIT_MIN_WIDTH = 540
+const gitWidth = ref(Math.max(GIT_MIN_WIDTH, Number(localStorage.getItem('ovseer.gitWidth')) || 0))
 function resizeGitTo(width: number) {
   const available = gitEl.value?.parentElement?.clientWidth ?? window.innerWidth
   const max = Math.max(0, available - (gitOverlay.value ? 40 : 320))
-  gitWidth.value = Math.max(Math.min(320, max), Math.min(Math.round(width), max))
+  gitWidth.value = Math.max(Math.min(GIT_MIN_WIDTH, max), Math.min(Math.round(width), max))
 }
 function saveGitWidth() {
   localStorage.setItem('ovseer.gitWidth', String(gitWidth.value))
