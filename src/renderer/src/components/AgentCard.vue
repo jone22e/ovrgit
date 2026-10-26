@@ -120,10 +120,10 @@ const clock = computed(() => {
   const sec = s % 60
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 })
-/** Encerra a conversa (no orquestrador não há janela para esconder: só encerrar); trabalhando, confirma antes */
+/** Arquiva a conversa fechando a janela; trabalhando, confirma antes de interromper o agente */
 async function close() {
   if (props.a.status === 'live') {
-    const ok = await ask({ title: 'Encerrar a conversa?', message: 'O agente está trabalhando e será interrompido. A conversa fica em Conversas.', confirmLabel: 'Encerrar', danger: true })
+    const ok = await ask({ title: 'Arquivar a conversa?', message: 'O agente está trabalhando e será interrompido. A conversa fica em Conversas.', confirmLabel: 'Arquivar', danger: true })
     if (!ok) return
   }
   api.agentClose([props.a.uid]).catch(() => undefined)
@@ -135,7 +135,7 @@ function onClick(e: MouseEvent) {
   emit('pick')
 }
 
-// ---------- menu do botão direito: mostrar, renomear, fixar, nova conversa, encerrar ----------
+// ---------- menu do botão direito: mostrar, renomear, fixar, nova conversa, arquivar ----------
 const menu = ref<{ left: number; top: number } | null>(null)
 const menuEl = ref<HTMLElement>()
 function onMenu(e: MouseEvent) {
@@ -360,8 +360,8 @@ async function saveRename() {
         <button v-if="a.canPin" class="ghost icon small pin" :class="{ pinned: a.pinned }" :title="a.pinned ? 'Soltar a conversa (sai da lista ao fechar)' : 'Fixar a conversa (fica na lista mesmo depois de fechada)'" @click.stop="emit('act', { type: 'pin' })"><Icon name="pin" :size="13" /></button>
       </span>
     </div>
-    <!-- encerrar: no canto superior direito, sempre visível -->
-    <button v-if="!compact" class="ghost icon small close" :title="a.status === 'live' ? 'Encerrar a conversa (interrompe o agente)' : 'Encerrar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="x" :size="13" /></button>
+    <!-- arquivar: no canto superior direito, sempre visível -->
+    <button v-if="!compact" class="ghost icon small close" :title="a.status === 'live' ? 'Arquivar a conversa (interrompe o agente)' : 'Arquivar a conversa (fica em Conversas)'" @click.stop="close"><Icon name="archive" :size="13" /></button>
     <!-- menu do botão direito, fixo no ponto do clique (no body, para não ser recortado pela lista) -->
     <Teleport to="body">
       <div v-if="menu" ref="menuEl" class="ctx" role="menu" :style="{ left: `${menu.left}px`, top: `${menu.top}px` }" @click.stop @contextmenu.prevent>
@@ -374,7 +374,7 @@ async function saveRename() {
         <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar a conversa' : 'Fixar a conversa (fica na lista ao fechar)' }}</span></button>
         <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
         <div class="sep" />
-        <button type="button" class="item bad" @click="closeFromMenu"><Icon name="x" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Encerrar (interrompe o agente)' : 'Encerrar a conversa' }}</span></button>
+        <button type="button" class="item" @click="closeFromMenu"><Icon name="archive" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Arquivar (interrompe o agente)' : 'Arquivar a conversa' }}</span></button>
       </div>
     </Teleport>
     <AgentIconPicker v-if="iconPicker" :current="a.icon" @close="iconPicker = false" @choose="chooseIcon" />
@@ -516,7 +516,7 @@ async function saveRename() {
 .pin { color: var(--faint); }
 .pin.pinned { color: var(--accent); }
 .close { position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 0; color: var(--faint); }
-.close:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
+.close:hover { color: var(--accent); background: var(--accent-soft); }
 
 /* Modo lista: uma linha por agente, com estado e ações à vista. */
 .acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
@@ -568,9 +568,7 @@ async function saveRename() {
   background: transparent; color: var(--text); font-size: 12.5px; text-align: left; justify-content: flex-start;
 }
 .ctx .item:hover { background: var(--accent-soft); }
-.ctx .item.bad:hover { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .ctx .item svg { color: var(--faint); flex: none; }
-.ctx .item.bad:hover svg { color: inherit; }
 .ctx .nm { white-space: nowrap; }
 .ctx .sep { height: 1px; margin: 4px 6px; background: var(--border); }
 </style>
