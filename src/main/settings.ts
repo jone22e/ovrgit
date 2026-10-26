@@ -54,13 +54,14 @@ export function getSettings(): Settings {
   } catch {
     cache = { ...DEFAULTS }
   }
-  if (!cache.agentIconsPromoted) {
+  const loaded = cache!
+  if (!loaded.agentIconsPromoted) {
     try {
       const history = JSON.parse(readFileSync(path.join(app.getPath('userData'), 'agent-history', 'index.json'), 'utf8')) as { items?: { cwd?: string; extraDirs?: string[]; icon?: string }[] }
       const conversations = (Array.isArray(history.items) ? history.items : [])
         .filter((item): item is { cwd: string; extraDirs?: string[]; icon: string } => typeof item?.cwd === 'string' && typeof item.icon === 'string')
         .map((item) => ({ cwd: item.cwd, icon: item.icon, extraDirs: Array.isArray(item.extraDirs) ? item.extraDirs.filter((dir) => typeof dir === 'string') : [] }))
-      const promoted = promoteConversationIcons(cache.repoGroups, cache.repoIcons, conversations)
+      const promoted = promoteConversationIcons(loaded.repoGroups, loaded.repoIcons, conversations)
       cache = saveSettings({ ...promoted, agentIconsPromoted: true })
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') console.error('Não consegui promover os ícones antigos:', (e as Error).message)
