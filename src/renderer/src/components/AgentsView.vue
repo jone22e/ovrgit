@@ -169,6 +169,8 @@ watch(
 const needYouShown = computed(() => needYou.value.filter(pass))
 const runningShown = computed(() => running.value.filter(pass))
 const doneShown = computed(() => done.value.filter(pass))
+const unreadDoneShown = computed(() => doneShown.value.filter(isNew))
+const readDoneShown = computed(() => doneShown.value.filter((a) => !isNew(a)))
 const freshShown = computed(() => fresh.value.filter(pass))
 const standbyShown = computed(() => standby.value.filter(pass))
 
@@ -180,7 +182,7 @@ const allOrder = computed(() => [...snaps.value].sort((a, b) =>
   (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)
 ))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
-const order = computed(() => compactList.value ? [...freshShown.value, ...needYouShown.value, ...runningShown.value, ...doneShown.value, ...standbyShown.value] : allOrder.value.filter(pass))
+const order = computed(() => compactList.value ? [...freshShown.value, ...needYouShown.value, ...runningShown.value, ...unreadDoneShown.value, ...readDoneShown.value, ...standbyShown.value] : allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
 const root = ref<HTMLElement>()
@@ -466,7 +468,8 @@ function pick(a: AgentSnapshot) {
           { key: 'new', label: 'Novas conversas', agents: freshShown },
           { key: 'attention', label: 'Precisa de você', agents: needYouShown },
           { key: 'live', label: 'Rodando', agents: runningShown },
-          { key: 'done', label: 'Concluídos', agents: doneShown },
+          { key: 'unread', label: 'Concluídos não lidos', agents: unreadDoneShown },
+          { key: 'done', label: 'Concluídos', agents: readDoneShown },
           { key: 'idle', label: 'Disponíveis', agents: standbyShown }
         ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
           <h3>{{ section.label }} · {{ section.agents.length }}</h3>
@@ -583,11 +586,12 @@ function pick(a: AgentSnapshot) {
 .orch .item.closed > .go { display: block; margin: 0 5px; }
 /* Fixadas no modo lista: mesmas dimensões e colunas das linhas de agentes concluídos. */
 .orch .pinned-compact .sec { align-items: center; margin: 0 10px 8px; color: var(--faint); font-size: 10px; letter-spacing: .13em; }
-.orch .pinned-compact .list { display: flex; flex-direction: column; gap: 0; }
+.orch .pinned-compact .list { display: flex; flex-direction: column; gap: 4px; }
 .orch .pinned-compact .item.closed { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto 24px 13px; align-items: center; gap: 12px; min-height: 68px; margin: 0; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; }
-.orch .pinned-compact .item.closed:not(:last-child) { border-bottom-color: var(--border); border-radius: 0; }
 .orch .pinned-compact .item.closed:hover { background: var(--hover); }
-.pinned-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); }
+.pinned-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--panel-2); }
+.pinned-avatar::before { content: ''; position: absolute; inset: 0; border: 2px solid color-mix(in srgb, var(--faint) 28%, transparent); border-radius: 50%; }
+.pinned-avatar :deep(.repo-icon), .pinned-avatar :deep(.repo-icon img) { border-radius: 50%; }
 .pinned-avatar i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: var(--faint); }
 .pinned-avatar i.done { background: var(--add); }
 .pinned-avatar i.waiting { background: var(--mod); }
@@ -621,8 +625,7 @@ function pick(a: AgentSnapshot) {
 .list-section h3 { margin: 0 10px 8px; color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .list-section.attention h3 { color: var(--mod); }
 .list-section.live h3 { color: var(--accent); }
-.list-rows { display: flex; flex-direction: column; }
-.list-section.done .list-rows :deep(.acard:not(:last-child)) { border-bottom-color: var(--border); border-radius: 0; }
+.list-rows { display: flex; flex-direction: column; gap: 4px; }
 .list-no-match { margin: 28px 16px; color: var(--muted); font-size: 12px; }
 @container (max-width: 760px) { .list-head { flex-wrap: wrap; gap: 8px; } .list-search { width: 100%; } .scroll.list-mode :deep(.acard) { scroll-margin-top: 100px; } }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }

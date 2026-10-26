@@ -5,7 +5,7 @@ import { HB_HEIGHT, HB_WIDTH, RHYTHMS, heartbeatPath, heartbeatSpan, type Heartb
 /**
  * Sinais vitais: o traçado de eletrocardiograma no rodapé do cartão do agente, com um ritmo por estado (ver
  * @shared/heartbeat). O <svg> inteiro rola dentro do invólucro de largura fixa (transformação composta na GPU);
- * as bordas esmaecem com degradês sobrepostos na cor do fundo (`--hb-bg`, por padrão a do painel).
+ * as bordas esmaecem pela transparência do traçado, sem depender da cor de fundo do cartão.
  */
 const props = defineProps<{ tone: HeartbeatTone }>()
 const rhythm = computed(() => RHYTHMS[props.tone])
@@ -24,16 +24,12 @@ const style = computed(() => ({ '--hb-x': `${-rhythm.value.cell}px`, '--hb-s': `
 </template>
 
 <style scoped>
-.hb { position: relative; display: block; flex: none; overflow: hidden; color: var(--faint); opacity: 0.45; }
+.hb { position: relative; display: block; flex: none; overflow: hidden; color: var(--faint); opacity: 0.45; mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
 .hb.live { color: var(--accent); opacity: 1; }
 .hb.waiting { color: var(--mod); opacity: 1; }
 .hb.done { color: var(--add); opacity: 0.85; }
 .hb.stalled { color: var(--del); opacity: 1; }
 .hb.error { color: var(--del); opacity: 0.55; }
-/* bordas esmaecidas: degradês da cor do fundo por cima do traçado */
-.hb::before, .hb::after { content: ''; position: absolute; top: 0; bottom: 0; width: 12px; pointer-events: none; }
-.hb::before { left: 0; background: linear-gradient(90deg, var(--hb-bg, var(--panel)), transparent); }
-.hb::after { right: 0; background: linear-gradient(270deg, var(--hb-bg, var(--panel)), transparent); }
 .roll { display: block; animation: hb-scroll var(--hb-s) linear infinite; will-change: transform; }
 .roll.still { animation: none; will-change: auto; }
 .trace { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }

@@ -259,7 +259,7 @@ async function saveRename() {
 
 <template>
   <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
-    <span v-if="compact" class="list-avatar" :title="`${a.project} · ${statusLabel}`"><RepoIcon :icon="a.icon ?? repoIcon" :favicon="projectIcons.get(a.cwd)" :size="34" /><i :class="tone" /></span>
+    <span v-if="compact" class="list-avatar" :class="{ running: tone === 'live' }" :title="`${a.project} · ${statusLabel}`"><RepoIcon :icon="a.icon ?? repoIcon" :favicon="projectIcons.get(a.cwd)" :size="34" /><i :class="tone" /></span>
     <div v-if="compact" class="list-copy">
       <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
       <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
@@ -398,7 +398,6 @@ async function saveRename() {
 /* trabalhando: o cartão inteiro levemente na cor do tema; concluído que você ainda não abriu: na cor de "feito" */
 .acard.live { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--panel)), color-mix(in srgb, var(--accent) 5%, var(--panel)) 75%); }
 .acard.fresh { background: linear-gradient(180deg, color-mix(in srgb, var(--add) 11%, var(--panel)), color-mix(in srgb, var(--add) 4%, var(--panel)) 75%); }
-.acard.fresh:not(.sel) { border-color: color-mix(in srgb, var(--add) 40%, var(--border)); }
 /* aguardando resposta: o cartão é um aviso e pulsa de leve até ser atendido */
 .acard.waiting:not(.sel) { border-color: color-mix(in srgb, var(--mod) 55%, var(--border)); animation: waiting 2.2s ease-in-out infinite; }
 @keyframes waiting { 50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mod) 22%, transparent); } }
@@ -407,8 +406,6 @@ async function saveRename() {
 /* tema Terminal: cartão chapado, sem gradiente, sombra nem brilho; a conversa da vez se marca pela borda e pelo número invertido */
 :root[data-theme='terminal'] .acard, :root[data-theme='terminal'] .acard:hover, :root[data-theme='terminal'] .acard.sel { background: var(--panel); box-shadow: none; transform: none; }
 :root[data-theme='terminal'] .acard.waiting, :root[data-theme='terminal'] .acard.stalled { background: color-mix(in srgb, var(--mod) 7%, var(--panel)); }
-/* o esmaecimento do batimento usa a cor do fundo: só o tema Terminal tem cartão chapado tingido (nos outros o rodapé já está sobre o painel) */
-:root[data-theme='terminal'] .acard.waiting, :root[data-theme='terminal'] .acard.stalled { --hb-bg: color-mix(in srgb, var(--mod) 7%, var(--panel)); }
 :root[data-theme='terminal'] .acard.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 :root[data-theme='terminal'] .acard.sel .num { box-shadow: none; }
 
@@ -523,12 +520,16 @@ async function saveRename() {
 .acard.compact:not(.sel) { border-color: transparent; }
 .acard.compact:hover { background: var(--hover); transform: none; }
 .acard.compact.sel { border-color: transparent; background: var(--accent-soft); }
-.acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); box-shadow: inset 3px 0 0 var(--add); }
-:root[data-theme='terminal'] .acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); box-shadow: inset 3px 0 0 var(--add); }
+.acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); }
 .acard.compact.waiting { background: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
 .acard.compact.error { background: color-mix(in srgb, var(--del) 7%, var(--panel)); }
 .compact > .top, .compact > .status, .compact > .say, .compact > .track-steps, .compact > .foot, .compact > .close { display: none; }
-.list-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--panel-2); }
+.list-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--panel-2); }
+.list-avatar::before { content: ''; position: absolute; inset: 0; border: 2px solid color-mix(in srgb, var(--faint) 28%, transparent); border-radius: 50%; }
+.list-avatar.running::before { border-top-color: var(--accent); border-right-color: var(--accent); animation: avatar-turn 1s linear infinite; }
+.list-avatar :deep(.repo-icon), .list-avatar :deep(.repo-icon img) { border-radius: 50%; }
+@keyframes avatar-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .list-avatar.running::before { animation: none; } }
 .list-avatar i { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: var(--faint); }
 .list-avatar i.live { background: var(--accent); }
 .list-avatar i.waiting { background: var(--mod); }
@@ -544,11 +545,7 @@ async function saveRename() {
 .list-stats { grid-column: 3; }
 .list-review { grid-column: 4; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--mod) 82%, var(--panel)); color: var(--bg); font-size: 12px; font-weight: 700; }
 .list-review.error { background: color-mix(in srgb, var(--del) 20%, var(--panel)); color: var(--del); }
-.list-vitals { grid-column: 5; display: inline-flex; align-items: center; gap: 8px; --hb-bg: var(--bg); }
-.acard.compact:hover .list-vitals { --hb-bg: var(--hover); }
-.acard.compact.sel .list-vitals { --hb-bg: var(--accent-soft); }
-.acard.compact.waiting .list-vitals { --hb-bg: color-mix(in srgb, var(--mod) 9%, var(--panel)); }
-.acard.compact.error .list-vitals { --hb-bg: color-mix(in srgb, var(--del) 7%, var(--panel)); }
+.list-vitals { grid-column: 5; display: inline-flex; align-items: center; gap: 8px; }
 .list-when { grid-column: 6; justify-self: end; color: var(--faint); font-size: 11px; white-space: nowrap; }
 .list-more { grid-column: 7; display: grid; place-items: center; width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--faint); }
 .list-more:hover { color: var(--text); }
