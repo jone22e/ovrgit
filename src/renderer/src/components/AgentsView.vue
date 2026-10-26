@@ -757,7 +757,6 @@ function pick(a: AgentSnapshot) {
 .bars span.idle { background: color-mix(in srgb, var(--faint) 45%, var(--panel-2)); }
 .sec-actions { display: inline-flex; gap: 14px; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .link.accent { color: var(--accent); }
-.new { flex: none; font-size: 10.5px; padding: 0 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 .dot.seen { opacity: 0.55; }
 strong.light { font-weight: 500; }
 .grow { flex: 1; font-size: 13.5px; }
