@@ -9,6 +9,12 @@ import {
 import { isTestFile } from '@shared/parse'
 import Icon from './Icon.vue'
 
+const emit = defineEmits<{ pick: [] }>()
+function openFile(file: FileChange) {
+  selectFile(file)
+  emit('pick')
+}
+
 type Row =
   | { kind: 'dir'; key: string; depth: number; name: string; files: string[] }
   /** Subpasta dentro de um grupo: só um rótulo (caminho relativo ao grupo), sem caixa nem recolher */
@@ -255,7 +261,7 @@ function split(path: string) {
           :class="{ active: state.activeFile?.path === r.file.path, conflict: r.file.kind === 'conflict' }"
           :style="{ paddingLeft: `${(state.viewMode === 'tree' ? 29 : 10) + r.depth * 16}px` }"
           :title="`${r.file.origPath ? `${r.file.origPath} → ` : ''}${r.file.path} (${KIND_LABEL[r.file.kind]})`"
-          @click="selectFile(r.file)"
+          @click="openFile(r.file)"
         >
           <input
             type="checkbox"

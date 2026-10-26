@@ -36,7 +36,7 @@ import ServicesDialog from './components/ServicesDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, setPane, setShowDiff, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
@@ -77,6 +77,36 @@ const onNarrow = (e: MediaQueryListEvent) => ((narrow.value = e.matches), (state
 onMounted(() => narrowQuery.addEventListener('change', onNarrow))
 onUnmounted(() => narrowQuery.removeEventListener('change', onNarrow))
 const overlayMode = computed(() => narrow.value && state.showDiff)
+const gitOverlayQuery = window.matchMedia('(max-width: 1200px)')
+const gitNarrow = ref(gitOverlayQuery.matches)
+const onGitNarrow = (e: MediaQueryListEvent) => (gitNarrow.value = e.matches)
+onMounted(() => gitOverlayQuery.addEventListener('change', onGitNarrow))
+onUnmounted(() => gitOverlayQuery.removeEventListener('change', onGitNarrow))
+const gitOverlay = computed(() => gitNarrow.value || state.showTasks)
+const gitDiffOpened = ref(false)
+function closeGit() {
+  state.showGit = false
+  if (state.tab === 'changes' && gitDiffOpened.value) {
+    state.tab = state.gitReturnTab
+    gitDiffOpened.value = false
+  }
+}
+function openGitDiff() {
+  gitDiffOpened.value = true
+  state.tab = 'changes'
+  setPane('changes')
+  setShowDiff(true)
+  if (gitOverlay.value) state.showGit = false
+}
+watch(() => state.showDiff, (open) => {
+  if (!open && gitDiffOpened.value) {
+    gitDiffOpened.value = false
+    state.tab = state.gitReturnTab
+  }
+})
+watch(() => [state.tab, state.pane], ([tab, pane]) => {
+  if (tab !== 'changes' || pane !== 'changes') gitDiffOpened.value = false
+})
 function startResize(e: MouseEvent) {
   const startX = e.clientX
   const start = leftWidth.value
@@ -175,22 +205,32 @@ onUnmounted(() => {
       <PaneSwitch />
       <div class="main">
       <MergeBanner v-show="!termMaximized" />
-      <div v-show="!termMaximized" class="body">
+      <div v-show="!termMaximized" class="body" :class="{ 'git-overlay': gitOverlay }">
+      <div v-if="state.showGit && gitOverlay" class="git-backdrop" @mousedown="closeGit" />
+      <aside v-if="state.showGit" class="git-wrap">
+        <FileList @pick="openGitDiff" />
+        <CommitBar @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      </aside>
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
-          <div v-if="overlayMode && state.listOverlay" class="overlay-backdrop" @mousedown="state.listOverlay = false" />
-          <aside
-            v-show="overlayMode ? state.listOverlay : !treeHidden"
-            :class="{ full: !state.showDiff, overlay: overlayMode }"
-            :style="state.showDiff && !overlayMode ? { width: `${leftWidth}px` } : undefined"
-          >
-            <SourceTree v-if="state.pane === 'files'" />
-            <FileList v-else />
-          </aside>
-          <template v-if="state.showDiff">
-            <div v-show="!treeHidden" class="resizer" @mousedown.prevent="startResize" />
-            <section class="right"><SourceEditor v-if="state.pane === 'files'" /><DiffView v-else /></section>
+          <template v-if="state.showGit && state.pane === 'changes'">
+            <section class="right"><DiffView /></section>
+          </template>
+          <template v-else>
+            <div v-if="overlayMode && state.listOverlay" class="overlay-backdrop" @mousedown="state.listOverlay = false" />
+            <aside
+              v-show="overlayMode ? state.listOverlay : !treeHidden"
+              :class="{ full: !state.showDiff, overlay: overlayMode }"
+              :style="state.showDiff && !overlayMode ? { width: `${leftWidth}px` } : undefined"
+            >
+              <SourceTree v-if="state.pane === 'files'" />
+              <FileList v-else />
+            </aside>
+            <template v-if="state.showDiff">
+              <div v-show="!treeHidden" class="resizer" @mousedown.prevent="startResize" />
+              <section class="right"><SourceEditor v-if="state.pane === 'files'" /><DiffView v-else /></section>
+            </template>
           </template>
         </main>
         <AgentsView v-else-if="state.tab === 'agents'" />
@@ -199,7 +239,7 @@ onUnmounted(() => {
       </div>
       </div>
       <!-- em Agentes e no modo Arquivos a barra de commit some: o espaço fica para a árvore e o editor -->
-      <CommitBar v-show="!termMaximized && state.tab !== 'agents' && state.tab !== 'map' && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+      <CommitBar v-if="!state.showGit" v-show="!termMaximized && state.tab !== 'agents' && state.tab !== 'map' && !(state.tab === 'changes' && state.pane === 'files')" @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
       <!-- terminal na base da janela, abaixo da barra de commit -->
       <template v-if="termMounted">
         <div v-show="state.showTerminal && !termMaximized" class="term-resizer" @mousedown.prevent="startTermResize" />
@@ -245,11 +285,15 @@ onUnmounted(() => {
 
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100%; }
-.body { flex: 1; display: flex; min-height: 0; }
+.body { position: relative; flex: 1; display: flex; min-height: 0; }
 /* barra lateral à esquerda e, ao lado, a coluna com todo o resto (faixas, área de trabalho, commit, terminal) */
 .shell { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
+.git-wrap { width: 360px; max-width: 42vw; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+.git-wrap > :deep(.list) { flex: 1; height: auto; min-height: 0; }
+.git-backdrop { position: absolute; inset: 0; z-index: 18; background: rgba(0, 0, 0, 0.25); }
+.body.git-overlay .git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; width: min(360px, 85%); max-width: none; box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); }
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }

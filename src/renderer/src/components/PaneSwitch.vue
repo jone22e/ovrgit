@@ -1,27 +1,35 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { count } from '@shared/plural'
-import { myDoingCount, narrowQuery, setPane, setShowDiff, setShowTasks, state } from '../store'
+import { myDoingCount, setPane, setShowTasks, state } from '../store'
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
-/** Barra lateral de ícones à esquerda da janela, como no Codex: alterna entre o gerenciador de agentes, os arquivos
- * alterados (diff à direita), todos os arquivos do projeto (editor à direita), o histórico de versões e o mapa; e
- * abre e fecha o painel de tarefas do Ovseer (com um ponto quando há tarefa sua em execução) */
+/** Barra lateral de ícones: o Git abre uma coluna ao lado da área atual; Arquivos, Histórico, Agentes e Mapa
+ * escolhem a área principal. Tarefas abre seu próprio painel à esquerda. */
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
 function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
+  if (v === 'changes') {
+    if (state.showGit) {
+      state.showGit = false
+      if (state.tab === 'changes') state.tab = state.gitReturnTab
+    } else {
+      if (state.tab !== 'changes') state.gitReturnTab = state.tab
+      state.tab = state.gitReturnTab
+      setPane('changes')
+      state.showGit = true
+    }
+    return
+  }
+  state.showGit = false
   if (v === 'history' || v === 'agents' || v === 'map') {
     state.tab = v
     return
   }
   state.tab = 'changes'
   setPane(v)
-  if (v === 'changes') {
-    setShowDiff(true)
-    state.listOverlay = narrowQuery.matches
-  }
 }
 </script>
 
@@ -30,7 +38,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     <button :class="{ on: current() === 'agents' }" title="Agentes: todas as janelas de agente abertas, o que cada uma precisa de você" @click="go('agents')">
       <Icon name="bot" :size="18" /><span class="lbl">Agentes</span><span v-if="needYou" class="need">{{ needYou }}</span>
     </button>
-    <button :class="{ on: current() === 'changes' }" title="Arquivos alterados: ver o que mudou" @click="go('changes')">
+    <button :class="{ on: state.showGit }" :title="state.showGit ? 'Fechar coluna de alterações' : 'Abrir coluna de alterações'" @click="go('changes')">
       <Icon name="commit" :size="18" /><span class="lbl">Alterações</span><span v-if="state.repo?.files.length" class="cnt">{{ state.repo.files.length }}</span>
     </button>
     <button :class="{ on: current() === 'files' }" title="Todos os arquivos do projeto: abrir no editor" @click="go('files')">

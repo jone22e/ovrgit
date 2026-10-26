@@ -15,6 +15,7 @@ export type ViewMode = 'tree' | 'list'
 /** Lista da esquerda: arquivos alterados (diff à direita) ou todos os arquivos do projeto (editor à direita) */
 export type Pane = 'changes' | 'files'
 const savedTab = readPref('ovseer.tab')
+const savedGit = readPref('ovseer.gitSidebar')
 
 export const state = reactive({
   repo: null as RepoStatus | null,
@@ -36,7 +37,10 @@ export const state = reactive({
   diffLoading: false,
   history: [] as CommitInfo[],
   /** Aba da área principal escolhida na última sessão */
-  tab: (savedTab === 'changes' || savedTab === 'history' || savedTab === 'agents' || savedTab === 'map' ? savedTab : 'agents') as 'changes' | 'history' | 'agents' | 'map',
+  tab: (savedTab === 'history' || savedTab === 'agents' || savedTab === 'map' ? savedTab : 'agents') as 'changes' | 'history' | 'agents' | 'map',
+  /** Alterações do Git em uma coluna à esquerda, sem substituir a área principal */
+  showGit: savedGit === '1' || (savedGit === null && savedTab === 'changes'),
+  gitReturnTab: (savedTab === 'history' || savedTab === 'map' ? savedTab : 'agents') as 'agents' | 'history' | 'map',
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
   agentPick: null as { n: number; at: number } | null,
   /** Pedidos do gerenciador e tarefas antigas da fila; conversa do gerenciador aberta */
@@ -163,6 +167,7 @@ function writePref(key: string, value: string) {
 }
 
 watch(() => state.tab, (tab) => writePref('ovseer.tab', tab))
+watch(() => state.showGit, (show) => writePref('ovseer.gitSidebar', show ? '1' : '0'))
 
 export function setShowDiff(v: boolean) {
   state.showDiff = v
@@ -234,6 +239,7 @@ export function setPane(v: Pane) {
   const from = state.pane
   state.pane = v
   writePref('ovseer.pane', v)
+  if (v === 'files') state.showGit = false
   // no modo Arquivos a coluna da direita (o editor) já abre junto; saindo dele para Alterações, ela fecha
   if (v === 'files' && !state.showDiff) setShowDiff(true)
   else if (from === 'files' && v !== 'files' && state.showDiff) setShowDiff(false)
