@@ -83,6 +83,32 @@ const onGitNarrow = (e: MediaQueryListEvent) => (gitNarrow.value = e.matches)
 onMounted(() => gitOverlayQuery.addEventListener('change', onGitNarrow))
 onUnmounted(() => gitOverlayQuery.removeEventListener('change', onGitNarrow))
 const gitOverlay = computed(() => gitNarrow.value || state.showTasks)
+const gitEl = ref<HTMLElement>()
+const gitWidth = ref(Number(localStorage.getItem('ovseer.gitWidth')) || 440)
+function resizeGitTo(width: number) {
+  const available = gitEl.value?.parentElement?.clientWidth ?? window.innerWidth
+  const max = Math.max(0, available - (gitOverlay.value ? 40 : 320))
+  gitWidth.value = Math.max(Math.min(320, max), Math.min(Math.round(width), max))
+}
+function saveGitWidth() {
+  localStorage.setItem('ovseer.gitWidth', String(gitWidth.value))
+}
+function resizeGitBy(delta: number) {
+  resizeGitTo((gitEl.value?.getBoundingClientRect().width ?? gitWidth.value) + delta)
+  saveGitWidth()
+}
+function startGitResize(e: MouseEvent) {
+  const startX = e.clientX
+  const start = gitEl.value?.getBoundingClientRect().width ?? gitWidth.value
+  const move = (ev: MouseEvent) => resizeGitTo(start + ev.clientX - startX)
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    saveGitWidth()
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
 const gitDiffOpened = ref(false)
 function closeGit() {
   state.showGit = false
@@ -207,9 +233,10 @@ onUnmounted(() => {
       <MergeBanner v-show="!termMaximized" />
       <div v-show="!termMaximized" class="body" :class="{ 'git-overlay': gitOverlay }">
       <div v-if="state.showGit && gitOverlay" class="git-backdrop" @mousedown="closeGit" />
-      <aside v-if="state.showGit" class="git-wrap">
+      <aside v-if="state.showGit" ref="gitEl" class="git-wrap" :style="{ width: `${gitWidth}px` }">
         <FileList @pick="openGitDiff" />
         <CommitBar @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
+        <div class="git-resizer" role="separator" aria-orientation="vertical" aria-label="Ajustar largura da coluna do Git" tabindex="0" @mousedown.prevent="startGitResize" @keydown.left.prevent="resizeGitBy(-20)" @keydown.right.prevent="resizeGitBy(20)" />
       </aside>
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
       <div class="workspace">
@@ -290,10 +317,13 @@ onUnmounted(() => {
 .shell { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
-.git-wrap { width: 360px; max-width: 42vw; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+.git-wrap { position: relative; max-width: calc(100% - 320px); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
 .git-wrap > :deep(.list) { flex: 1; height: auto; min-height: 0; }
+.git-resizer { position: absolute; top: 0; bottom: 0; right: -4px; z-index: 2; width: 8px; cursor: col-resize; }
+.git-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; right: 3px; width: 1px; background: var(--border); }
+.git-resizer:hover::after, .git-resizer:focus-visible::after { right: 2px; width: 3px; background: var(--accent); }
 .git-backdrop { position: absolute; inset: 0; z-index: 18; background: rgba(0, 0, 0, 0.25); }
-.body.git-overlay .git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; width: min(360px, 85%); max-width: none; box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); }
+.body.git-overlay .git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; max-width: calc(100% - 40px); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); }
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }
