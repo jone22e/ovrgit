@@ -1343,7 +1343,7 @@ async function sendAfter(p: Payload) {
   if (provider.value === 'claude') {
     let steered = false
     try {
-      steered = await api.agentSteer(uid, p.body, p.attachments.map(({ preview: _p, ...a }) => a))
+      steered = await api.agentSteer(uid, p.body, p.attachments.map(({ preview: _p, ...a }) => a), true)
     } catch {
       steered = false
     }
@@ -1960,7 +1960,7 @@ async function resend(t: Turn) {
 
 /** Vez que falhou: diz onde parou e o que ficou alterado, em vez de só a mensagem de erro */
 function stopInfo(t: Turn) {
-  const interrupted = !t.error || /interromp/i.test(t.error)
+  const interrupted = !t.error || /^(Interrompido\.?|A resposta foi interrompida antes de terminar\.)$/i.test(t.error.trim())
   const after = took(t.durationMs)
   const title = `${interrupted ? 'Interrompido' : 'Falhou'}${after ? ` após ${after}` : ''}`
   const tool = [...t.blocks].reverse().find((b): b is ToolBlock => b.kind === 'tool')

@@ -261,7 +261,7 @@ const api: OvseerApi = {
   agentNewChatFrom: (uid, material) => ipcRenderer.invoke('agent:newFrom', uid, material),
   agentDropHandoff: (uid) => ipcRenderer.invoke('agent:dropHandoff', uid),
   agentBack: (uid) => ipcRenderer.invoke('agent:back', uid),
-  agentSteer: (uid, text, attachments) => ipcRenderer.invoke('agent:steer', uid, text, attachments ?? []),
+  agentSteer: (uid, text, attachments, opensTurn) => ipcRenderer.invoke('agent:steer', uid, text, attachments ?? [], opensTurn === true),
   agentPickFiles: (uid) => ipcRenderer.invoke('agent:pick', uid),
   agentHistory: (cwd) => ipcRenderer.invoke('agent:history', cwd),
   agentSaveTranscript: (uid, turns) => ipcRenderer.invoke('agent:saveTranscript', uid, turns),

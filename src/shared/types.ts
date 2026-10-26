@@ -1231,7 +1231,7 @@ export interface OvseerApi {
   /** Volta à conversa anterior a "Nova conversa"; false se a nova já começou */
   agentBack(uid: string): Promise<boolean>
   /** Entrega a mensagem ao agente no meio da resposta, sem interromper (só Claude). false: não havia resposta em andamento */
-  agentSteer(uid: string, text: string, attachments?: AgentAttachment[]): Promise<boolean>
+  agentSteer(uid: string, text: string, attachments?: AgentAttachment[], opensTurn?: boolean): Promise<boolean>
   /** Escolher arquivos para anexar (diálogo do sistema) */
   agentPickFiles(uid: string): Promise<AgentAttachment[]>
   /** Guarda um arquivo sem caminho (imagem colada, gravação) e devolve o anexo */

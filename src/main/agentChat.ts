@@ -37,6 +37,8 @@ interface AgentWin {
   child: ChildProcessWithoutNullStreams | null
   /** A resposta atual já terminou (o processo pode ainda estar encerrando) */
   turnDone: boolean
+  /** Respostas antigas ainda por concluir após mensagens enviadas durante a vez do Claude */
+  steeredTurns?: number
   /** Resolve quando o processo atual sai */
   exited: Promise<void> | null
   /** Situação da conversa, informada pela janela (só ela sabe de cartões esperando resposta) */
@@ -1813,6 +1815,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       w.handoffToken = undefined
       const { prompt, inlineImages } = composeMessage('claude', text, attachments)
       if (w.claudeState) w.claudeState.done = false
+      if (!w.turnDone) w.steeredTurns = (w.steeredTurns ?? 0) + 1
       w.turnDone = false
       w.info.running = true
       w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
@@ -1978,6 +1981,13 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         w.info.running = true
         clearTimeout(w.bgIdleTimer)
       }
+      // Uma mensagem enviada no meio da resposta abre outra vez na janela. O primeiro resultado ainda pertence
+      // à resposta anterior: não encerra a nova vez nem fecha o stdin antes de o Claude processá-la.
+      if (ev.type === 'done' && w.steeredTurns) {
+        w.steeredTurns--
+        claudeSt.done = false
+        continue
+      }
       if (ev.type === 'done') {
         w.turnDone = true
         // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair. Com tarefa em
@@ -2026,6 +2036,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   child.stdin.on('error', () => undefined)
   child.on('error', (e) => {
     w.child = null
+    w.steeredTurns = 0
     w.claudeState = undefined
     w.info.running = false
     emit(w, { type: 'done', ok: false, error: e.message })
@@ -2033,6 +2044,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
     w.child = null
+    w.steeredTurns = 0
     w.claudeState = undefined
     w.info.running = false
     clearTimeout(w.bgIdleTimer)
@@ -2073,10 +2085,11 @@ function composeMessage(provider: CliProvider, text: string, attachments: AgentA
  * a mensagem ao modelo no próximo passo (depois da ferramenta em andamento). Codex e Antigravity não têm isso.
  * false: não há resposta em andamento (ou o CLI não suporta) — o chamador manda do jeito normal.
  */
-export function steerAgent(uid: string, text: string, attachments: AgentAttachment[] = []): boolean {
+export function steerAgent(uid: string, text: string, attachments: AgentAttachment[] = [], opensTurn = false): boolean {
   const w = wins.get(uid)
   if (!w?.child || w.turnDone || w.info.provider !== 'claude' || !w.child.stdin.writable) return false
   const { prompt, inlineImages } = composeMessage('claude', text, attachments)
+  if (opensTurn) w.steeredTurns = (w.steeredTurns ?? 0) + 1
   w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
   return true
 }

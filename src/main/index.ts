@@ -705,8 +705,8 @@ function registerIpc() {
   ipcMain.handle('agent:newFrom', (_e, uid: string, material: HandoffMaterial) => agentChat.newChatFrom(String(uid), material))
   ipcMain.handle('agent:dropHandoff', (_e, uid: string) => agentChat.dropHandoff(String(uid)))
   ipcMain.handle('agent:back', (_e, uid: string) => agentChat.backToPreviousChat(String(uid)))
-  ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[]) =>
-    agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [])
+  ipcMain.handle('agent:steer', (_e, uid: string, text: string, attachments?: AgentAttachment[], opensTurn?: boolean) =>
+    agentChat.steerAgent(String(uid), String(text ?? ''), Array.isArray(attachments) ? attachments : [], opensTurn === true)
   )
   ipcMain.handle('agent:history', (_e, cwd?: string) => agentHistory.listHistory(typeof cwd === 'string' && cwd ? cwd : undefined))
   ipcMain.handle('agent:saveTranscript', (_e, uid: string, turns: AgentTurn[]) => {
