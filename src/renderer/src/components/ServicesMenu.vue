@@ -20,6 +20,7 @@ const services = computed(() => state.settings?.services ?? [])
 const stateOf = (id: string) => states.value.find((s) => s.id === id)
 const portsOf = (id: string) => stateOf(id)?.ports ?? []
 const running = computed(() => services.value.filter((s) => stateOf(s.id)?.status === 'running'))
+const external = computed(() => states.value.flatMap((s) => (s.externalPids ?? []).map((pid) => ({ id: s.id, name: services.value.find((item) => item.id === s.id)?.name ?? 'Túnel SSM', pid }))))
 /** Ativos primeiro, depois os outros na ordem cadastrada; a busca filtra por nome, porta ou comando */
 const ordered = computed(() => {
   const all = [...running.value, ...services.value.filter((s) => stateOf(s.id)?.status !== 'running')]
@@ -121,6 +122,19 @@ async function stop(s: Service) {
     busy.value = null
   }
 }
+const endingExternal = ref<number | null>(null)
+async function terminateExternal(id: string, pid: number) {
+  if (endingExternal.value !== null) return
+  endingExternal.value = pid
+  try {
+    await api.serviceTerminateExternal(id, pid)
+    toast(`Encerramento solicitado para o túnel externo PID ${pid}.`)
+  } catch (e) {
+    toast(cleanErr(e))
+  } finally {
+    endingExternal.value = null
+  }
+}
 /** Parados (ou encerrados): os que o "Iniciar todos" sobe, um de cada vez, na ordem cadastrada */
 const stopped = computed(() => services.value.filter((s) => stateOf(s.id)?.status !== 'running'))
 const startingAll = ref(false)
@@ -169,9 +183,10 @@ onUnmounted(() => {
 
 <template>
   <div ref="root" class="services nodrag">
-    <button class="ghost icon" :class="{ on: open, live: running.length }" :title="running.length ? count(running.length, 'serviço rodando', 'serviços rodando') : 'Serviços'" @click="toggle">
+    <button class="ghost icon" :class="{ on: open, live: running.length, warning: external.length }" :title="external.length ? `${external.length} túnel(is) SSM fora do Ovseer` : running.length ? count(running.length, 'serviço rodando', 'serviços rodando') : 'Serviços'" @click="toggle">
       <Icon name="server" />
-      <span v-if="running.length" class="count">{{ running.length }}</span>
+      <span v-if="external.length" class="count alert-count">{{ external.length }}</span>
+      <span v-else-if="running.length" class="count">{{ running.length }}</span>
     </button>
     <div v-if="open" class="menu">
       <div class="head">
@@ -186,6 +201,16 @@ onUnmounted(() => {
           <small class="faint">{{ running.length ? `${running.length} rodando` : 'nenhum rodando' }}</small>
         </span>
       </div>
+      <template v-if="external.length">
+        <h6 class="sec alert-heading">Túneis fora do Ovseer</h6>
+        <div v-for="item in external.slice(0, 4)" :key="`${item.id}-${item.pid}`" class="row external-row">
+          <span class="dot exited" />
+          <span class="name ellipsis" :title="`${item.name} · PID ${item.pid}`">{{ item.name }}</span>
+          <small class="side faint">PID {{ item.pid }}</small>
+          <button type="button" class="ghost end-external" :disabled="endingExternal !== null" @click="terminateExternal(item.id, item.pid)">Encerrar</button>
+        </div>
+        <small v-if="external.length > 4" class="faint extra-external">+{{ external.length - 4 }} outros processos</small>
+      </template>
       <!-- busca no topo, acima da conta; filtra os serviços locais -->
       <label v-if="services.length > 3" class="search">
         <Icon name="search" :size="12" class="faint" />
@@ -232,11 +257,13 @@ onUnmounted(() => {
 .icon { position: relative; }
 .icon.on { color: var(--accent); background: var(--accent-soft); }
 .icon.live { color: var(--add); }
+.icon.warning { color: var(--del); }
 .count {
   position: absolute; top: 3px; right: 3px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 999px;
   display: inline-grid; place-items: center; font-size: 9.5px; font-weight: 700; font-family: var(--mono);
   background: var(--add); color: var(--bg); box-shadow: 0 0 0 2px var(--panel);
 }
+.alert-count { background: var(--del); }
 .menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 320px; padding: 6px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
@@ -252,6 +279,10 @@ onUnmounted(() => {
 .start-all:hover:not(:disabled) { color: var(--add); background: color-mix(in srgb, var(--add) 12%, transparent); }
 .stop-all:hover:not(:disabled) { color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); }
 .sec { margin: 6px 10px 2px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.alert-heading { color: var(--del); }
+.external-row { background: color-mix(in srgb, var(--del) 8%, transparent); }
+.end-external { height: 22px; padding: 0 6px; color: var(--del); font-size: 11px; }
+.extra-external { margin: 0 10px 4px; font-size: 11px; }
 .search { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; margin: 0 0 2px; border-bottom: 1px solid var(--border); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0; font-size: 12px; color: var(--text); }
 .search input:focus { box-shadow: none; }

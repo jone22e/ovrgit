@@ -225,6 +225,8 @@ export interface ServiceState {
   lastLine?: string
   /** Portas TCP em escuta pelo processo do serviço (e filhos), detectadas enquanto roda */
   ports?: number[]
+  /** Processos SSM equivalentes iniciados fora deste serviço, neste computador */
+  externalPids?: number[]
 }
 
 export interface Snippet {
@@ -1161,6 +1163,8 @@ export interface OvseerApi {
   servicesImportLocate(file: import('./servicesShare').ServicesFile, root: string): Promise<Record<string, string>>
   serviceStart(id: string): Promise<void>
   serviceStop(id: string): Promise<void>
+  /** Encerra um túnel SSM equivalente iniciado fora do serviço, após validar novamente o PID */
+  serviceTerminateExternal(id: string, pid: number): Promise<void>
   /** Abre (ou traz à frente) a janela com o terminal do serviço (desacoplado) */
   serviceOpenWindow(id: string): Promise<void>
   /** Da janela do serviço: volta como aba do painel do app */

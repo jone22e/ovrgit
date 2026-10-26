@@ -162,6 +162,7 @@ const api: OvseerApi = {
   servicesImportLocate: (file, root) => ipcRenderer.invoke('services:importLocate', file, root),
   serviceStart: (id) => ipcRenderer.invoke('services:start', id),
   serviceStop: (id) => ipcRenderer.invoke('services:stop', id),
+  serviceTerminateExternal: (id, pid) => ipcRenderer.invoke('services:terminateExternal', id, pid),
   serviceOpenWindow: (id) => ipcRenderer.invoke('services:openWindow', id),
   serviceReattach: (id) => ipcRenderer.invoke('services:reattach', id),
   onServiceAttachPanel: (cb) => {

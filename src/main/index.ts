@@ -869,6 +869,7 @@ function registerIpc() {
   ipcMain.handle('services:importLocate', (_e, file: ServicesFile, root: string) => servicesShare.locateWithAi(file, String(root ?? '')))
   ipcMain.handle('services:start', (_e, id: string) => services.startService(String(id)))
   ipcMain.handle('services:stop', (_e, id: string) => services.stopService(String(id)))
+  ipcMain.handle('services:terminateExternal', (_e, id: string, pid: number) => services.terminateExternalTunnel(String(id), Number(pid)))
   ipcMain.handle('services:openWindow', (_e, id: string) => services.openServiceWindow(String(id)))
   ipcMain.handle('services:reattach', (e, id: string) => {
     if (!win || win.isDestroyed()) return false

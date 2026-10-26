@@ -4,9 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import type { IPty } from '@lydell/node-pty'
 import { trackPty } from './ptyRegistry'
-import { BrowserWindow, type WebContents } from 'electron'
+import { BrowserWindow, Notification, type WebContents } from 'electron'
 import type { Service, ServiceState } from '../shared/types'
 import { getSettings } from './settings'
+import { externalTunnelProcesses, parseProcessTable, ssmTunnelKey } from './ssmTunnelWatch'
 
 /**
  * Serviços em segundo plano: cada um é um comando de shell (encaminhamento de porta, servidor de desenvolvimento…)
@@ -28,6 +29,7 @@ interface Running {
 
 const BUFFER_MAX = 400_000
 const running = new Map<string, Running>()
+const starting = new Set<string>()
 /** Última execução de cada serviço (para "saiu com código X" na lista) */
 const exits = new Map<string, number | null>()
 const lastLines = new Map<string, string>()
@@ -35,9 +37,15 @@ const lastLines = new Map<string, string>()
 const lastBuffers = new Map<string, string>()
 let setup: { icon: string; background: () => string } | null = null
 const windows = new Map<string, BrowserWindow>()
+const tunnelAlerts = new Map<string, number>()
+let externalPids = new Map<string, number[]>()
+let tunnelScanBusy = false
+let tunnelScanTimer: ReturnType<typeof setInterval> | null = null
 
 export function setupServices(s: { icon: string; background: () => string }) {
   setup = s
+  if (process.platform === 'win32' || tunnelScanTimer) return
+  tunnelScanTimer = setInterval(() => void scanExternalTunnels(), 2000)
 }
 
 const find = (id: string): Service | undefined => getSettings().services.find((s) => s.id === id)
@@ -55,9 +63,10 @@ export function startAutostart() {
 export function serviceStates(): ServiceState[] {
   return getSettings().services.map((s) => {
     const r = running.get(s.id)
-    if (r) return { id: s.id, status: 'running', pid: r.pty.pid, startedAt: r.startedAt, lastLine: lastLines.get(s.id), ports: r.ports }
-    if (exits.has(s.id)) return { id: s.id, status: 'exited', exitCode: exits.get(s.id), lastLine: lastLines.get(s.id) }
-    return { id: s.id, status: 'stopped' }
+    const outside = externalPids.get(s.id) ?? []
+    if (r) return { id: s.id, status: 'running', pid: r.pty.pid, startedAt: r.startedAt, lastLine: lastLines.get(s.id), ports: r.ports, externalPids: outside }
+    if (exits.has(s.id)) return { id: s.id, status: 'exited', exitCode: exits.get(s.id), lastLine: lastLines.get(s.id), externalPids: outside }
+    return { id: s.id, status: 'stopped', externalPids: outside }
   })
 }
 
@@ -89,53 +98,126 @@ function tail(text: string): string {
 export async function startService(id: string): Promise<void> {
   const s = find(id)
   if (!s) throw new Error('Serviço não encontrado.')
-  if (running.has(id)) return
-  const { spawn } = await import('@lydell/node-pty')
-  const { file, args } = shellFor(s.command)
-  const cwd = s.cwd && existsSync(s.cwd) ? s.cwd : os.homedir()
-  const pty = spawn(file, args, {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 30,
-    cwd,
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer', FORCE_COLOR: '1' } as Record<string, string>
-  })
-  trackPty(pty)
-  const r: Running = { pty, startedAt: Date.now(), buffer: '', viewers: new Set(), ports: [] }
-  running.set(id, r)
-  pollPorts(id, r)
-  exits.delete(id)
-  lastLines.delete(id)
-  lastBuffers.delete(id)
-  pty.onData((data) => {
-    // corta só quando passa bem do limite: recortar a cada pedaço copiava o buffer inteiro (centenas de KB)
-    // dezenas de vezes por segundo em serviços que escrevem muito
-    r.buffer += data
-    if (r.buffer.length > BUFFER_MAX * 1.5) r.buffer = r.buffer.slice(-BUFFER_MAX)
-    const line = tail(data)
-    if (line) {
-      lastLines.set(id, line)
-      // a lista mostra a última linha, mas sem martelar a janela: no máximo a cada segundo
-      scheduleBroadcast()
-    }
-    for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, data)
-  })
-  pty.onExit(({ exitCode }) => {
-    clearTimeout(r.poll)
-    running.delete(id)
-    exits.set(id, exitCode)
-    const bye = `\r\n\x1b[2m[processo encerrado${exitCode === null ? '' : ` com código ${exitCode}`}]\x1b[0m\r\n`
-    lastBuffers.set(id, (r.buffer + bye).slice(-BUFFER_MAX))
-    for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, bye)
+  if (running.has(id) || starting.has(id)) return
+  const tunnel = ssmTunnelKey(s.command)
+  const duplicate = tunnel && getSettings().services.find((other) => other.id !== id && (running.has(other.id) || starting.has(other.id)) && ssmTunnelKey(other.command) === tunnel)
+  if (duplicate) throw new Error(`O túnel de "${duplicate.name}" já está em execução.`)
+  starting.add(id)
+  try {
+    const { spawn } = await import('@lydell/node-pty')
+    const { file, args } = shellFor(s.command)
+    const cwd = s.cwd && existsSync(s.cwd) ? s.cwd : os.homedir()
+    const pty = spawn(file, args, {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 30,
+      cwd,
+      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Ovseer', FORCE_COLOR: '1' } as Record<string, string>
+    })
+    trackPty(pty)
+    const r: Running = { pty, startedAt: Date.now(), buffer: '', viewers: new Set(), ports: [] }
+    running.set(id, r)
+    pollPorts(id, r)
+    exits.delete(id)
+    lastLines.delete(id)
+    lastBuffers.delete(id)
+    pty.onData((data) => {
+      // corta só quando passa bem do limite: recortar a cada pedaço copiava o buffer inteiro (centenas de KB)
+      // dezenas de vezes por segundo em serviços que escrevem muito
+      r.buffer += data
+      if (r.buffer.length > BUFFER_MAX * 1.5) r.buffer = r.buffer.slice(-BUFFER_MAX)
+      const line = tail(data)
+      if (line) {
+        lastLines.set(id, line)
+        // a lista mostra a última linha, mas sem martelar a janela: no máximo a cada segundo
+        scheduleBroadcast()
+      }
+      for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, data)
+    })
+    pty.onExit(({ exitCode }) => {
+      clearTimeout(r.poll)
+      running.delete(id)
+      exits.set(id, exitCode)
+      const bye = `\r\n\x1b[2m[processo encerrado${exitCode === null ? '' : ` com código ${exitCode}`}]\x1b[0m\r\n`
+      lastBuffers.set(id, (r.buffer + bye).slice(-BUFFER_MAX))
+      for (const v of r.viewers) if (!v.isDestroyed()) v.send('services:data', id, bye)
+      broadcast()
+    })
     broadcast()
-  })
-  broadcast()
+  } finally {
+    starting.delete(id)
+  }
 }
 
 // ---------- portas em escuta ----------
 
 const sh = (cmd: string, args: string[]) =>
   new Promise<string>((resolve) => execFile(cmd, args, { timeout: 8000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (_e, out) => resolve(String(out ?? ''))))
+
+/** Aviso local: processos fora do serviço também podem abrir sessões AWS SSM. */
+async function scanExternalTunnels() {
+  if (tunnelScanBusy) return
+  const managed = getSettings().services.filter((service) => ssmTunnelKey(service.command)).map((service) => ({
+    id: service.id,
+    name: service.name,
+    command: service.command,
+    pid: running.get(service.id)?.pty.pid
+  }))
+  if (!managed.length) {
+    if (externalPids.size) {
+      externalPids = new Map()
+      broadcast()
+    }
+    return
+  }
+  tunnelScanBusy = true
+  try {
+    const output = await sh('ps', ['-axww', '-o', 'pid=,ppid=,command='])
+    const alerts = externalTunnelProcesses(parseProcessTable(output), managed)
+    const current = new Map<string, number[]>()
+    for (const alert of alerts) current.set(alert.id, [...(current.get(alert.id) ?? []), alert.pid])
+    if (JSON.stringify([...current]) !== JSON.stringify([...externalPids])) {
+      externalPids = current
+      broadcast()
+    }
+    for (const alert of alerts) {
+      const last = tunnelAlerts.get(alert.id) ?? 0
+      if (Date.now() - last < 60_000) continue
+      tunnelAlerts.set(alert.id, Date.now())
+      const body = `Outro processo (PID ${alert.pid}) abriu o túnel de ${alert.name}. Abra Serviços para encerrar.`
+      console.warn(`Túnel SSM fora do Ovseer: ${alert.name}, PID ${alert.pid}`)
+      if (Notification.isSupported()) new Notification({ title: 'Túnel SSM fora do Ovseer', body }).show()
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('aws:alert', { title: 'Túnel SSM fora do Ovseer', body })
+      }
+    }
+  } catch (error) {
+    console.warn('Não foi possível verificar túneis SSM externos:', error)
+  } finally {
+    tunnelScanBusy = false
+  }
+}
+
+/** Ação explícita do usuário; confere novamente o PID e o destino antes de sinalizar o processo externo. */
+export async function terminateExternalTunnel(id: string, pid: number): Promise<void> {
+  const service = find(id)
+  if (!service || !ssmTunnelKey(service.command)) throw new Error('Túnel gerenciado não encontrado.')
+  if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('PID inválido.')
+  const processes = parseProcessTable(await sh('ps', ['-axww', '-o', 'pid=,ppid=,command=']))
+  const matching = externalTunnelProcesses(processes, [{ id, name: service.name, command: service.command, pid: running.get(id)?.pty.pid }])
+  if (!matching.some((process) => process.pid === pid)) throw new Error('Este processo externo já terminou ou mudou.')
+  const plugins = processes.filter((process) => process.ppid === pid && /^(?:\S*\/)?session-manager-plugin(?:\s|$)/.test(process.command))
+  for (const plugin of plugins) {
+    try { process.kill(plugin.pid, 'SIGTERM') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
+  try { process.kill(pid, 'SIGTERM') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  await scanExternalTunnels()
+}
 
 /** Processo do serviço e todos os descendentes (o comando roda dentro do shell de login) */
 async function processTree(root: number): Promise<number[]> {
