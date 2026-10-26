@@ -61,7 +61,7 @@ watch(query, (q) => {
   const request = ++pathRequest
   if (!pathQuery(q) || THEME_MODE.test(q.trim())) return
   pathTimer = setTimeout(() => {
-    api.sourceResolvePath(q).then((found) => { if (request === pathRequest) resolved.value = found }).catch(() => undefined)
+    window.ovseer.sourceResolvePath(q).then((found) => { if (request === pathRequest) resolved.value = found }).catch(() => undefined)
   }, 120)
 }, { immediate: true })
 
@@ -208,7 +208,7 @@ function activate(it: Item) {
 }
 async function choose() {
   if (pathQuery(query.value) && !resolved.value && index.value === 0) {
-    const found = await api.sourceResolvePath(query.value).catch(() => null)
+    const found = await window.ovseer.sourceResolvePath(query.value).catch(() => null)
     if (found) return activate({ path: `${found.root}/${found.path}`, resolved: found })
   }
   if (noResult.value) {
