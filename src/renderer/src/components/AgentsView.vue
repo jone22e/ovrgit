@@ -489,7 +489,7 @@ function pick(a: AgentSnapshot) {
         <div class="list">
         <div v-for="h in closedPinned" :key="h.sessionId" class="item closed" :title="'Reabrir a conversa'" @click="reopen(h)">
           <span v-if="compactList" class="pinned-avatar" :title="`${workspaceLabel(h)} · ${CLOSED_LABEL[closedStatus(h)] || 'fixada'}`">
-            <RepoIcon :icon="state.settings?.repoIcons?.[h.cwd] ?? null" :favicon="projectIcons.get(h.cwd)" :size="34" />
+            <RepoIcon :icon="h.icon ?? state.settings?.repoIcons?.[h.cwd] ?? null" :favicon="projectIcons.get(h.cwd)" :size="34" />
             <i :class="closedStatus(h)" />
           </span>
           <span v-else class="dot" :class="closedStatus(h) === 'stopped' ? '' : closedStatus(h)" />

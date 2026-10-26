@@ -81,6 +81,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status
     project: info.project,
     extraDirs: info.extraDirs?.length ? info.extraDirs : undefined,
     title: info.title || titleOf(turns) || items[i]?.title || 'Conversa',
+    icon: info.icon,
     renamed: info.renamed,
     pinned: items[i]?.pinned,
     status: status ?? items[i]?.status,
@@ -106,6 +107,15 @@ export function setHistoryTitle(sessionId: string, title: string, renamed: boole
   it.title = title
   it.renamed = renamed
   it.updatedAt = Date.now()
+  save(items)
+}
+
+/** Atualiza o ícone sem alterar a ordem das conversas no histórico. */
+export function setHistoryIcon(sessionId: string, icon: string | undefined) {
+  const items = load()
+  const it = items.find((i) => i.sessionId === sessionId)
+  if (!it) return
+  it.icon = icon
   save(items)
 }
 

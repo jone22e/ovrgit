@@ -13,7 +13,7 @@ import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
-import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
+import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryIcon, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
 import { quickAsk } from './quickAi'
 import { sessionContext } from './agentWatch'
@@ -615,6 +615,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
     sessionId: opts.resumeId ?? null,
     running: false,
     title: prev?.title ?? '',
+    icon: prev?.icon,
     renamed: !!prev?.renamed
   }
   // conversa reaberta volta ao lugar de antes; janela nova vai para a próxima área livre do grid, na tela do ponteiro
@@ -810,6 +811,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
     .map((w) => ({
       ...w.snap!,
+      icon: w.info.icon,
       hidden: !!w.floating && !w.win.isVisible(),
       floating: !!w.floating,
       background: !!w.background,
@@ -2214,6 +2216,18 @@ export function setTitle(uid: string, raw: string): string {
   return t
 }
 
+/** Escolhe um ícone apenas para esta conversa, inclusive quando ela estiver fixada no histórico. */
+export function setIcon(uid: string, icon: string | null): void {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Janela do agente não encontrada.')
+  if (icon && !/^[a-z][\w-]{0,49}$/.test(icon) && (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(icon) || icon.length > 300_000)) {
+    throw new Error('Ícone inválido.')
+  }
+  w.info.icon = icon || undefined
+  if (w.info.sessionId) setHistoryIcon(w.info.sessionId, w.info.icon)
+  broadcastSnapshots()
+}
+
 const shortTitle = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 90)
 
 /** Pede à mesma IA um título curto para a conversa, numa chamada separada e barata (não entra na sessão). */
@@ -2469,6 +2483,7 @@ export async function newChat(uid: string) {
   w.info.resumeId = undefined
   w.info.firstMessage = undefined
   w.info.title = ''
+  w.info.icon = undefined
   w.info.renamed = false
   w.titleToken = undefined // um título ainda a caminho era da conversa anterior
   w.info.handoff = null
@@ -2591,6 +2606,7 @@ export function backToPreviousChat(uid: string): boolean {
   w.info.sessionId = prevId
   w.info.resumeId = prevId
   w.info.title = prev?.title ?? ''
+  w.info.icon = prev?.icon
   w.info.renamed = !!prev?.renamed
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
   broadcastWindows()

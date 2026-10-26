@@ -5,11 +5,13 @@ import Icon from './Icon.vue'
 
 const props = withDefaults(defineProps<{ icon?: string | null; favicon?: string | null; group?: boolean; size?: number }>(), { size: 16 })
 const choice = computed(() => repoIconChoices.find((c) => c.id === props.icon))
+const uploaded = computed(() => typeof props.icon === 'string' && props.icon.startsWith('data:image/png;base64,'))
 </script>
 
 <template>
   <span class="repo-icon" :class="{ chosen: !!choice, compact: size < 20 }" :style="{ width: `${size}px`, height: `${size}px`, '--icon-color': choice?.color }">
     <Icon v-if="choice" :name="choice.id" :size="Math.round(size * 0.7)" />
+    <img v-else-if="uploaded" :src="icon!" alt="" />
     <img v-else-if="favicon && !group" :src="favicon" alt="" />
     <Icon v-else :name="group ? 'layers' : 'folder'" :size="Math.round(size * 0.82)" />
   </span>

@@ -731,6 +731,7 @@ function registerIpc() {
   ipcMain.handle('agent:forget', (_e, sessionId: string) => agentHistory.forget(String(sessionId)))
   ipcMain.handle('agent:pin', (_e, sessionId: string, pinned: boolean) => agentHistory.setHistoryPinned(String(sessionId), !!pinned))
   ipcMain.handle('agent:setTitle', (_e, uid: string, title: string) => agentChat.setTitle(String(uid), String(title ?? '').slice(0, 120)))
+  ipcMain.handle('agent:setIcon', (_e, uid: string, icon: string | null) => agentChat.setIcon(String(uid), icon == null ? null : String(icon)))
   // conceito visual do Modo Arquiteto: pedido à parte da conversa, possivelmente em outra IA
   ipcMain.handle('design:run', (_e, uid: string, o: agentChat.DesignRunOptions) =>
     agentChat.runDesign(String(uid), {

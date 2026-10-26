@@ -520,6 +520,8 @@ export interface QueueTask {
 
 export interface AgentWindowInfo extends AgentChatOpen {
   uid: string
+  /** Ícone escolhido para esta conversa (símbolo local ou imagem PNG) */
+  icon?: string
   /** Nome da pasta do projeto */
   project: string
   branch: string | null
@@ -753,6 +755,8 @@ export interface DaySummary {
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {
   uid: string
+  /** Ícone escolhido para esta conversa */
+  icon?: string
   title: string
   project: string
   provider: CliProvider
@@ -837,6 +841,8 @@ export type AgentAction =
 
 export interface AgentHistoryItem {
   sessionId: string
+  /** Ícone escolhido para esta conversa */
+  icon?: string
   provider: CliProvider
   model: string
   effort: AgentEffort
@@ -1244,6 +1250,8 @@ export interface OvseerApi {
   agentPin(sessionId: string, pinned: boolean): Promise<void>
   /** Renomeia a conversa (vazio volta ao título automático) */
   agentSetTitle(uid: string, title: string): Promise<string>
+  /** Escolhe ou remove o ícone desta conversa */
+  agentSetIcon(uid: string, icon: string | null): Promise<void>
   /** Troca a pasta da conversa (só antes da primeira mensagem); devolve a informação atualizada */
   agentSetCwd(uid: string, cwd: string): Promise<AgentWindowInfo>
   /** Repositórios recentes, para a janela do agente trocar de pasta */

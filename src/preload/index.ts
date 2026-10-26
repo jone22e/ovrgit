@@ -269,6 +269,7 @@ const api: OvseerApi = {
   agentForget: (sessionId) => ipcRenderer.invoke('agent:forget', sessionId),
   agentPin: (sessionId, pinned) => ipcRenderer.invoke('agent:pin', sessionId, pinned),
   agentSetTitle: (uid, title) => ipcRenderer.invoke('agent:setTitle', uid, title),
+  agentSetIcon: (uid, icon) => ipcRenderer.invoke('agent:setIcon', uid, icon),
   agentSetCwd: (uid, cwd) => ipcRenderer.invoke('agent:setCwd', uid, cwd),
   agentProjects: () => ipcRenderer.invoke('agent:projects'),
   agentPickCwd: (uid) => ipcRenderer.invoke('agent:pickCwd', uid),
