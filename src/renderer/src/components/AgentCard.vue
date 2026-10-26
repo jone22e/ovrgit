@@ -251,7 +251,10 @@ async function saveRename() {
       <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
       <small class="list-meta"><span>{{ group?.name ?? a.project }} · {{ a.model }}</span><span v-if="detail" class="list-activity"> · {{ detail }}</span></small>
     </div>
-    <div v-if="compact && chips.length" class="list-chips"><span v-for="c in chips" :key="c.text" class="chip" :class="c.tone">{{ c.text }}</span></div>
+    <span v-if="compact && a.files?.count" class="stats mono list-stats" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'} · +${a.files.add} −${a.files.del} linhas`">
+      <Icon name="pencil" :size="11" /> {{ a.files.count }}
+      <span class="sq" aria-hidden="true"><i v-for="k in 4" :key="k" :class="k <= addSquares ? 'add' : 'del'" /></span>
+    </span>
     <button v-if="compact && a.status === 'waiting'" type="button" class="list-review" @click.stop="emit('pick')">Revisar</button>
     <button v-else-if="compact && a.status === 'error'" type="button" class="list-review error" @click.stop="emit('act', { type: 'retry' })">Retomar</button>
     <span v-if="compact && (a.context || hbTone !== 'idle')" class="list-vitals">
@@ -520,8 +523,7 @@ async function saveRename() {
 .list-activity { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .compact.waiting .list-activity { color: var(--mod); }
 .compact.error .list-activity { color: var(--del); }
-.list-chips { grid-column: 3; display: flex; align-items: center; gap: 5px; max-width: 240px; overflow: hidden; }
-.list-chips .chip { flex: none; white-space: nowrap; }
+.list-stats { grid-column: 3; }
 .list-review { grid-column: 4; min-height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, var(--mod) 82%, var(--panel)); color: var(--bg); font-size: 12px; font-weight: 700; }
 .list-review.error { background: color-mix(in srgb, var(--del) 20%, var(--panel)); color: var(--del); }
 .list-vitals { grid-column: 5; display: inline-flex; align-items: center; gap: 8px; --hb-bg: var(--bg); }
@@ -532,7 +534,7 @@ async function saveRename() {
 .list-when { grid-column: 6; justify-self: end; color: var(--faint); font-size: 11px; white-space: nowrap; }
 .list-more { grid-column: 7; display: grid; place-items: center; width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--faint); }
 .list-more:hover { color: var(--text); }
-@container (max-width: 680px) { .list-chips { display: none; } .acard.compact { gap: 8px; } }
+@container (max-width: 680px) { .acard.compact { gap: 8px; } }
 @container (max-width: 460px) { .list-when { display: none; } .list-meta > span:first-child { max-width: 75%; } }
 
 /* menu do botão direito (vive no body) */
