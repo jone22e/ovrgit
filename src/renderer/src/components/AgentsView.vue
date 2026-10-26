@@ -577,7 +577,8 @@ function pick(a: AgentSnapshot) {
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
 .scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
 .scroll.list-mode { padding: 0 0 24px; container-type: inline-size; }
-.list-head { display: flex; align-items: center; gap: 18px; min-height: 58px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.list-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 18px; min-height: 58px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.scroll.list-mode :deep(.acard) { scroll-margin-top: 58px; }
 .list-head > strong { flex: none; font-size: 16px; white-space: nowrap; }
 .list-filters { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; padding: 3px; border-radius: 10px; background: var(--bg); overflow-x: auto; scrollbar-width: none; }
 .list-filters::-webkit-scrollbar { display: none; }
@@ -596,7 +597,7 @@ function pick(a: AgentSnapshot) {
 .list-rows { display: flex; flex-direction: column; }
 .list-section.done .list-rows :deep(.acard:not(:last-child)) { border-bottom-color: var(--border); border-radius: 0; }
 .list-no-match { margin: 28px 16px; color: var(--muted); font-size: 12px; }
-@container (max-width: 760px) { .list-head { flex-wrap: wrap; gap: 8px; } .list-search { width: 100%; } }
+@container (max-width: 760px) { .list-head { flex-wrap: wrap; gap: 8px; } .list-search { width: 100%; } .scroll.list-mode :deep(.acard) { scroll-margin-top: 100px; } }
 .head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .head strong { font-size: 14px; }
 /* contadores como filtros: pílulas discretas; a ativa fica marcada e as outras apagam um pouco */
