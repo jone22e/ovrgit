@@ -41,6 +41,8 @@ interface AgentWin {
   steeredTurns?: number
   /** Resolve quando o processo atual sai */
   exited: Promise<void> | null
+  /** Processo que já não aceita mensagens; seus eventos tardios não pertencem à próxima vez */
+  retiringChild?: ChildProcessWithoutNullStreams
   /** Situação da conversa, informada pela janela (só ela sabe de cartões esperando resposta) */
   status?: AgentStatus
   /** Modo da última mensagem enviada por esta janela (ausente: nenhuma ainda) */
@@ -1822,8 +1824,10 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       w.child.stdin.write(claudeContextRequest())
       return
     }
-    if (!w.turnDone) throw new Error('O agente ainda está respondendo. Aguarde ou interrompa.')
-    await w.exited // a resposta acabou, mas o processo ainda está saindo
+    // A janela pode enviar outra mensagem enquanto o processo anterior já não aceita stdin.
+    // Aguarda sua saída antes de iniciar outro CLI, sem entregar eventos antigos à nova mensagem.
+    w.retiringChild = w.child
+    await w.exited
   }
   if (opts.provider && opts.provider !== w.info.provider) {
     if (w.info.sessionId) throw new Error('A conversa já começou com outro provedor. Abra um agente novo para trocar.')
@@ -1956,6 +1960,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
           broadcastWindows()
         }
       }
+      if (w.retiringChild === child) continue
       if (ev.type === 'text' && answer.length < 3000) answer += ev.delta
       if (ev.type === 'context') {
         // a bateria do cartão: fica na janela e vai no resumo para o gerenciador (a conversa em si não mostra)
@@ -2035,14 +2040,17 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   })
   child.stdin.on('error', () => undefined)
   child.on('error', (e) => {
+    const retiring = w.retiringChild === child
     w.child = null
     w.steeredTurns = 0
     w.claudeState = undefined
     w.info.running = false
-    emit(w, { type: 'done', ok: false, error: e.message })
+    if (!retiring) emit(w, { type: 'done', ok: false, error: e.message })
   })
   child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
+    const retiring = w.retiringChild === child
+    if (retiring) w.retiringChild = undefined
     w.child = null
     w.steeredTurns = 0
     w.claudeState = undefined
@@ -2054,7 +2062,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       w.info.bgTasks = undefined
       emit(w, { type: 'background', tasks: [] })
     }
-    if (!isDone()) {
+    if (!isDone() && !retiring) {
       const tail = stderr.trim().split('\n').filter(Boolean).slice(-3).join(' ')
       let error = tail || `${PROVIDER_NAME[provider]} saiu com código ${code}`
       if (/auth|login|oauth|credential|unauthorized|401/i.test(error)) error = 'Sem login. Abra ⚙ Configurações e clique em "Entrar".'
