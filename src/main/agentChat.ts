@@ -29,6 +29,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
  * (texto, ferramenta, arquivos, fim) e enviada à janela. Modelo e esforço podem mudar a cada mensagem.
  */
 
+type PendingAgentSend = { text: string; opts: AgentSendOptions; attachments: AgentAttachment[] }
+
 interface AgentWin {
   info: AgentWindowInfo
   /** Onde a conversa mora: uma janela do sistema (solta) ou uma vista embutida na principal (modo orquestrador).
@@ -43,6 +45,8 @@ interface AgentWin {
   exited: Promise<void> | null
   /** Processo que já não aceita mensagens; seus eventos tardios não pertencem à próxima vez */
   retiringChild?: ChildProcessWithoutNullStreams
+  /** Mensagem já aceita pela janela, aguardando o processo anterior sair */
+  pendingSend?: PendingAgentSend
   /** Situação da conversa, informada pela janela (só ela sabe de cartões esperando resposta) */
   status?: AgentStatus
   /** Modo da última mensagem enviada por esta janela (ausente: nenhuma ainda) */
@@ -1805,7 +1809,7 @@ function terminate(child: ChildProcessWithoutNullStreams, provider: CliProvider)
   }, 3000).unref()
 }
 
-export async function sendToAgent(uid: string, text: string, opts: AgentSendOptions, attachments: AgentAttachment[] = []): Promise<void> {
+export async function sendToAgent(uid: string, text: string, opts: AgentSendOptions, attachments: AgentAttachment[] = [], pending?: PendingAgentSend): Promise<void> {
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
   if (w.child) {
@@ -1824,10 +1828,24 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       w.child.stdin.write(claudeContextRequest())
       return
     }
-    // A janela pode enviar outra mensagem enquanto o processo anterior já não aceita stdin.
-    // Aguarda sua saída antes de iniciar outro CLI, sem entregar eventos antigos à nova mensagem.
+    // Aceita a mensagem já: o processo anterior não recebe mais stdin, então a entrega continua
+    // assim que ele sair. Seus eventos tardios não pertencem à nova vez mostrada na janela.
+    const pending = { text, opts, attachments }
+    w.pendingSend = pending
     w.retiringChild = w.child
-    await w.exited
+    w.info.running = true
+    void w.exited!.then(async () => {
+      if (w.pendingSend !== pending || wins.get(uid) !== w || w.closing || quitting) return
+      try {
+        await sendToAgent(uid, text, opts, attachments, pending)
+      } catch (e) {
+        if (w.pendingSend !== pending) return
+        w.pendingSend = undefined
+        w.info.running = false
+        emit(w, { type: 'done', ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })
+    return
   }
   if (opts.provider && opts.provider !== w.info.provider) {
     if (w.info.sessionId) throw new Error('A conversa já começou com outro provedor. Abra um agente novo para trocar.')
@@ -1842,6 +1860,10 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       agy: 'Antigravity CLI não encontrado. Instale o Antigravity (Google) e rode "agy" uma vez para fazer login.'
     }
     throw new Error(hints[provider])
+  }
+  if (pending) {
+    if (w.pendingSend !== pending) return // interrompida enquanto procurava o CLI
+    w.pendingSend = undefined
   }
   // o contexto trazido de outra conversa vai escondido nesta mensagem (a janela o junta): não precisa mais ficar guardado
   w.info.handoff = null
@@ -1960,7 +1982,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
           broadcastWindows()
         }
       }
-      if (w.retiringChild === child) continue
+      if (w.retiringChild === child && ev.type !== 'session') continue
       if (ev.type === 'text' && answer.length < 3000) answer += ev.delta
       if (ev.type === 'context') {
         // a bateria do cartão: fica na janela e vai no resumo para o gerenciador (a conversa em si não mostra)
@@ -2044,7 +2066,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     w.child = null
     w.steeredTurns = 0
     w.claudeState = undefined
-    w.info.running = false
+    w.info.running = !!w.pendingSend
     if (!retiring) emit(w, { type: 'done', ok: false, error: e.message })
   })
   child.on('close', (code, signal) => {
@@ -2054,7 +2076,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     w.child = null
     w.steeredTurns = 0
     w.claudeState = undefined
-    w.info.running = false
+    w.info.running = !!w.pendingSend
     clearTimeout(w.bgIdleTimer)
     // o processo saiu com tarefa em segundo plano pendente (interrompido, ou o CLI desistiu): ela não avisa mais
     if (w.bgTasks?.length) {
@@ -2501,6 +2523,7 @@ export function saveDesign(uid: string, html: string, name: string): string {
 export async function newChat(uid: string) {
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
+  w.pendingSend = undefined
   if (w.child) {
     terminate(w.child, w.info.provider)
     await w.exited
@@ -2643,6 +2666,11 @@ export function backToPreviousChat(uid: string): boolean {
 
 export function cancelAgent(uid: string) {
   const w = wins.get(uid)
+  if (w?.pendingSend) {
+    w.pendingSend = undefined
+    w.info.running = false
+    emit(w, { type: 'done', ok: false, error: 'Interrompido.' })
+  }
   if (w?.child) terminate(w.child, w.info.provider)
 }
 
@@ -2654,7 +2682,10 @@ export function shutdownAgents() {
   // o retrato fica como estava com tudo aberto: as janelas que vão fechar agora não saem dele
   saveOpenAgents()
   openAgentsFrozen = true
-  for (const w of wins.values()) if (w.child) terminate(w.child, w.info.provider)
+  for (const w of wins.values()) {
+    w.pendingSend = undefined
+    if (w.child) terminate(w.child, w.info.provider)
+  }
 }
 
 // ---------- agentes abertos: retrato em disco, para reabrir tudo como estava na próxima vez ----------
