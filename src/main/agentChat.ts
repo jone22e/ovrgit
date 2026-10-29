@@ -18,6 +18,7 @@ import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './o
 import { quickAsk } from './quickAi'
 import { sessionContext } from './agentWatch'
 import { agentApiInfo } from './agentApi'
+import { ClaudeCompletion } from './claudeCompletion'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 
@@ -39,8 +40,8 @@ interface AgentWin {
   child: ChildProcessWithoutNullStreams | null
   /** A resposta atual já terminou (o processo pode ainda estar encerrando) */
   turnDone: boolean
-  /** Respostas antigas ainda por concluir após mensagens enviadas durante a vez do Claude */
-  steeredTurns?: number
+  /** Aguarda por um possível início de resposta após um resultado do Claude com mensagens enviadas no meio da vez */
+  claudeCompletion?: ClaudeCompletion
   /** Resolve quando o processo atual sai */
   exited: Promise<void> | null
   /** Processo que já não aceita mensagens; seus eventos tardios não pertencem à próxima vez */
@@ -1821,7 +1822,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       w.handoffToken = undefined
       const { prompt, inlineImages } = composeMessage('claude', text, attachments)
       if (w.claudeState) w.claudeState.done = false
-      if (!w.turnDone) w.steeredTurns = (w.steeredTurns ?? 0) + 1
+      if (!w.turnDone) w.claudeCompletion?.steer()
       w.turnDone = false
       w.info.running = true
       w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
@@ -1973,6 +1974,32 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       return t
     })
   }
+  const complete = (ev: Extract<AgentChatEvent, { type: 'done' }>) => {
+    if (w.retiringChild === child) return
+    w.turnDone = true
+    // Com tarefa em segundo plano, o stdin fica aberto para o Claude retomar a conversa quando ela terminar.
+    if (provider === 'claude' && !w.bgTasks?.length && child.stdin.writable) child.stdin.end()
+    if (ev.ok && firstTurn && !w.info.renamed) {
+      const token = w.titleToken
+      const withAnswer = () =>
+        generateTitle(provider, text, answer).then((t) => {
+          if (t && w.titleToken === token && !w.info.renamed && !w.win.isDestroyed()) applyTitle(t)
+        })
+      if (earlyTitle) {
+        earlyTitle.then((t) => {
+          if (w.titleToken !== token || w.info.renamed) return
+          if (!t) withAnswer()
+          else if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t, false)
+        })
+      } else if (!w.info.title) {
+        applyTitle(shortTitle(text))
+        withAnswer()
+      }
+    }
+    emit(w, ev)
+  }
+  const claudeCompletion = provider === 'claude' ? new ClaudeCompletion(complete) : undefined
+  w.claudeCompletion = claudeCompletion
   const handle = (line: string) => {
     if (!line.trim()) return
     for (const ev of parse(line)) {
@@ -2001,50 +2028,25 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
           }, 30_000)
         }
       }
+      // Um novo init ou conteúdo depois de um resultado indica que o Claude abriu outra resposta.
+      const nextClaudeTurn = provider === 'claude' && (ev.type === 'session' || ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')
+      if (nextClaudeTurn && claudeCompletion?.activity()) claudeSt.done = false
       // o CLI retomou a conversa por conta própria (uma tarefa em segundo plano terminou): a vez recomeça
-      if (w.turnDone && (ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')) {
+      if (w.turnDone && (ev.type === 'session' || ev.type === 'text' || ev.type === 'thinking' || ev.type === 'tool')) {
         w.turnDone = false
         if (provider === 'claude') claudeSt.done = false
         w.info.running = true
         clearTimeout(w.bgIdleTimer)
       }
-      // Uma mensagem enviada no meio da resposta abre outra vez na janela. O primeiro resultado ainda pertence
-      // à resposta anterior: não encerra a nova vez nem fecha o stdin antes de o Claude processá-la.
-      if (ev.type === 'done' && w.steeredTurns) {
-        w.steeredTurns--
-        claudeSt.done = false
-        continue
-      }
-      if (ev.type === 'done') {
-        w.turnDone = true
-        // Claude: o stdin ficou aberto para mensagens no meio da resposta; fechar faz o processo sair. Com tarefa em
-        // segundo plano rodando, fica aberto: a tarefa vive no processo, e o CLI continua a conversa quando ela acabar
-        if (provider === 'claude' && !w.bgTasks?.length) child.stdin.end()
-      }
       if (ev.type === 'files') fileStats(w.info.cwd, ev.paths).then(({ stats, repos }) => emit(w, { type: 'files', paths: ev.paths, stats, repos }))
-      if (ev.type === 'done' && ev.ok && firstTurn && !w.info.renamed) {
-        const token = w.titleToken
-        const withAnswer = () =>
-          generateTitle(provider, text, answer).then((t) => {
-            if (t && w.titleToken === token && !w.info.renamed && !w.win.isDestroyed()) applyTitle(t)
-          })
-        if (earlyTitle) {
-          // o título antecipado já chegou (ou está chegando): agora que a sessão tem id, grava no histórico;
-          // se a IA não conseguiu titular só pelo pedido (devolveu null), tenta com a resposta
-          earlyTitle.then((t) => {
-            if (w.titleToken !== token || w.info.renamed) return
-            if (!t) withAnswer()
-            else if (w.info.sessionId) setHistoryTitle(w.info.sessionId, t, false)
-          })
-        } else if (!w.info.title) {
-          // pedido sem texto (só anexos): o título sai depois da primeira resposta, como antes
-          applyTitle(shortTitle(text))
-          withAnswer()
-        }
-      }
       if (ev.type === 'plan') {
         const plan = readClaudePlan(ev.path)
         if (plan) emit(w, { ...ev, text: plan })
+        continue
+      }
+      if (ev.type === 'done') {
+        if (claudeCompletion) claudeCompletion.result(ev)
+        else complete(ev)
         continue
       }
       emit(w, ev)
@@ -2063,18 +2065,23 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   child.stdin.on('error', () => undefined)
   child.on('error', (e) => {
     const retiring = w.retiringChild === child
+    claudeCompletion?.dispose()
+    if (w.claudeCompletion === claudeCompletion) w.claudeCompletion = undefined
     w.child = null
-    w.steeredTurns = 0
     w.claudeState = undefined
     w.info.running = !!w.pendingSend
     if (!retiring) emit(w, { type: 'done', ok: false, error: e.message })
   })
   child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
+    // Se a vez foi interrompida durante a espera, o último resultado pode ser da resposta anterior.
+    if (claudeCompletion?.waiting && (child.killed || signal || (code !== null && code !== 0))) claudeSt.done = false
+    else claudeCompletion?.flush()
+    claudeCompletion?.dispose()
+    if (w.claudeCompletion === claudeCompletion) w.claudeCompletion = undefined
     const retiring = w.retiringChild === child
     if (retiring) w.retiringChild = undefined
     w.child = null
-    w.steeredTurns = 0
     w.claudeState = undefined
     w.info.running = !!w.pendingSend
     clearTimeout(w.bgIdleTimer)
@@ -2119,7 +2126,7 @@ export function steerAgent(uid: string, text: string, attachments: AgentAttachme
   const w = wins.get(uid)
   if (!w?.child || w.turnDone || w.info.provider !== 'claude' || !w.child.stdin.writable) return false
   const { prompt, inlineImages } = composeMessage('claude', text, attachments)
-  if (opensTurn) w.steeredTurns = (w.steeredTurns ?? 0) + 1
+  if (opensTurn) w.claudeCompletion?.steer()
   w.child.stdin.write(claudeInputMessage(prompt, inlineImages))
   return true
 }
