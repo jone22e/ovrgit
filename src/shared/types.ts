@@ -886,11 +886,11 @@ export interface ProviderUsage {
   error?: string
 }
 
-/** Consumo das assinaturas Claude e ChatGPT (Codex) */
+/** Consumo das assinaturas Claude, ChatGPT (Codex) e Antigravity */
 export interface UsageInfo {
   claude: ProviderUsage | null
   codex: ProviderUsage | null
-  /** Antigravity não expõe limites localmente: só a conta */
+  /** Antigravity: limites do `/usage` do CLI; `plan` é a conta conectada */
   agy: ProviderUsage | null
 }
 

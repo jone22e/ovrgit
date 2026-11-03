@@ -155,7 +155,7 @@ async function loadUsage() {
 const usageRows = computed(() => {
   const u = usage.value
   if (!u) return []
-  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const).filter((r) => r[2]?.week).map((r) => ({ id: r[0], name: r[1], pct: Math.round(r[2]!.week!.pct) }))
+  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex], ['agy', 'Antigravity', u.agy]] as const).filter((r) => r[2]?.week).map((r) => ({ id: r[0], name: r[1], pct: Math.round(r[2]!.week!.pct) }))
 })
 const weekAvg = computed(() => (usageRows.value.length ? usageRows.value.reduce((s, r) => s + r.pct, 0) / usageRows.value.length : null))
 /** Quando a janela de uso zera, como no chip do cabeçalho */
@@ -172,7 +172,7 @@ function resets(w: { resetsAt: number | null } | null): string {
 const usageDetail = computed(() => {
   const u = usage.value
   if (!u) return []
-  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const)
+  return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex], ['agy', 'Antigravity', u.agy]] as const)
     .filter((r) => r[2] && r[2].week)
     .map((r) => ({
       id: r[0],
@@ -582,6 +582,7 @@ svg { display: block; overflow: visible; }
 .track .fill { display: block; height: 100%; border-radius: 3px; background: #dfe3ea; }
 .track .fill.claude { background: #d9a66b; }
 .track .fill.codex { background: #6fcf97; }
+.track .fill.agy { background: #6fa3f7; }
 .track.warm .fill { background: #f08a2d; }
 .track.hot .fill { background: #e0443e; }
 /* com agentes: os totais, as três conversas mais urgentes e a linha de baixo */

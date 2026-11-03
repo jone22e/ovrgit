@@ -6,7 +6,7 @@ import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
 /**
- * Consumo semanal das assinaturas Claude e ChatGPT, como duas barrinhas no cabeçalho.
+ * Consumo semanal das assinaturas Claude, ChatGPT e Antigravity no cabeçalho.
  * Clique: detalhe por assinatura, com o uso da semana e quando o limite zera,
  * e se há versão nova do CLI (com um botão que roda o `update` do próprio CLI).
  */
@@ -180,7 +180,7 @@ onUnmounted(() => {
         <p v-if="updateError[r.id]" class="bad">{{ updateError[r.id] }}</p>
         <p v-if="r.u.error" class="bad">{{ r.u.error }}</p>
         <template v-else>
-          <div v-for="w in (r.id === 'agy' ? [] : ([['Semana', r.u.week]] as [string, UsageWindow | null][]))" :key="w[0]" class="line">
+          <div v-for="w in ([['Semana', r.u.week]] as [string, UsageWindow | null][])" :key="w[0]" class="line">
             <span class="lbl">{{ w[0] }}</span>
             <template v-if="w[1]">
               <span class="track" :class="tone(w[1].pct)"><span class="fill" :class="r.id" :style="{ width: `${Math.max(1, w[1].pct)}%` }" /></span>
@@ -224,6 +224,7 @@ onUnmounted(() => {
 .fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.3s; }
 .fill.claude { background: #d97757; }
 .fill.codex { background: var(--text); opacity: 0.75; }
+.fill.agy { background: #4a8af4; }
 .track.warm .fill { background: var(--mod); opacity: 1; }
 .track.hot .fill { background: var(--del); opacity: 1; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: -2px; }
