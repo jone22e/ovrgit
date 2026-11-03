@@ -168,16 +168,16 @@ function resets(w: { resetsAt: number | null } | null): string {
   if (h >= 24) return `zera em ${Math.floor(h / 24)} d ${h % 24} h`
   return h ? `zera em ${h} h ${m} min` : `zera em ${m} min`
 }
-/** Sem agente aberto, a ilha mostra o uso por assinatura e por janela (semana e 5 horas) */
+/** Sem agente aberto, a ilha mostra o uso semanal por assinatura */
 const usageDetail = computed(() => {
   const u = usage.value
   if (!u) return []
   return ([['claude', 'Claude', u.claude], ['codex', 'ChatGPT', u.codex]] as const)
-    .filter((r) => r[2] && (r[2].week || r[2].fiveHour))
+    .filter((r) => r[2] && r[2].week)
     .map((r) => ({
       id: r[0],
       name: r[1],
-      windows: ([['Semana', r[2]!.week], ['5 horas', r[2]!.fiveHour]] as const)
+      windows: ([['Semana', r[2]!.week]] as const)
         .filter((w) => w[1])
         .map((w) => ({ label: w[0], pct: Math.round(w[1]!.pct), resets: resets(w[1]) }))
     }))

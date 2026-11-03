@@ -7,7 +7,7 @@ import Icon from './Icon.vue'
 
 /**
  * Consumo semanal das assinaturas Claude e ChatGPT, como duas barrinhas no cabeçalho.
- * Clique: detalhe por assinatura, com a janela de 5 horas e quando cada limite zera,
+ * Clique: detalhe por assinatura, com o uso da semana e quando o limite zera,
  * e se há versão nova do CLI (com um botão que roda o `update` do próprio CLI).
  */
 const usage = ref<UsageInfo | null>(null)
@@ -94,7 +94,7 @@ const rows = computed(() => {
   if (u.agy) list.push({ id: 'agy', name: 'Antigravity', u: u.agy })
   return list
 })
-const visible = computed(() => rows.value.some((r) => r.u.week || r.u.fiveHour) || missing.value.length > 0)
+const visible = computed(() => rows.value.some((r) => r.u.week) || missing.value.length > 0)
 /** Uso semanal combinado: média das assinaturas com dado (100% das duas = 100%) */
 const weekAvg = computed(() => {
   const vals = rows.value.map((r) => r.u.week?.pct).filter((p): p is number => typeof p === 'number')
@@ -180,7 +180,7 @@ onUnmounted(() => {
         <p v-if="updateError[r.id]" class="bad">{{ updateError[r.id] }}</p>
         <p v-if="r.u.error" class="bad">{{ r.u.error }}</p>
         <template v-else>
-          <div v-for="w in (r.id === 'agy' ? [] : ([['Semana', r.u.week], ['5 horas', r.u.fiveHour]] as [string, UsageWindow | null][]))" :key="w[0]" class="line">
+          <div v-for="w in (r.id === 'agy' ? [] : ([['Semana', r.u.week]] as [string, UsageWindow | null][]))" :key="w[0]" class="line">
             <span class="lbl">{{ w[0] }}</span>
             <template v-if="w[1]">
               <span class="track" :class="tone(w[1].pct)"><span class="fill" :class="r.id" :style="{ width: `${Math.max(1, w[1].pct)}%` }" /></span>
