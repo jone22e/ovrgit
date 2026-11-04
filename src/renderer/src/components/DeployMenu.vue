@@ -325,8 +325,8 @@ watch(repoRoot, () => void loadManifest())
               <button class="row" @click="toggleStep(s)">
                 <span class="mark">
                   <span v-if="s.status === 'running'" class="spinner" />
-                  <Icon v-else-if="s.status === 'completed'" name="check" :size="12" />
-                  <Icon v-else-if="s.status === 'failed'" name="x" :size="12" />
+                  <Icon v-else-if="s.status === 'completed'" name="check" :size="14" />
+                  <Icon v-else-if="s.status === 'failed'" name="x" :size="14" />
                   <span v-else-if="s.status === 'skipped'" class="skip">–</span>
                 </span>
                 <span class="num mono">{{ s.index }}.</span>
@@ -451,32 +451,39 @@ watch(repoRoot, () => void loadManifest())
 .status.failed { color: var(--del); }
 .status.completed, .status.critical_passed { color: var(--add); }
 .meta { margin-top: 3px; font-size: 11.5px; }
-.steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
-.steps > li { border-bottom: 1px solid var(--border); }
-.row { width: 100%; height: auto; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; background: transparent; text-align: left; font-weight: 400; border-radius: 0; }
+.steps { list-style: none; margin: 4px 0 0; padding: 4px 2px 2px; position: relative; }
+/* trilho vertical contínuo, passando pelo centro dos marcadores (8px de padding + metade dos 28px) */
+.steps > li { position: relative; }
+.steps > li::before { content: ''; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.steps > li:first-child::before { top: 20px; }
+.steps > li:last-child::before { bottom: calc(100% - 20px); }
+.row { position: relative; width: 100%; height: auto; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; background: transparent; text-align: left; font-weight: 400; border-radius: 8px; }
 .row:hover { background: var(--hover); }
-.mark { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1.5px solid var(--border); color: var(--faint); }
-li.completed > .row .mark { border-color: var(--add); color: var(--add); }
-li.failed > .row .mark { border-color: var(--del); color: var(--del); }
-li.running > .row .mark { border-color: var(--accent); color: var(--accent); }
+.mark { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 2px solid var(--border); background: var(--panel); color: var(--faint); }
+li.completed > .row .mark { border-color: var(--add); color: var(--add); background: color-mix(in srgb, var(--add) 14%, var(--panel)); }
+li.failed > .row .mark { border-color: var(--del); color: var(--del); background: color-mix(in srgb, var(--del) 14%, var(--panel)); }
+li.running > .row .mark { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
 li.skipped > .row .mark { border-style: dashed; }
 li.pending > .row { color: var(--muted); }
-.mark .spinner { width: 10px; height: 10px; }
-.skip { font-size: 11px; line-height: 1; }
-.num { color: var(--muted); flex: none; width: 24px; text-align: right; }
-.title { font-weight: 600; flex: 1; min-width: 0; }
+.mark .spinner { width: 12px; height: 12px; }
+.skip { font-size: 12px; line-height: 1; }
+.num { color: var(--muted); flex: none; width: 26px; text-align: right; font-size: 12px; }
+.title { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; }
 li.pending .title { font-weight: 500; }
 .detail { font-size: 11.5px; max-width: 46%; }
 .time { font-size: 11px; width: 54px; text-align: right; flex: none; }
-.subs { list-style: none; margin: 0 0 4px; padding: 0 0 0 30px; }
-.subs li { display: flex; align-items: center; gap: 8px; padding: 2px 8px; font-size: 11.5px; }
-.subs .mark { width: 14px; height: 14px; border-width: 1px; }
-.subs li.completed .mark { border-color: var(--add); color: var(--add); }
-.subs li.failed .mark { border-color: var(--del); color: var(--del); }
+/* sub-etapas penduradas no trilho: ramificação horizontal até um marcador menor */
+.subs { list-style: none; margin: 0 0 4px; padding: 0 0 0 46px; }
+.subs li { position: relative; display: flex; align-items: center; gap: 8px; padding: 3px 8px 3px 0; font-size: 12px; }
+.subs li::before { content: ''; position: absolute; left: -23px; top: 50%; width: 21px; height: 2px; background: var(--border); }
+.subs .mark { width: 18px; height: 18px; border-width: 1.5px; }
+.subs li.completed .mark { border-color: var(--add); color: var(--add); background: color-mix(in srgb, var(--add) 14%, var(--panel)); }
+.subs li.failed .mark { border-color: var(--del); color: var(--del); background: color-mix(in srgb, var(--del) 14%, var(--panel)); }
 .subs li.running .mark { border-color: var(--accent); color: var(--accent); }
 .subs .mark .spinner { width: 8px; height: 8px; }
 .subs .num { width: 30px; }
-.more { padding: 2px 8px 8px 38px; }
+.subs .title { font-size: 12px; font-weight: 500; }
+.more { padding: 2px 8px 8px 46px; }
 .more p { margin: 4px 0; }
 .log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
 .plan { margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 8px; }
