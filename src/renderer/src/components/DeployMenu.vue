@@ -59,7 +59,8 @@ const date = (iso?: string) => (iso ? new Date(iso).toLocaleString('pt-BR', { da
 const stepTime = (s: DeployStepView) => {
   if (!s.startedAt) return ''
   const end = s.endedAt ? Date.parse(s.endedAt) : s.status === 'running' ? now.value : NaN
-  return Number.isFinite(end) ? formatDuration(end - Date.parse(s.startedAt)) : ''
+  const ms = end - Date.parse(s.startedAt)
+  return Number.isFinite(ms) && (ms >= 1000 || s.status === 'running') ? formatDuration(ms) : ''
 }
 const buildLine = (p: DeployPlanResult) => {
   const b = p.plan.plan?.build ?? {}
@@ -325,11 +326,11 @@ watch(repoRoot, () => void loadManifest())
               <button class="row" @click="toggleStep(s)">
                 <span class="mark">
                   <span v-if="s.status === 'running'" class="spinner" />
-                  <Icon v-else-if="s.status === 'completed'" name="check" :size="14" />
-                  <Icon v-else-if="s.status === 'failed'" name="x" :size="14" />
+                  <Icon v-else-if="s.status === 'completed'" name="check" :size="13" />
+                  <Icon v-else-if="s.status === 'failed'" name="x" :size="13" />
                   <span v-else-if="s.status === 'skipped'" class="skip">–</span>
                 </span>
-                <span class="num mono">{{ s.index }}.</span>
+                <span class="num">{{ s.index }}.</span>
                 <span class="title ellipsis">{{ s.title }}</span>
                 <span class="detail faint ellipsis">{{ s.detail }}</span>
                 <span class="time mono faint">{{ stepTime(s) }}</span>
@@ -341,7 +342,7 @@ watch(repoRoot, () => void loadManifest())
                     <Icon v-else-if="sub.status === 'completed'" name="check" :size="11" />
                     <Icon v-else name="x" :size="11" />
                   </span>
-                  <span class="num mono">{{ s.index }}.{{ i + 1 }}</span>
+                  <span class="num">{{ s.index }}.{{ i + 1 }}</span>
                   <span class="title ellipsis">{{ sub.title }}</span>
                   <span class="detail faint mono">{{ sub.detail }}</span>
                 </li>
@@ -427,7 +428,7 @@ watch(repoRoot, () => void loadManifest())
 .dot.off { background: var(--faint); opacity: 0.5; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .pop {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(480px, calc(100vw - 24px)); padding: 8px;
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(440px, calc(100vw - 24px)); padding: 8px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   max-height: calc(100vh - 80px); overflow: auto; font-size: 12.5px;
 }
@@ -451,39 +452,40 @@ watch(repoRoot, () => void loadManifest())
 .status.failed { color: var(--del); }
 .status.completed, .status.critical_passed { color: var(--add); }
 .meta { margin-top: 3px; font-size: 11.5px; }
-.steps { list-style: none; margin: 4px 0 0; padding: 4px 2px 2px; position: relative; }
-/* trilho vertical contínuo, passando pelo centro dos marcadores (8px de padding + metade dos 28px) */
+.steps { list-style: none; margin: 2px 0 0; padding: 2px 0 0; position: relative; }
+/* trilho vertical discreto, passando pelo centro dos marcadores (6px de padding + metade dos 22px) */
 .steps > li { position: relative; }
-.steps > li::before { content: ''; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px; background: var(--border); }
-.steps > li:first-child::before { top: 20px; }
-.steps > li:last-child::before { bottom: calc(100% - 20px); }
-.row { position: relative; width: 100%; height: auto; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; background: transparent; text-align: left; font-weight: 400; border-radius: 8px; }
+.steps > li::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px; background: var(--border); opacity: 0.8; }
+.steps > li:first-child::before { top: 16px; }
+.steps > li:last-child::before { bottom: calc(100% - 16px); }
+.row { position: relative; width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px; border: 0; background: transparent; text-align: left; font-weight: 400; border-radius: 8px; }
 .row:hover { background: var(--hover); }
-.mark { position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 2px solid var(--border); background: var(--panel); color: var(--faint); }
-li.completed > .row .mark { border-color: var(--add); color: var(--add); background: color-mix(in srgb, var(--add) 14%, var(--panel)); }
-li.failed > .row .mark { border-color: var(--del); color: var(--del); background: color-mix(in srgb, var(--del) 14%, var(--panel)); }
-li.running > .row .mark { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.mark { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 2px solid var(--border); background: var(--panel); color: var(--faint); }
+li.completed > .row .mark { border-color: var(--add); background: var(--add); color: #fff; }
+li.failed > .row .mark { border-color: var(--del); background: var(--del); color: #fff; }
+li.running > .row .mark { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 li.skipped > .row .mark { border-style: dashed; }
+li.pending > .row .mark { background: var(--panel-2); }
 li.pending > .row { color: var(--muted); }
-.mark .spinner { width: 12px; height: 12px; }
+.mark .spinner { width: 11px; height: 11px; border-width: 2px; }
 .skip { font-size: 12px; line-height: 1; }
-.num { color: var(--muted); flex: none; width: 26px; text-align: right; font-size: 12px; }
-.title { font-weight: 600; font-size: 13px; flex: 1; min-width: 0; }
+.num { color: var(--muted); flex: none; min-width: 22px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.title { font-weight: 600; font-size: 12.5px; flex: 1; min-width: 0; margin-left: -2px; }
 li.pending .title { font-weight: 500; }
 .detail { font-size: 11.5px; max-width: 46%; }
-.time { font-size: 11px; width: 54px; text-align: right; flex: none; }
+.time { font-size: 11px; min-width: 40px; text-align: right; flex: none; }
 /* sub-etapas penduradas no trilho: ramificação horizontal até um marcador menor */
-.subs { list-style: none; margin: 0 0 4px; padding: 0 0 0 46px; }
-.subs li { position: relative; display: flex; align-items: center; gap: 8px; padding: 3px 8px 3px 0; font-size: 12px; }
-.subs li::before { content: ''; position: absolute; left: -23px; top: 50%; width: 21px; height: 2px; background: var(--border); }
-.subs .mark { width: 18px; height: 18px; border-width: 1.5px; }
-.subs li.completed .mark { border-color: var(--add); color: var(--add); background: color-mix(in srgb, var(--add) 14%, var(--panel)); }
-.subs li.failed .mark { border-color: var(--del); color: var(--del); background: color-mix(in srgb, var(--del) 14%, var(--panel)); }
+.subs { list-style: none; margin: 0 0 2px; padding: 0 0 0 40px; }
+.subs li { position: relative; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px 0 0; font-size: 12px; }
+.subs li::before { content: ''; position: absolute; left: -23px; top: 50%; width: 18px; height: 2px; background: var(--border); opacity: 0.8; }
+.subs .mark { width: 16px; height: 16px; border-width: 1.5px; }
+.subs li.completed .mark { border-color: var(--add); background: var(--add); color: #fff; }
+.subs li.failed .mark { border-color: var(--del); background: var(--del); color: #fff; }
 .subs li.running .mark { border-color: var(--accent); color: var(--accent); }
 .subs .mark .spinner { width: 8px; height: 8px; }
-.subs .num { width: 30px; }
+.subs .num { min-width: 26px; font-size: 12px; }
 .subs .title { font-size: 12px; font-weight: 500; }
-.more { padding: 2px 8px 8px 46px; }
+.more { padding: 2px 8px 8px 40px; }
 .more p { margin: 4px 0; }
 .log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
 .plan { margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 8px; }
