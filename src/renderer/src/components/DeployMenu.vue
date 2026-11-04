@@ -41,12 +41,18 @@ const operation = computed(() => snap.value?.operation ?? null)
 const live = computed(() => !!operation.value || isLiveRelease(current.value))
 /** Trava de outro lugar: a deste computador aparece junto com a operação ativa do console */
 const lockedElsewhere = computed(() => lock.value?.status === 'active' && !operation.value)
+/**
+ * Ponto do botão, pela etapa: azul pulsando quando algo está rodando (plano, deploy, console subindo);
+ * vermelho pulsando quando espera um clique seu (plano pronto para aprovar, release falhada para retomar);
+ * amarelo com trava de outro computador; verde quando a última release terminou bem.
+ */
 const dot = computed(() => {
   if (!snap.value) return ''
+  if (snap.value.console === 'starting' || busy.value === 'plan' || busy.value === 'run' || live.value) return 'live'
   if (snap.value.console !== 'ready') return 'off'
-  if (live.value) return 'live'
+  if (planning.value && plan.value) return 'wait'
   if (lockedElsewhere.value) return 'locked'
-  if (current.value?.status === 'failed') return 'failed'
+  if (current.value?.status === 'failed') return 'wait'
   if (isSuccessfulRelease(current.value)) return 'ok'
   return ''
 })
@@ -475,7 +481,7 @@ watch(repoRoot, () => void loadManifest())
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 .dot.ok { background: var(--add); }
 .dot.live { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.dot.failed { background: var(--del); }
+.dot.wait { background: var(--del); animation: pulse 1.2s ease-in-out infinite; }
 .dot.locked { background: var(--mod); }
 .dot.off { background: var(--faint); opacity: 0.5; }
 @keyframes pulse { 50% { opacity: 0.35; } }
