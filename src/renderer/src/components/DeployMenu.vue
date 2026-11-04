@@ -305,7 +305,8 @@ watch(repoRoot, () => void loadManifest())
     >
       <Icon name="cloudUp" :size="13" />
       <span>{{ manifest?.name ?? 'Deploy' }}</span>
-      <span v-if="dot" class="dot" :class="dot" />
+      <span v-if="dot === 'ok'" class="done" title="Última release concluída"><Icon name="check" :size="12" /></span>
+      <span v-else-if="dot" class="dot" :class="dot" />
       <Icon name="chevron" :size="11" class="chev" />
     </button>
     <div v-if="open" class="pop" @keydown.esc="open = false">
@@ -479,7 +480,8 @@ watch(repoRoot, () => void loadManifest())
 .deploy.broken { color: var(--mod); }
 .chev { transform: rotate(90deg); opacity: 0.7; }
 .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
-.dot.ok { background: var(--add); }
+.done { display: inline-flex; align-items: center; color: var(--add); flex: none; }
+.done svg { stroke-width: 3; }
 .dot.locked { background: var(--mod); }
 .dot.off { background: var(--faint); opacity: 0.5; }
 /* rodando (azul) e esperando você (vermelho): a bolinha pisca e solta um anel que se expande */
