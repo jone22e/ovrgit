@@ -4,6 +4,7 @@ import { openNewAgent, setShowDiff, setShowDock, setShowTerminal, state } from '
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
+import DeployMenu from './DeployMenu.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
 import ServicesMenu from './ServicesMenu.vue'
 import UsageChip from './UsageChip.vue'
@@ -27,6 +28,7 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
     <template v-if="state.repo">
       <ProjectSwitcher v-model:open="switcherOpen" />
       <BranchSwitcher />
+      <DeployMenu />
       <span v-if="state.repo.ahead" class="badge wide-only" title="Versões salvas no seu computador que ainda não foram enviadas">
         <Icon name="up" :size="12" />{{ state.repo.ahead }}
       </span>

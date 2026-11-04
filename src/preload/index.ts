@@ -183,6 +183,17 @@ const api: OvseerApi = {
     ipcRenderer.on('services:data', h)
     return () => ipcRenderer.off('services:data', h)
   },
+  deployManifest: (root) => ipcRenderer.invoke('deploy:manifest', root),
+  deploySnapshot: (root) => ipcRenderer.invoke('deploy:snapshot', root),
+  deployStartConsole: (root) => ipcRenderer.invoke('deploy:startConsole', root),
+  deployLock: (root) => ipcRenderer.invoke('deploy:lock', root),
+  deployPlan: (root, typesenseFirst) => ipcRenderer.invoke('deploy:plan', root, typesenseFirst),
+  deployRun: (root, planId) => ipcRenderer.invoke('deploy:run', root, planId),
+  deployCancel: (root, operationId, tag) => ipcRenderer.invoke('deploy:cancel', root, operationId, tag),
+  deployResume: (root, tag) => ipcRenderer.invoke('deploy:resume', root, tag),
+  deployReleaseLock: (root) => ipcRenderer.invoke('deploy:releaseLock', root),
+  deployLog: (root, tag, phase) => ipcRenderer.invoke('deploy:log', root, tag, phase),
+  deployOpenConsole: (root) => ipcRenderer.invoke('deploy:openConsole', root),
   awsStatus: () => ipcRenderer.invoke('aws:status'),
   awsInstall: () => ipcRenderer.invoke('aws:install'),
   onAwsInstallProgress: (cb) => {

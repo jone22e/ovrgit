@@ -1177,6 +1177,20 @@ export interface OvseerApi {
   serviceWrite(id: string, data: string): void
   serviceResize(id: string, cols: number, rows: number): void
   onServiceData(cb: (id: string, data: string) => void): () => void
+  /** Deploy pelo app, nos repositórios com .ovseer/deploy.json (ver shared/deploy.ts) */
+  deployManifest(root: string): Promise<{ manifest: import('./deploy').DeployManifest | null; error?: string }>
+  deploySnapshot(root: string): Promise<import('./deploy').DeploySnapshot>
+  /** Sobe o console de deploy como serviço (reaproveita o cadastrado com o mesmo comando e pasta) */
+  deployStartConsole(root: string): Promise<void>
+  /** Trava compartilhada entre computadores, consultada pelo console */
+  deployLock(root: string): Promise<import('./deploy').DeployLock>
+  deployPlan(root: string, typesenseFirst: boolean): Promise<import('./deploy').DeployPlanResult>
+  deployRun(root: string, planId: string): Promise<import('./deploy').DeployOperation>
+  deployCancel(root: string, operationId: string, tag: string): Promise<void>
+  deployResume(root: string, tag: string): Promise<import('./deploy').DeployOperation>
+  deployReleaseLock(root: string): Promise<import('./deploy').DeployLock>
+  deployLog(root: string, tag: string, phase: string): Promise<string>
+  deployOpenConsole(root: string): Promise<void>
   /** AWS: instalação do CLI, perfis e sessão (Configurações → AWS) */
   awsStatus(): Promise<AwsStatus>
   awsInstall(): Promise<void>

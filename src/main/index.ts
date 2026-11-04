@@ -45,6 +45,7 @@ import { getSettings, rememberProject, saveSettings } from './settings'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
+import * as deploy from './deploy'
 import * as agentApi from './agentApi'
 import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
@@ -884,6 +885,17 @@ function registerIpc() {
   ipcMain.on('services:write', (_e, id: string, data: string) => services.writeService(String(id), String(data)))
   ipcMain.on('services:resize', (_e, id: string, cols: number, rows: number) => services.resizeService(String(id), Number(cols) || 0, Number(rows) || 0))
   // AWS: instalação do CLI, login por SSO e sessão (Configurações → AWS)
+  ipcMain.handle('deploy:manifest', (_e, root: string) => deploy.readManifest(String(root)))
+  ipcMain.handle('deploy:snapshot', (_e, root: string) => deploy.snapshot(String(root)))
+  ipcMain.handle('deploy:startConsole', (_e, root: string) => deploy.startConsole(String(root)))
+  ipcMain.handle('deploy:lock', (_e, root: string) => deploy.lock(String(root)))
+  ipcMain.handle('deploy:plan', (_e, root: string, typesenseFirst: boolean) => deploy.plan(String(root), typesenseFirst === true))
+  ipcMain.handle('deploy:run', (_e, root: string, planId: string) => deploy.run(String(root), String(planId)))
+  ipcMain.handle('deploy:cancel', (_e, root: string, operationId: string, tag: string) => deploy.cancel(String(root), String(operationId), String(tag)))
+  ipcMain.handle('deploy:resume', (_e, root: string, tag: string) => deploy.resume(String(root), String(tag)))
+  ipcMain.handle('deploy:releaseLock', (_e, root: string) => deploy.releaseLock(String(root)))
+  ipcMain.handle('deploy:log', (_e, root: string, tag: string, phase: string) => deploy.log(String(root), String(tag), String(phase)))
+  ipcMain.handle('deploy:openConsole', (_e, root: string) => deploy.openConsole(String(root)))
   ipcMain.handle('aws:status', () => aws.awsStatus())
   ipcMain.handle('aws:install', (e) => aws.awsInstall((p) => !e.sender.isDestroyed() && e.sender.send('aws:installProgress', p)))
   ipcMain.handle('aws:login', (e, profile: string) => aws.awsLogin(String(profile ?? ''), (line) => !e.sender.isDestroyed() && e.sender.send('aws:loginOutput', line)))
