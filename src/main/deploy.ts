@@ -80,11 +80,13 @@ function findService(root: string, m: DeployManifest): Service | undefined {
   return getSettings().services.find((s) => samePath(s.cwd, root) && s.command.trim() === m.start)
 }
 
-/** Serviço que sobe o console: o já cadastrado com o mesmo comando e pasta, ou um novo */
+const proposedService = (root: string, m: DeployManifest) => ({ name: `${m.name} · ${path.basename(root)}`, command: m.start, cwd: root })
+
+/** Serviço que sobe o console: o já cadastrado com o mesmo comando e pasta, ou um novo (a tela confirma antes) */
 function consoleService(root: string, m: DeployManifest): Service {
   const found = findService(root, m)
   if (found) return found
-  const created: Service = { id: randomUUID(), name: `${m.name} · ${path.basename(root)}`, command: m.start, cwd: root }
+  const created: Service = { id: randomUUID(), ...proposedService(root, m) }
   const next = saveSettings({ services: [...getSettings().services, created] })
   for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('settings:changed', next)
   return created
@@ -110,7 +112,11 @@ export async function snapshot(root: string): Promise<DeploySnapshot> {
     boot = await bootstrap(root, m)
   } catch {
     tokens.delete(root)
-    return { console: serviceRunning(root, m) ? 'starting' : 'stopped', origin, operation: null, releases: [], current: null, expectedTests: 0 }
+    const found = findService(root, m)
+    const service = found
+      ? { registered: true, name: found.name, command: found.command, cwd: found.cwd }
+      : { registered: false, ...proposedService(root, m) }
+    return { console: serviceRunning(root, m) ? 'starting' : 'stopped', origin, operation: null, releases: [], current: null, expectedTests: 0, service }
   }
   const releases = Array.isArray(boot.releases) ? boot.releases : []
   let current: DeployRelease | null = releases[0] ?? null

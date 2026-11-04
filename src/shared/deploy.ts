@@ -155,6 +155,8 @@ export interface DeploySnapshot {
   /** Console local: parado, subindo (o serviço já roda mas ainda não responde), pronto ou com erro */
   console: 'stopped' | 'starting' | 'ready' | 'error'
   error?: string
+  /** Serviço que sobe o console: o cadastrado (registered) ou o que o app propõe cadastrar */
+  service?: { registered: boolean; name: string; command: string; cwd: string }
   /** Endereço do console, para abrir no navegador */
   origin: string
   operation: DeployOperation | null

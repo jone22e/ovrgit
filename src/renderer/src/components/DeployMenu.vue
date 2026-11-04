@@ -145,7 +145,9 @@ async function toggle() {
 async function startConsole() {
   busy.value = 'console'
   try {
+    const registered = snap.value?.service?.registered !== false
     await api.deployStartConsole(repoRoot.value)
+    if (!registered) toast('Serviço cadastrado em Serviços.')
     snap.value = { ...(snap.value ?? emptySnap()), console: 'starting' }
   } catch (e) {
     toast(cleanErr(e))
@@ -278,8 +280,15 @@ watch(repoRoot, () => void loadManifest())
       <template v-else>
         <p v-if="!snap" class="msg faint"><span class="spinner" /> Consultando o console de deploy…</p>
         <div v-else-if="snap.console === 'stopped'" class="console-off">
-          <p class="muted">O console de deploy deste projeto está parado.</p>
-          <button class="small primary" :disabled="busy === 'console'" @click="startConsole"><Icon name="play" :size="13" /> Ligar console</button>
+          <template v-if="snap.service && !snap.service.registered">
+            <p class="muted">O console de deploy ainda não está nos seus Serviços. Cadastrar e ligar?</p>
+            <p class="proposal"><strong>{{ snap.service.name }}</strong><span class="mono">{{ snap.service.command }}</span><span class="faint ellipsis">{{ snap.service.cwd }}</span></p>
+            <button class="small primary" :disabled="busy === 'console'" @click="startConsole"><Icon name="plus" :size="13" /> Cadastrar e ligar</button>
+          </template>
+          <template v-else>
+            <p class="muted">O console de deploy deste projeto está parado.</p>
+            <button class="small primary" :disabled="busy === 'console'" @click="startConsole"><Icon name="play" :size="13" /> Ligar console</button>
+          </template>
         </div>
         <p v-else-if="snap.console === 'starting'" class="msg faint"><span class="spinner" /> Subindo o console (<span class="mono">{{ manifest?.start }}</span>)… pode levar um minuto.</p>
         <p v-else-if="snap.console === 'error'" class="msg err">{{ snap.error }}</p>
@@ -426,6 +435,9 @@ watch(repoRoot, () => void loadManifest())
 .err { color: var(--del); white-space: pre-wrap; word-break: break-word; }
 .console-off { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px; }
 .console-off p { margin: 0; }
+.proposal { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); max-width: 100%; }
+.proposal .mono { font-size: 12px; }
+.proposal .faint { font-size: 11px; }
 .lockbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
 .lockbar > svg { color: var(--mod); flex: none; }
 .lockbar.stale { outline: 1px solid var(--mod); }
