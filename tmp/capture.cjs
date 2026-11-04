@@ -1,0 +1,15 @@
+
+const { app, BrowserWindow } = require('electron')
+const path = require('path'); const fs = require('fs')
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ show: false, width: 1480, height: 760, webPreferences: { offscreen: true } })
+  await win.loadFile(path.join(__dirname, 'deploy-mockup.html'))
+  await new Promise((r) => setTimeout(r, 800))
+  const h = await win.webContents.executeJavaScript('document.body.scrollHeight')
+  win.setSize(1480, Math.min(1400, h + 20))
+  await new Promise((r) => setTimeout(r, 800))
+  const img = await win.webContents.capturePage()
+  fs.writeFileSync(path.join(__dirname, 'deploy-mockup.png'), img.toPNG())
+  console.log('ok', img.getSize())
+  app.quit()
+})

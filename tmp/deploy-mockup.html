@@ -1,0 +1,315 @@
+<!doctype html><html><head><meta charset="utf-8"><style>:root {
+  --accent: #a974f8;
+  --accent-strong: #9459f0;
+  --accent-soft: rgba(169, 116, 248, 0.14);
+  --on-accent: #ffffff;
+
+  --bg: #f6f5f8;
+  --panel: #ffffff;
+  --panel-2: #f1eff5;
+  --hover: #ece9f2;
+  --border: #e3e0ea;
+  --text: #1d1a24;
+  --muted: #6d6778;
+  --faint: #9a94a6;
+
+  --add: #1f8a4c;
+  --add-bg: rgba(46, 160, 67, 0.12);
+  --del: #c93c37;
+  --del-bg: rgba(248, 81, 73, 0.12);
+  --mod: #b7791f;
+  --hunk: #6b5bd6;
+  --hunk-bg: rgba(107, 91, 214, 0.08);
+
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, Menlo, monospace;
+  --titlebar: 48px;
+  /* altura comum das barras de topo dos painéis (tarefas, arquivos, diff): as divisórias se alinham */
+  --pane-header: 48px;
+  color-scheme: light;
+}
+
+/* escuro: os mesmos cinzas neutros do sistema (macOS por padrão; Windows 11 logo abaixo) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-soft: rgba(169, 116, 248, 0.18);
+    --bg: #1e1e1e;
+    --panel: #242424;
+    --panel-2: #2c2c2c;
+    --hover: #333333;
+    --border: #3a3a3a;
+    --text: #e5e5e5;
+    --muted: #a1a1a1;
+    --faint: #6e6e6e;
+    --add: #32d74b;
+    --add-bg: rgba(50, 215, 75, 0.14);
+    --del: #ff453a;
+    --del-bg: rgba(255, 69, 58, 0.15);
+    --mod: #ff9f0a;
+    --hunk: #b4a4ff;
+    --hunk-bg: rgba(169, 116, 248, 0.1);
+    color-scheme: dark;
+  }
+  :root[data-platform='win32'] {
+    --bg: #202020;
+    --panel: #272727;
+    --panel-2: #2d2d2d;
+    --hover: #383838;
+    --border: #3d3d3d;
+    --text: #e8e8e8;
+    --muted: #a3a3a3;
+    --faint: #717171;
+    --add: #6ccb5f;
+    --add-bg: rgba(108, 203, 95, 0.14);
+    --del: #ff99a4;
+    --del-bg: rgba(255, 153, 164, 0.14);
+    --mod: #fce100;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+  /* um degradê imperceptível (1% do texto numa ponta) em vez de cor chapada: o Chromium desenha blocos de cor única
+     por um caminho e blocos com conteúdo por outro, e no Mac os dois convertem a cor um pouco diferente; em fundos
+     quase pretos (GitHub Dark) isso virava faixas visíveis na conversa */
+  background: var(--bg) linear-gradient(180deg, color-mix(in srgb, var(--bg) 99%, var(--text)), var(--bg));
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { opacity: 0.45; cursor: default; }
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* campos: borda na cor do tema + halo (não é cortado por áreas com rolagem, ao contrário do outline) */
+input[type='text']:focus, input[type='date']:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+input[type='text'], input[type='date'], textarea, select { transition: border-color 0.12s, box-shadow 0.12s; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
+button.ghost { background: transparent; border-color: transparent; }
+button.ghost:hover:not(:disabled) { background: var(--hover); }
+button.icon { width: 32px; padding: 0; }
+button.small { height: 26px; padding: 0 10px; font-size: 12px; }
+
+input[type='text'], textarea, select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  user-select: text;
+}
+textarea { resize: none; }
+input[type='radio'] { accent-color: var(--accent); margin: 0; }
+input[type='checkbox'] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; cursor: pointer; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px;
+  border-radius: 11px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px; font-weight: 500;
+}
+.badge.accent { background: var(--accent-soft); color: var(--accent); }
+
+.kind { font-family: var(--mono); font-size: 11px; font-weight: 700; width: 14px; text-align: center; flex: none; }
+.kind.added, .kind.untracked { color: var(--add); }
+.kind.deleted { color: var(--del); }
+.kind.modified, .kind.typechange { color: var(--mod); }
+.kind.renamed { color: var(--hunk); }
+.kind.conflict { color: var(--del); }
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.mono { font-family: var(--mono); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* tema Terminal: interface inteira em fonte mono, chapada, sem cantos arredondados nem halos, como num shell
+   (os cantos da janela são do sistema e ficam). Só as caixas ficam quadradas: círculos (spinners, anéis,
+   pontos, avatares, rádios) continuam redondos. */
+:root[data-theme='terminal'] { --font: var(--mono); }
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio),
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio)::before,
+:root[data-theme='terminal'] :not([class*='spin'], [class*='ring'], [class*='dot'], .dots i, .ball, .apulse, .dirty, .dm-check, .sep, .d, .c i, .row i, .prio i, .bubble, .av, .avatar, .radio)::after { border-radius: 0 !important; }
+/* foco: a borda muda de cor e pronto */
+:root[data-theme='terminal'] :is(input, textarea, select):focus { box-shadow: none; }
+
+
+.deploy-menu { position: relative; -webkit-app-region: no-drag; min-width: 0; }
+.deploy { border: 0; height: 24px; gap: 5px; cursor: pointer; }
+.deploy:hover, .deploy.on { filter: brightness(1.15); }
+.deploy.broken { color: var(--mod); }
+.chev { transform: rotate(90deg); opacity: 0.7; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--add); }
+.dot.live { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.dot.wait { background: var(--del); animation: pulse 1.2s ease-in-out infinite; }
+.dot.locked { background: var(--mod); }
+.dot.off { background: var(--faint); opacity: 0.5; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(440px, calc(100vw - 24px)); padding: 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  max-height: calc(100vh - 80px); overflow: auto; font-size: 12.5px;
+}
+.msg { margin: 8px; display: flex; gap: 8px; align-items: center; }
+.err { color: var(--del); white-space: pre-wrap; word-break: break-word; }
+.console-off { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px; }
+.console-off p { margin: 0; }
+.proposal { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); max-width: 100%; }
+.proposal .mono { font-size: 12px; }
+.proposal .faint { font-size: 11px; }
+.lockbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
+.lockbar > svg { color: var(--mod); flex: none; }
+.lockbar.stale { outline: 1px solid var(--mod); }
+.lockbar.broken > svg { color: var(--del); }
+.lockbar .txt { flex: 1; min-width: 0; }
+.head { padding: 6px 8px 8px; }
+.tagline { display: flex; align-items: center; gap: 10px; }
+.tag { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.status { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.status.running, .status.validating { color: var(--accent); background: var(--accent-soft); }
+.status.failed { color: var(--del); }
+.status.completed, .status.critical_passed { color: var(--add); }
+.meta { margin-top: 3px; font-size: 11.5px; }
+.steps { list-style: none; margin: 2px 0 0; padding: 2px 0 0; position: relative; }
+/* trilho vertical discreto, passando pelo centro dos marcadores (6px de padding + metade dos 22px) */
+.steps > li { position: relative; }
+.steps > li::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px; background: var(--border); opacity: 0.8; }
+.steps > li:first-child::before { top: 16px; }
+.steps > li:last-child::before { bottom: calc(100% - 16px); }
+.row { position: relative; width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px; border: 0; background: transparent; text-align: left; font-weight: 400; border-radius: 8px; }
+.row:hover { background: var(--hover); }
+.mark { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 2px solid var(--border); background: var(--panel); color: var(--faint); }
+li.completed > .row .mark { border-color: var(--add); background: var(--add); color: #fff; }
+li.failed > .row .mark { border-color: var(--del); background: var(--del); color: #fff; }
+li.running > .row .mark { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+li.skipped > .row .mark { border-style: dashed; }
+li.pending > .row .mark { background: var(--panel-2); }
+li.pending > .row { color: var(--muted); }
+.mark .spinner { width: 11px; height: 11px; border-width: 2px; }
+.skip { font-size: 12px; line-height: 1; }
+.num { color: var(--muted); flex: none; min-width: 22px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.title { font-weight: 600; font-size: 12.5px; flex: 1; min-width: 0; margin-left: -2px; }
+li.pending .title { font-weight: 500; }
+.detail { font-size: 11.5px; max-width: 46%; }
+.time { font-size: 11px; min-width: 40px; text-align: right; flex: none; }
+/* sub-etapas penduradas no trilho: ramificação horizontal até um marcador menor */
+.subs { list-style: none; margin: 0 0 2px; padding: 0 0 0 40px; }
+.subs li { position: relative; display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px 0 0; font-size: 12px; }
+.subs li::before { content: ''; position: absolute; left: -23px; top: 50%; width: 18px; height: 2px; background: var(--border); opacity: 0.8; }
+.subs .mark { width: 16px; height: 16px; border-width: 1.5px; }
+.subs li.completed .mark { border-color: var(--add); background: var(--add); color: #fff; }
+.subs li.failed .mark { border-color: var(--del); background: var(--del); color: #fff; }
+.subs li.running .mark { border-color: var(--accent); color: var(--accent); }
+.subs .mark .spinner { width: 8px; height: 8px; }
+.subs .num { min-width: 26px; font-size: 12px; }
+.subs .title { font-size: 12px; font-weight: 500; }
+.more { padding: 2px 8px 8px 40px; }
+.more p { margin: 4px 0; }
+.log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+.newdeploy { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 2px; }
+.newdeploy h5 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.planning { display: flex; align-items: flex-start; gap: 12px; padding: 14px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.planning .spinner { width: 18px; height: 18px; margin-top: 2px; color: var(--accent); }
+.planning div { display: flex; flex-direction: column; gap: 3px; }
+.planning small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.approve { display: flex; flex-direction: column; gap: 8px; }
+.planbox { padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 3px; }
+.planbox .status { color: var(--accent); background: var(--panel); }
+.reasons { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--text); }
+.note { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.approve-btn { height: 36px; font-size: 13px; justify-content: center; }
+.approve .ghost { align-self: center; }
+.planfail { display: flex; flex-direction: column; gap: 8px; }
+.planfail p { margin: 0; }
+.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.check input { margin: 0; }
+.warnings { margin: 0; padding-left: 18px; color: var(--mod); }
+.actions { display: flex; gap: 6px; }
+button.danger { background: var(--del); border-color: var(--del); color: var(--on-accent); }
+.foot { display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.foot .icon { width: 28px; padding: 0; }
+.foot .icon.on { color: var(--accent); background: var(--accent-soft); }
+.spacer { flex: 1; }
+.history { margin-top: 6px; }
+h6 { margin: 8px 8px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.hrow { display: flex; align-items: center; gap: 10px; padding: 4px 8px; font-size: 12px; }
+.hrow .mono:first-child { flex: 1; }
+
+
+:root { color-scheme: dark; --accent:#3b82f6; --accent-strong:#2563eb; --accent-soft:rgba(59,130,246,0.18); --on-accent:#fff;
+  --bg:#141619; --panel:#1b1e23; --panel-2:#23272e; --hover:#2a2f37; --border:#30353d; --text:#e6e8eb; --muted:#9aa1ab; --faint:#6b7280;
+  --add:#32d74b; --del:#ff453a; --mod:#ff9f0a; }
+body { background:#0f1114; margin:0; padding:28px; font-family: var(--font); color: var(--text); display:flex; gap:28px; align-items:flex-start; }
+.scene { display:flex; flex-direction:column; gap:10px; }
+.scene h4 { margin:0 0 2px; font-size:12px; font-weight:600; color: var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.deploy-menu .pop { position: static; width: 440px; }
+.topbar-fake { display:flex; align-items:center; gap:8px; }
+</style></head><body><div class="scene"><h4>1 · Preparando o plano</h4><div class="topbar-fake"><button class="badge accent deploy on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 17l4-4 4 4"/></svg><span>Deploy</span><span class="dot live"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div><div class="deploy-menu"><div class="pop">
+<div class="newdeploy"><h5><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 17l4-4 4 4"/></svg> Novo deploy</h5>
+<label class="check"><input type="checkbox" disabled> Typesense primeiro (loja virtual antes de Sistemas)</label>
+<div class="planning"><span class="spinner"></span><div><strong>Preparando o plano…</strong><small>Conferindo main e origin, acesso à AWS, a trava compartilhada e o que mudou desde a última release. Pode levar alguns minutos. Nada é enviado nesta etapa.</small></div></div>
+</div></div></div></div><div class="scene"><h4>2 · Aguardando aprovação</h4><div class="topbar-fake"><button class="badge accent deploy on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 17l4-4 4 4"/></svg><span>Deploy</span><span class="dot wait"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div><div class="deploy-menu"><div class="pop">
+<div class="newdeploy"><h5><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 17l4-4 4 4"/></svg> Novo deploy</h5>
+<label class="check"><input type="checkbox"> Typesense primeiro (loja virtual antes de Sistemas)</label>
+<div class="approve"><div class="planbox">
+<div class="tagline"><span class="tag mono">aws-2026.11.04.05</span><span class="status">aguardando aprovação</span></div>
+<div class="meta faint">commit <span class="mono">91988ed2</span> · anterior <span class="mono">aws-2026.11.04.04</span> · build: backend e frontend</div>
+<div class="meta faint">Ordem: Sistemas -> Workers</div>
+<ul class="reasons"><li>backend: 3 arquivos alterados desde aws-2026.11.04.04</li><li>frontend: 1 arquivo alterado desde aws-2026.11.04.04</li></ul>
+</div>
+<p class="note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg> Nada foi enviado ainda. O deploy só começa depois da sua aprovação.</p>
+<button class="primary approve-btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Aprovar e iniciar o deploy de aws-2026.11.04.05</button>
+<button class="ghost small">Cancelar</button>
+</div></div></div></div></div><div class="scene"><h4>3 · Deploy iniciado</h4><div class="topbar-fake"><button class="badge accent deploy on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M8 17l4-4 4 4"/></svg><span>Deploy</span><span class="dot live"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button></div><div class="deploy-menu"><div class="pop">
+<div class="head"><div class="tagline"><span class="tag mono">aws-2026.11.04.05</span><span class="status validating">Validando</span></div>
+<div class="meta faint">commit <span class="mono">91988ed2</span> · início 11:52 · decorrido <span class="mono">02:11</span> · operação: deploy</div></div>
+<ol class="steps"><li class="completed"><button class="row"><span class="mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span class="num">1.</span><span class="title ellipsis">Preflight</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="completed"><button class="row"><span class="mark"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span class="num">2.</span><span class="title ellipsis">Plano</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="running"><button class="row"><span class="mark"><span class="spinner"></span></span><span class="num">3.</span><span class="title ellipsis">Testes</span><span class="detail faint ellipsis">1102 / 1425</span><span class="time mono faint">02:03</span></button><ul class="subs"><li class="completed"><span class="mark"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span class="num">3.1</span><span class="title ellipsis">marketplace</span><span class="detail faint mono">529 / 529</span></li><li class="completed"><span class="mark"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span class="num">3.2</span><span class="title ellipsis">stock</span><span class="detail faint mono">265 / 265</span></li><li class="running"><span class="mark"><span class=spinner></span></span><span class="num">3.3</span><span class="title ellipsis">loja-busca</span><span class="detail faint mono">118 / 210</span></li></ul></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">4.</span><span class="title ellipsis">Tag da release</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">5.</span><span class="title ellipsis">Imagens</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">6.</span><span class="title ellipsis">Workers (preparação)</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">7.</span><span class="title ellipsis">Sistemas</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">8.</span><span class="title ellipsis">Workers</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">9.</span><span class="title ellipsis">Validação</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li><li class="pending"><button class="row"><span class="mark"></span><span class="num">10.</span><span class="title ellipsis">Conclusão</span><span class="detail faint ellipsis"></span><span class="time mono faint"></span></button></li></ol><div class="foot"><button class="ghost small"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg> Cancelar</button><span class="spacer"></span><button class="ghost small icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2"/></svg></button><button class="ghost small icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button><button class="ghost small icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg></button></div></div></div></div></body></html>
