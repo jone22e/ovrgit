@@ -32,11 +32,23 @@ let planRequest = 0
 const confirmCancel = ref(false)
 const confirmUnlock = ref(false)
 const confirmResume = ref(false)
-/** Verificação em duas etapas ativa: iniciar, retomar e liberar a trava pedem o código do autenticador */
-const totp = ref(false)
+/**
+ * Verificação em duas etapas: obrigatória. Iniciar, retomar e liberar a trava pedem o código do autenticador;
+ * sem ela ativada (null: ainda não consultada) o app não deixa começar e manda para Configurações → Deploy.
+ */
+const totp = ref<boolean | null>(null)
 const authCode = ref('')
-const codeOk = computed(() => !totp.value || /^\d{6}$/.test(authCode.value.replace(/\s/g, '')))
-const codeArg = () => (totp.value ? authCode.value.replace(/\s/g, '') : undefined)
+const codeOk = computed(() => totp.value === true && /^\d{6}$/.test(authCode.value.replace(/\s/g, '')))
+const codeArg = () => authCode.value.replace(/\s/g, '')
+function openDeploySettings() {
+  try {
+    localStorage.setItem('ovseer.settings.section', 'deploy')
+  } catch {
+    /* só nesta sessão */
+  }
+  open.value = false
+  state.showSettings = true
+}
 const historyOpen = ref(false)
 const now = ref(Date.now())
 
@@ -158,7 +170,7 @@ async function toggle() {
   confirmResume.value = false
   authCode.value = ''
   stopPlanning()
-  void api.deployAuthStatus().then((s) => (totp.value = s.enabled)).catch(() => undefined)
+  void api.deployAuthStatus().then((s) => (totp.value = s.enabled)).catch(() => (totp.value = false))
   await refresh()
   void refreshLock()
 }
@@ -354,7 +366,8 @@ watch(repoRoot, () => void loadManifest())
               <button v-if="!confirmUnlock" class="ghost small" title="Só depois de confirmar com o outro operador que o deploy foi abandonado" @click="confirmUnlock = true; authCode = ''">Liberar trava</button>
               <template v-else>
                 <input v-if="totp" v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" />
-                <button class="small danger" :disabled="busy === 'unlock' || !codeOk" @click="unlock">Confirmar liberação</button>
+                <button v-if="totp" class="small danger" :disabled="busy === 'unlock' || !codeOk" @click="unlock">Confirmar liberação</button>
+                <button v-else class="small" @click="openDeploySettings">Ativar verificação</button>
               </template>
             </template>
           </div>
@@ -393,13 +406,19 @@ watch(repoRoot, () => void loadManifest())
                 </ul>
               </div>
               <p class="note"><Icon name="shield" :size="13" /> Nada foi enviado ainda. O deploy só começa depois da sua aprovação.</p>
-              <label v-if="totp" class="auth">
-                <span>Código do aplicativo autenticador</span>
-                <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="000 000" spellcheck="false" @keydown.enter.prevent="codeOk && runDeploy()" />
-              </label>
-              <button class="primary approve-btn" :disabled="busy === 'run' || !codeOk" @click="runDeploy">
-                <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy de ${plan.plan.tag}` }}
-              </button>
+              <div v-if="totp === false" class="auth-off">
+                <p><Icon name="lock" :size="13" /> O deploy exige a verificação em duas etapas com o autenticador do telefone, ainda não ativada neste computador.</p>
+                <button class="small primary" @click="openDeploySettings"><Icon name="shield" :size="13" /> Ativar em Configurações → Deploy</button>
+              </div>
+              <template v-else>
+                <label class="auth">
+                  <span>Código do aplicativo autenticador</span>
+                  <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="000 000" spellcheck="false" @keydown.enter.prevent="codeOk && runDeploy()" />
+                </label>
+                <button class="primary approve-btn" :disabled="busy === 'run' || !codeOk" @click="runDeploy">
+                  <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy de ${plan.plan.tag}` }}
+                </button>
+              </template>
               <button class="ghost small" :disabled="busy === 'run'" @click="stopPlanning">Cancelar</button>
             </div>
 
@@ -474,7 +493,7 @@ watch(repoRoot, () => void loadManifest())
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>
               <template v-if="!isScript && current?.status === 'failed'">
-                <button v-if="!totp || !confirmResume" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="totp ? (confirmResume = true, authCode = '') : resumeDeploy()">
+                <button v-if="!confirmResume" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="totp ? (confirmResume = true, authCode = '') : openDeploySettings()">
                   <Icon name="forward" :size="13" /> Retomar
                 </button>
                 <template v-else>
@@ -597,6 +616,10 @@ li.pending .title { font-weight: 500; }
 .note { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
 .approve-btn { height: 36px; font-size: 13px; justify-content: center; }
 .auth { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
+.auth-off { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--mod); border-radius: 8px; background: color-mix(in srgb, var(--mod) 10%, var(--panel)); }
+.auth-off p { margin: 0; display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px; line-height: 1.4; }
+.auth-off p svg { flex: none; margin-top: 2px; color: var(--mod); }
+.auth-off button { align-self: flex-start; }
 .code { width: 96px; height: 28px; font-size: 14px; letter-spacing: 0.12em; text-align: center; }
 .approve .ghost { align-self: center; }
 .planfail { display: flex; flex-direction: column; gap: 8px; }

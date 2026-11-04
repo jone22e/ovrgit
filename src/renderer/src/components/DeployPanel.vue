@@ -84,7 +84,7 @@ onMounted(load)
           <span class="ok">Ativada</span> · iniciar ou retomar um deploy e liberar a trava compartilhada pedem o código do aplicativo autenticador, em todos os projetos.
         </p>
         <p v-else>
-          Desativada. Com ela ativada, o botão Deploy só inicia, retoma ou libera a trava depois de você digitar o código de 6 dígitos do aplicativo autenticador do telefone.
+          <span class="bad">Desativada</span> · o botão Deploy não inicia, retoma nem libera a trava sem ela. Ative para que cada uma dessas ações peça o código de 6 dígitos do aplicativo autenticador do telefone.
         </p>
       </div>
       <template v-if="status && !setup && !disabling">
@@ -126,6 +126,7 @@ onMounted(load)
 .row-head p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; max-width: 560px; }
 .row-head button { flex: none; white-space: nowrap; }
 .ok { color: var(--add); }
+.bad { color: var(--del); }
 .setup { display: flex; gap: 18px; align-items: flex-start; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); }
 .qr { flex: none; width: 180px; height: 180px; padding: 6px; background: #fff; border-radius: 8px; }
 .qr :deep(svg) { width: 100%; height: 100%; display: block; }

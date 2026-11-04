@@ -10,7 +10,8 @@ import { base32Decode, base32Encode, newSecret, otpauthUrl, verifyTotp } from '.
  * Verificação em duas etapas do deploy: o usuário lê um QR code no aplicativo autenticador do telefone e,
  * a partir daí, iniciar, retomar um deploy ou liberar a trava exige o código de 6 dígitos. O segredo fica
  * criptografado pelo sistema (Keychain no Mac, DPAPI no Windows) em userData, nunca no repositório nem nas
- * configurações; o processo principal confere o código, a tela só o digita. Vale para todos os projetos.
+ * configurações; o processo principal confere o código, a tela só o digita. Vale para todos os projetos e é
+ * obrigatória: sem ela ativada, nenhum deploy começa pelo app.
  */
 
 interface Stored {
@@ -74,10 +75,10 @@ export function disable(code: string): DeployAuthStatus {
   return status()
 }
 
-/** Barreira das ações de deploy: sem verificação ativada, passa; com ela, exige um código válido e inédito */
+/** Barreira das ações de deploy: exige a verificação ativada e um código válido e inédito */
 export function requireCode(code?: string) {
   const stored = read()
-  if (!stored) return
+  if (!stored) throw new Error('Ative a verificação em duas etapas em Configurações → Deploy antes de fazer deploy.')
   if (!code) throw new Error('Digite o código do aplicativo autenticador.')
   const result = verifyTotp(base32Decode(stored.secret), String(code), { lastCounter: stored.last })
   if (!result.ok) throw new Error('Código do autenticador inválido ou já usado.')
