@@ -26,6 +26,9 @@ const logLoading = ref(false)
 const planning = ref(false)
 const typesenseFirst = ref(false)
 const plan = ref<DeployPlanResult | null>(null)
+const planError = ref('')
+/** Conta os pedidos de plano, para um resultado atrasado não sobrescrever o atual */
+let planRequest = 0
 const confirmCancel = ref(false)
 const confirmUnlock = ref(false)
 const historyOpen = ref(false)
@@ -137,8 +140,7 @@ async function toggle() {
   if (!open.value) return
   confirmCancel.value = false
   confirmUnlock.value = false
-  planning.value = false
-  plan.value = null
+  stopPlanning()
   await refresh()
   void refreshLock()
 }
@@ -157,17 +159,42 @@ async function startConsole() {
   }
 }
 
+/** Abre a tela de novo deploy e já gera o plano; nada é enviado antes da aprovação */
+function startPlanning() {
+  planning.value = true
+  plan.value = null
+  planError.value = ''
+  void makePlan()
+}
+
 async function makePlan() {
+  const request = ++planRequest
   busy.value = 'plan'
   plan.value = null
+  planError.value = ''
   try {
-    plan.value = await api.deployPlan(repoRoot.value, typesenseFirst.value)
+    const result = await api.deployPlan(repoRoot.value, typesenseFirst.value)
+    if (request === planRequest) plan.value = result
   } catch (e) {
-    toast(cleanErr(e))
+    if (request === planRequest) planError.value = cleanErr(e)
   } finally {
-    busy.value = ''
+    if (request === planRequest) busy.value = ''
   }
 }
+
+function stopPlanning() {
+  planRequest += 1
+  planning.value = false
+  plan.value = null
+  planError.value = ''
+  if (busy.value === 'plan') busy.value = ''
+}
+
+/** Trocar a opção durante a tela de novo deploy refaz o plano */
+watch(typesenseFirst, () => {
+  if (planning.value) void makePlan()
+})
+const changeReasons = computed(() => (plan.value?.plan.plan?.reasons ?? []).slice(0, 6))
 
 async function runDeploy() {
   if (!plan.value) return
@@ -175,8 +202,7 @@ async function runDeploy() {
   try {
     const tag = plan.value.plan.tag
     await api.deployRun(repoRoot.value, plan.value.plan_id)
-    planning.value = false
-    plan.value = null
+    stopPlanning()
     toast(`Deploy ${tag} iniciado.`)
     await refresh()
   } catch (e) {
@@ -307,6 +333,53 @@ watch(repoRoot, () => void loadManifest())
             </template>
           </div>
 
+          <div v-if="planning" class="newdeploy">
+            <h5><Icon name="cloudUp" :size="15" /> Novo deploy</h5>
+            <label class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan' || busy === 'run'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
+
+            <div v-if="busy === 'plan'" class="planning">
+              <span class="spinner" />
+              <div>
+                <strong>Preparando o plano…</strong>
+                <small>Conferindo main e origin, acesso à AWS, a trava compartilhada e o que mudou desde a última release. Pode levar alguns minutos. Nada é enviado nesta etapa.</small>
+              </div>
+            </div>
+
+            <div v-else-if="plan" class="approve">
+              <div class="planbox">
+                <div class="tagline">
+                  <span class="tag mono">{{ plan.plan.tag }}</span>
+                  <span class="status">aguardando aprovação</span>
+                </div>
+                <div class="meta faint">
+                  commit <span class="mono">{{ plan.plan.commit.slice(0, 8) }}</span>
+                  · anterior <span class="mono">{{ plan.plan.previous_tag || '—' }}</span>
+                  · build: {{ buildLine(plan) }}
+                </div>
+                <div class="meta faint">Ordem: {{ plan.plan.order }}</div>
+                <ul v-if="changeReasons.length" class="reasons">
+                  <li v-for="r in changeReasons" :key="r">{{ r }}</li>
+                </ul>
+                <ul v-if="plan.plan.plan?.warnings?.length" class="warnings">
+                  <li v-for="w in plan.plan.plan.warnings" :key="w">{{ w }}</li>
+                </ul>
+              </div>
+              <p class="note"><Icon name="shield" :size="13" /> Nada foi enviado ainda. O deploy só começa depois da sua aprovação.</p>
+              <button class="primary approve-btn" :disabled="busy === 'run'" @click="runDeploy">
+                <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy de ${plan.plan.tag}` }}
+              </button>
+              <button class="ghost small" :disabled="busy === 'run'" @click="stopPlanning">Cancelar</button>
+            </div>
+
+            <div v-else class="planfail">
+              <p class="err">{{ planError || 'Não foi possível gerar o plano.' }}</p>
+              <div class="actions">
+                <button class="small" @click="makePlan">Tentar de novo</button>
+                <button class="ghost small" @click="stopPlanning">Voltar</button>
+              </div>
+            </div>
+          </div>
+          <template v-else>
           <div v-if="current" class="head">
             <div class="tagline">
               <span class="tag mono">{{ current.tag }}</span>
@@ -357,28 +430,6 @@ watch(repoRoot, () => void loadManifest())
             </li>
           </ol>
 
-          <div v-if="planning" class="plan">
-            <template v-if="!plan">
-              <label class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
-              <p v-if="busy === 'plan'" class="faint"><span class="spinner" /> Gerando o plano: git, AWS e trava… pode levar alguns minutos.</p>
-              <div class="actions">
-                <button class="small primary" :disabled="busy === 'plan'" @click="makePlan">Gerar plano</button>
-                <button class="ghost small" :disabled="busy === 'plan'" @click="planning = false">Voltar</button>
-              </div>
-            </template>
-            <template v-else>
-              <p><strong class="mono">{{ plan.plan.tag }}</strong> · commit <span class="mono">{{ plan.plan.commit.slice(0, 8) }}</span> · anterior <span class="mono">{{ plan.plan.previous_tag || '—' }}</span></p>
-              <p class="muted">Ordem: {{ plan.plan.order }} · build: {{ buildLine(plan) }}</p>
-              <ul v-if="plan.plan.plan?.warnings?.length" class="warnings">
-                <li v-for="w in plan.plan.plan.warnings" :key="w">{{ w }}</li>
-              </ul>
-              <div class="actions">
-                <button class="small primary" :disabled="busy === 'run'" @click="runDeploy"><Icon name="cloudUp" :size="13" /> Confirmar deploy</button>
-                <button class="ghost small" :disabled="busy === 'run'" @click="plan = null">Voltar</button>
-              </div>
-            </template>
-          </div>
-
           <div class="foot">
             <template v-if="operation">
               <button v-if="operation.cancellable && !confirmCancel" class="ghost small" :disabled="!!operation.cancel_requested_at" @click="confirmCancel = true">
@@ -386,8 +437,8 @@ watch(repoRoot, () => void loadManifest())
               </button>
               <button v-else-if="operation.cancellable" class="small danger" :disabled="busy === 'cancel'" @click="cancelDeploy">Confirmar cancelamento</button>
             </template>
-            <template v-else-if="!planning">
-              <button class="small primary" :disabled="lockedElsewhere || busy !== ''" :title="lockedElsewhere ? 'Outro computador está com a trava' : 'Gera o plano e pede confirmação antes de iniciar'" @click="planning = true">
+            <template v-else>
+              <button class="small primary" :disabled="lockedElsewhere || busy !== ''" :title="lockedElsewhere ? 'Outro computador está com a trava' : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>
               <button v-if="current?.status === 'failed'" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="resumeDeploy">
@@ -399,7 +450,8 @@ watch(repoRoot, () => void loadManifest())
             <button class="ghost small icon" title="Abrir o console no navegador" @click="api.deployOpenConsole(repoRoot)"><Icon name="external" :size="13" /></button>
             <button class="ghost small icon" title="Atualizar" @click="refresh(); refreshLock()"><Icon name="refresh" :size="13" /></button>
           </div>
-          <div v-if="historyOpen" class="history">
+          </template>
+          <div v-if="historyOpen && !planning" class="history">
             <h6>Releases anteriores</h6>
             <div v-for="r in history" :key="r.tag" class="hrow">
               <span class="mono">{{ r.tag }}</span>
@@ -488,8 +540,21 @@ li.pending .title { font-weight: 500; }
 .more { padding: 2px 8px 8px 40px; }
 .more p { margin: 4px 0; }
 .log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
-.plan { margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 8px; }
-.plan p { margin: 0; }
+.newdeploy { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 2px; }
+.newdeploy h5 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.planning { display: flex; align-items: flex-start; gap: 12px; padding: 14px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.planning .spinner { width: 18px; height: 18px; margin-top: 2px; color: var(--accent); }
+.planning div { display: flex; flex-direction: column; gap: 3px; }
+.planning small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.approve { display: flex; flex-direction: column; gap: 8px; }
+.planbox { padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 3px; }
+.planbox .status { color: var(--accent); background: var(--panel); }
+.reasons { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--text); }
+.note { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.approve-btn { height: 36px; font-size: 13px; justify-content: center; }
+.approve .ghost { align-self: center; }
+.planfail { display: flex; flex-direction: column; gap: 8px; }
+.planfail p { margin: 0; }
 .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .check input { margin: 0; }
 .warnings { margin: 0; padding-left: 18px; color: var(--mod); }
