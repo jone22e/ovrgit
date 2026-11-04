@@ -478,13 +478,17 @@ watch(repoRoot, () => void loadManifest())
 .deploy:hover, .deploy.on { filter: brightness(1.15); }
 .deploy.broken { color: var(--mod); }
 .chev { transform: rotate(90deg); opacity: 0.7; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .dot.ok { background: var(--add); }
-.dot.live { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.dot.wait { background: var(--del); animation: pulse 1.2s ease-in-out infinite; }
 .dot.locked { background: var(--mod); }
 .dot.off { background: var(--faint); opacity: 0.5; }
-@keyframes pulse { 50% { opacity: 0.35; } }
+/* rodando (azul) e esperando você (vermelho): a bolinha pisca e solta um anel que se expande */
+.dot.live { background: var(--accent); animation: blink 1s ease-in-out infinite; }
+.dot.wait { background: var(--del); animation: blink 1s ease-in-out infinite; }
+.dot.live::after, .dot.wait::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 2px solid currentColor; color: var(--accent); animation: ring 1.4s ease-out infinite; }
+.dot.wait::after { color: var(--del); }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+@keyframes ring { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.6); opacity: 0; } }
 .pop {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(440px, calc(100vw - 24px)); padding: 8px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
