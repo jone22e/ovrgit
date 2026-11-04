@@ -4,16 +4,18 @@ import path from 'node:path'
 import { shell, webContents } from 'electron'
 import type { Service } from '../shared/types'
 import {
-  parseDeployManifest, type DeployLock, type DeployManifest, type DeployOperation, type DeployPlanResult, type DeployRelease, type DeploySnapshot
+  parseDeployManifest, type DeployConsoleManifest, type DeployLock, type DeployManifest, type DeployOperation, type DeployPlanResult, type DeployRelease, type DeploySnapshot
 } from '../shared/deploy'
 import { getSettings, saveSettings } from './settings'
 import * as services from './services'
+import * as script from './deployScript'
 
 /**
- * Deploy pelo app: o repositório declara em `.ovseer/deploy.json` o comando que sobe o seu console local de
- * deploy e a porta. O app sobe o console como um serviço (reaproveitando o já cadastrado com o mesmo comando
- * e pasta) e conversa com a API dele: releases, fases, trava compartilhada e ações. As ações exigem o token
- * que o próprio console entrega no bootstrap e a origem dele, como a tela do console faz.
+ * Deploy pelo app: o repositório declara em `.ovseer/deploy.json` como o deploy dele funciona.
+ * - `console`: o app sobe o console local como um serviço (reaproveitando o já cadastrado com o mesmo comando
+ *   e pasta) e conversa com a API dele: releases, fases, trava compartilhada e ações. As ações exigem o token
+ *   que o próprio console entrega no bootstrap e a origem dele, como a tela do console faz.
+ * - `script`: o app roda o comando num pseudoterminal e acompanha as etapas pela saída (ver deployScript.ts).
  */
 
 export const MANIFEST_FILE = '.ovseer/deploy.json'
@@ -34,7 +36,13 @@ function manifestOf(root: string): DeployManifest {
   return manifest
 }
 
-const originOf = (m: DeployManifest) => `http://127.0.0.1:${m.port}`
+const originOf = (m: DeployConsoleManifest) => `http://127.0.0.1:${m.port}`
+
+function consoleManifestOf(root: string): DeployConsoleManifest {
+  const m = manifestOf(root)
+  if (m.kind !== 'console') throw new Error('Este projeto faz deploy por script; não há console.')
+  return m
+}
 
 /** Token de mutação por repositório, entregue pelo bootstrap do console */
 const tokens = new Map<string, string>()
@@ -55,14 +63,14 @@ async function request<T>(origin: string, pathname: string, init: RequestInit = 
   return res.json() as Promise<T>
 }
 
-async function bootstrap(root: string, m: DeployManifest): Promise<Bootstrap> {
+async function bootstrap(root: string, m: DeployConsoleManifest): Promise<Bootstrap> {
   const boot = await request<Bootstrap>(originOf(m), '/api/bootstrap', {}, 2500)
   tokens.set(root, boot.token)
   return boot
 }
 
 async function post<T>(root: string, pathname: string, body: unknown, ms = 15_000): Promise<T> {
-  const m = manifestOf(root)
+  const m = consoleManifestOf(root)
   if (!tokens.has(root)) await bootstrap(root, m)
   const origin = originOf(m)
   return request<T>(origin, pathname, {
@@ -76,14 +84,14 @@ async function post<T>(root: string, pathname: string, body: unknown, ms = 15_00
 
 const samePath = (a: string, b: string) => path.resolve(a || '') === path.resolve(b || '')
 
-function findService(root: string, m: DeployManifest): Service | undefined {
+function findService(root: string, m: DeployConsoleManifest): Service | undefined {
   return getSettings().services.find((s) => samePath(s.cwd, root) && s.command.trim() === m.start)
 }
 
-const proposedService = (root: string, m: DeployManifest) => ({ name: `${m.name} · ${path.basename(root)}`, command: m.start, cwd: root })
+const proposedService = (root: string, m: DeployConsoleManifest) => ({ name: `${m.name} · ${path.basename(root)}`, command: m.start, cwd: root })
 
 /** Serviço que sobe o console: o já cadastrado com o mesmo comando e pasta, ou um novo (a tela confirma antes) */
-function consoleService(root: string, m: DeployManifest): Service {
+function consoleService(root: string, m: DeployConsoleManifest): Service {
   const found = findService(root, m)
   if (found) return found
   const created: Service = { id: randomUUID(), ...proposedService(root, m) }
@@ -93,11 +101,11 @@ function consoleService(root: string, m: DeployManifest): Service {
 }
 
 export async function startConsole(root: string): Promise<void> {
-  const m = manifestOf(root)
+  const m = consoleManifestOf(root)
   await services.startService(consoleService(root, m).id)
 }
 
-const serviceRunning = (root: string, m: DeployManifest) => {
+const serviceRunning = (root: string, m: DeployConsoleManifest) => {
   const s = findService(root, m)
   return !!s && services.serviceStates().find((st) => st.id === s.id)?.status === 'running'
 }
@@ -106,6 +114,7 @@ const serviceRunning = (root: string, m: DeployManifest) => {
 
 export async function snapshot(root: string): Promise<DeploySnapshot> {
   const m = manifestOf(root)
+  if (m.kind === 'script') return script.snapshot(root)
   const origin = originOf(m)
   let boot: Bootstrap
   try {
@@ -116,7 +125,7 @@ export async function snapshot(root: string): Promise<DeploySnapshot> {
     const service = found
       ? { registered: true, name: found.name, command: found.command, cwd: found.cwd }
       : { registered: false, ...proposedService(root, m) }
-    return { console: serviceRunning(root, m) ? 'starting' : 'stopped', origin, operation: null, releases: [], current: null, expectedTests: 0, service }
+    return { console: serviceRunning(root, m) ? 'starting' : 'stopped', origin, operation: null, releases: [], current: null, expectedTests: 0, service, lockSupported: true }
   }
   const releases = Array.isArray(boot.releases) ? boot.releases : []
   let current: DeployRelease | null = releases[0] ?? null
@@ -127,17 +136,19 @@ export async function snapshot(root: string): Promise<DeploySnapshot> {
       /* fica o resumo do bootstrap */
     }
   }
-  return { console: 'ready', origin, operation: boot.active_operation ?? null, releases, current, expectedTests: Number(boot.expected_test_total) || 0 }
+  return { console: 'ready', origin, operation: boot.active_operation ?? null, releases, current, expectedTests: Number(boot.expected_test_total) || 0, lockSupported: true }
 }
 
 /** Trava compartilhada: o console consulta o S3, então demora um ou dois segundos */
 export async function lock(root: string): Promise<DeployLock> {
   const m = manifestOf(root)
+  if (m.kind === 'script') return script.lock()
   return (await request<{ lock: DeployLock }>(originOf(m), '/api/lock', {}, 20_000)).lock
 }
 
 export async function log(root: string, tag: string, phase: string): Promise<string> {
   const m = manifestOf(root)
+  if (m.kind === 'script') return script.log(root, tag, phase)
   const res = await fetch(`${originOf(m)}/api/releases/${encodeURIComponent(tag)}/logs/${encodeURIComponent(phase)}`, { signal: AbortSignal.timeout(8000) })
   if (!res.ok) throw new Error(`Falha HTTP ${res.status}`)
   return res.text()
@@ -146,13 +157,21 @@ export async function log(root: string, tag: string, phase: string): Promise<str
 // ---------- ações ----------
 
 /** Gera o plano (preflight: git, AWS, trava); pode levar alguns minutos */
-export const plan = (root: string, typesenseFirst: boolean) =>
-  post<DeployPlanResult>(root, '/api/plan', { typesense_first: typesenseFirst }, 10 * 60_000)
+export const plan = (root: string, typesenseFirst: boolean) => {
+  const m = manifestOf(root)
+  if (m.kind === 'script') return script.plan(root, m)
+  return post<DeployPlanResult>(root, '/api/plan', { typesense_first: typesenseFirst }, 10 * 60_000)
+}
 
-export const run = async (root: string, planId: string) =>
-  (await post<{ operation: DeployOperation }>(root, '/api/deploy', { confirmed: true, plan_id: planId })).operation
+export const run = async (root: string, planId: string) => {
+  const m = manifestOf(root)
+  if (m.kind === 'script') return script.run(root, m, planId)
+  return (await post<{ operation: DeployOperation }>(root, '/api/deploy', { confirmed: true, plan_id: planId })).operation
+}
 
 export const cancel = async (root: string, operationId: string, tag: string) => {
+  const m = manifestOf(root)
+  if (m.kind === 'script') return script.cancel(root, operationId)
   await post(root, '/api/operations/cancel', { confirmation: 'CANCELAR', operation_id: operationId, release_tag: tag })
 }
 
@@ -163,5 +182,5 @@ export const releaseLock = async (root: string) =>
   (await post<{ lock: DeployLock }>(root, '/api/lock/release', { confirmation: 'LIBERAR' }, 30_000)).lock
 
 export function openConsole(root: string): Promise<void> {
-  return shell.openExternal(originOf(manifestOf(root)))
+  return shell.openExternal(originOf(consoleManifestOf(root)))
 }

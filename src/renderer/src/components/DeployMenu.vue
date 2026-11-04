@@ -35,6 +35,9 @@ const historyOpen = ref(false)
 const now = ref(Date.now())
 
 const repoRoot = computed(() => state.repo?.root ?? '')
+/** Adaptador de script: sem console, sem trava compartilhada, sem retomada */
+const isScript = computed(() => manifest.value?.kind === 'script')
+const lockSupported = computed(() => snap.value?.lockSupported !== false)
 const current = computed(() => snap.value?.current ?? null)
 const steps = computed(() => (manifest.value ? buildDeploySteps(manifest.value, current.value) : []))
 const operation = computed(() => snap.value?.operation ?? null)
@@ -77,7 +80,7 @@ const buildLine = (p: DeployPlanResult) => {
   return parts.length ? parts.join(' e ') : 'nada a reconstruir'
 }
 const cleanErr = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-const emptySnap = (): DeploySnapshot => ({ console: 'stopped', origin: '', operation: null, releases: [], current: null, expectedTests: 0 })
+const emptySnap = (): DeploySnapshot => ({ console: 'stopped', origin: '', operation: null, releases: [], current: null, expectedTests: 0, lockSupported: true })
 
 async function loadManifest() {
   manifest.value = null
@@ -112,7 +115,7 @@ async function refresh() {
 
 /** A trava passa pelo console e pelo S3: um ou dois segundos por consulta */
 async function refreshLock() {
-  if (!manifest.value || snap.value?.console !== 'ready' || lockLoading.value) return
+  if (!manifest.value || snap.value?.console !== 'ready' || !lockSupported.value || lockLoading.value) return
   lockLoading.value = true
   const r = repoRoot.value
   try {
@@ -324,14 +327,14 @@ watch(repoRoot, () => void loadManifest())
             <button class="small primary" :disabled="busy === 'console'" @click="startConsole"><Icon name="play" :size="13" /> Ligar console</button>
           </template>
         </div>
-        <p v-else-if="snap.console === 'starting'" class="msg faint"><span class="spinner" /> Subindo o console (<span class="mono">{{ manifest?.start }}</span>)… pode levar um minuto.</p>
+        <p v-else-if="snap.console === 'starting'" class="msg faint"><span class="spinner" /> Subindo o console (<span class="mono">{{ manifest?.kind === 'console' ? manifest.start : '' }}</span>)… pode levar um minuto.</p>
         <p v-else-if="snap.console === 'error'" class="msg err">{{ snap.error }}</p>
         <template v-else>
-          <div v-if="lockError" class="lockbar broken">
+          <div v-if="lockSupported && lockError" class="lockbar broken">
             <Icon name="alert" :size="14" />
             <span class="txt">Não consegui consultar a trava compartilhada: {{ lockError }}</span>
           </div>
-          <div v-else-if="lockedElsewhere && lock" class="lockbar" :class="{ stale: lock.stale }">
+          <div v-else-if="lockSupported && lockedElsewhere && lock" class="lockbar" :class="{ stale: lock.stale }">
             <Icon name="lock" :size="14" />
             <span class="txt">{{ lockLine(lock, now) }}</span>
             <template v-if="lock.stale">
@@ -342,13 +345,14 @@ watch(repoRoot, () => void loadManifest())
 
           <div v-if="planning" class="newdeploy">
             <h5><Icon name="cloudUp" :size="15" /> Novo deploy</h5>
-            <label class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan' || busy === 'run'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
+            <label v-if="!isScript" class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan' || busy === 'run'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
 
             <div v-if="busy === 'plan'" class="planning">
               <span class="spinner" />
               <div>
                 <strong>Preparando o plano…</strong>
-                <small>Conferindo main e origin, acesso à AWS, a trava compartilhada e o que mudou desde a última release. Pode levar alguns minutos. Nada é enviado nesta etapa.</small>
+                <small v-if="isScript">Conferindo a branch e as alterações locais. Nada é enviado nesta etapa.</small>
+                <small v-else>Conferindo main e origin, acesso à AWS, a trava compartilhada e o que mudou desde a última release. Pode levar alguns minutos. Nada é enviado nesta etapa.</small>
               </div>
             </div>
 
@@ -361,9 +365,10 @@ watch(repoRoot, () => void loadManifest())
                 <div class="meta faint">
                   commit <span class="mono">{{ plan.plan.commit.slice(0, 8) }}</span>
                   · anterior <span class="mono">{{ plan.plan.previous_tag || '—' }}</span>
-                  · build: {{ buildLine(plan) }}
+                  <template v-if="!isScript"> · build: {{ buildLine(plan) }}</template>
                 </div>
-                <div class="meta faint">Ordem: {{ plan.plan.order }}</div>
+                <div v-if="isScript" class="meta faint">Comando: <span class="mono">{{ plan.plan.order }}</span></div>
+                <div v-else class="meta faint">Ordem: {{ plan.plan.order }}</div>
                 <ul v-if="changeReasons.length" class="reasons">
                   <li v-for="r in changeReasons" :key="r">{{ r }}</li>
                 </ul>
@@ -448,13 +453,13 @@ watch(repoRoot, () => void loadManifest())
               <button class="small primary" :disabled="lockedElsewhere || busy !== ''" :title="lockedElsewhere ? 'Outro computador está com a trava' : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>
-              <button v-if="current?.status === 'failed'" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="resumeDeploy">
+              <button v-if="!isScript && current?.status === 'failed'" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="resumeDeploy">
                 <Icon name="forward" :size="13" /> Retomar
               </button>
             </template>
             <span class="spacer" />
             <button class="ghost small icon" :class="{ on: historyOpen }" title="Releases anteriores" @click="historyOpen = !historyOpen"><Icon name="history" :size="13" /></button>
-            <button class="ghost small icon" title="Abrir o console no navegador" @click="api.deployOpenConsole(repoRoot)"><Icon name="external" :size="13" /></button>
+            <button v-if="!isScript" class="ghost small icon" title="Abrir o console no navegador" @click="api.deployOpenConsole(repoRoot)"><Icon name="external" :size="13" /></button>
             <button class="ghost small icon" title="Atualizar" @click="refresh(); refreshLock()"><Icon name="refresh" :size="13" /></button>
           </div>
           </template>

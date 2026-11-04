@@ -1,8 +1,11 @@
 /**
  * Deploy pelo Ovseer: cada repositório declara em `.ovseer/deploy.json` como o app sobe e acompanha o seu
- * deploy. Por enquanto há um tipo de adaptador, `console`: um servidor local (como o deploy-console do
- * Flexi) com a API de releases, fases, eventos e trava compartilhada. O app desenha as fases como uma lista
- * numerada de etapas; o manifesto diz quais fases do motor entram em cada etapa.
+ * deploy. Dois tipos de adaptador:
+ * - `console`: um servidor local (como o deploy-console do Flexi) com a API de releases, fases, eventos e
+ *   trava compartilhada; o manifesto diz quais fases do motor entram em cada etapa.
+ * - `script`: um comando de shell (como `make deploy`) que o app roda na raiz do repositório; o script marca
+ *   a etapa em que está com linhas `[ovseer] etapa <id>` na saída, e o código de saída decide o resultado.
+ * Nos dois casos o app desenha a mesma lista numerada de etapas.
  */
 
 export interface DeployStepSpec {
@@ -12,18 +15,30 @@ export interface DeployStepSpec {
   phases: string[]
 }
 
-export interface DeployManifest {
+interface DeployManifestBase {
   ovseer: 'deploy'
   version: 1
-  kind: 'console'
   /** Nome mostrado no botão e no serviço que sobe o console (padrão: "Deploy") */
   name: string
+  steps: DeployStepSpec[]
+}
+export interface DeployConsoleManifest extends DeployManifestBase {
+  kind: 'console'
   /** Comando de shell que sobe o console, rodando na raiz do repositório */
   start: string
   /** Porta local em que o console responde */
   port: number
-  steps: DeployStepSpec[]
 }
+export interface DeployScriptManifest extends DeployManifestBase {
+  kind: 'script'
+  /** Comando de shell do deploy, rodando na raiz do repositório */
+  command: string
+}
+export type DeployManifest = DeployConsoleManifest | DeployScriptManifest
+
+/** Linha que o script emite ao entrar numa etapa: `[ovseer] etapa <id>` */
+export const DEPLOY_STEP_MARKER = /^\[ovseer\] etapa ([a-z0-9_-]+)\s*$/i
+export const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
 /** Etapas padrão do adaptador `console`, iguais aos blocos do console do Flexi */
 export const DEFAULT_CONSOLE_STEPS: DeployStepSpec[] = [
@@ -51,29 +66,32 @@ export function parseDeployManifest(text: string): DeployManifest {
   }
   if (!isRecord(raw) || raw.ovseer !== 'deploy') throw new Error('O arquivo .ovseer/deploy.json precisa ter "ovseer": "deploy".')
   if (raw.version !== 1) throw new Error('Versão do .ovseer/deploy.json não suportada (esperada: 1).')
-  if (raw.kind !== 'console') throw new Error(`Tipo de deploy não suportado: ${String(raw.kind)} (esperado: "console").`)
+  if (raw.kind !== 'console' && raw.kind !== 'script') throw new Error(`Tipo de deploy não suportado: ${String(raw.kind)} (esperado: "console" ou "script").`)
+  const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Deploy'
+  const parseSteps = (required: boolean): DeployStepSpec[] | null => {
+    if (raw.steps === undefined) {
+      if (required) throw new Error('O .ovseer/deploy.json de tipo "script" precisa da lista "steps" (id e title de cada etapa).')
+      return null
+    }
+    if (!Array.isArray(raw.steps) || !raw.steps.length) throw new Error('"steps" do .ovseer/deploy.json precisa ser uma lista com pelo menos uma etapa.')
+    const steps = raw.steps.map((s, i) => {
+      const phasesOk = s && typeof s === 'object' && 'phases' in s ? Array.isArray((s as { phases: unknown }).phases) && ((s as { phases: unknown[] }).phases).every((p) => typeof p === 'string') : true
+      if (!isRecord(s) || typeof s.id !== 'string' || !/^[a-z0-9_-]+$/i.test(s.id) || typeof s.title !== 'string' || !phasesOk) {
+        throw new Error(`Etapa ${i + 1} do .ovseer/deploy.json precisa de "id" (letras, números, - e _), "title" e, se houver, "phases".`)
+      }
+      return { id: s.id, title: s.title, phases: Array.isArray(s.phases) ? (s.phases as string[]) : [s.id] }
+    })
+    if (new Set(steps.map((st) => st.id)).size !== steps.length) throw new Error('As etapas do .ovseer/deploy.json têm "id" repetido.')
+    return steps
+  }
+  if (raw.kind === 'script') {
+    if (typeof raw.command !== 'string' || !raw.command.trim()) throw new Error('O .ovseer/deploy.json de tipo "script" precisa do "command" do deploy.')
+    return { ovseer: 'deploy', version: 1, kind: 'script', name, command: raw.command.trim(), steps: parseSteps(true)! }
+  }
   if (typeof raw.start !== 'string' || !raw.start.trim()) throw new Error('O .ovseer/deploy.json precisa do comando "start" que sobe o console.')
   const port = Number(raw.port)
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('A "port" do .ovseer/deploy.json precisa ser um inteiro entre 1024 e 65535.')
-  let steps = DEFAULT_CONSOLE_STEPS
-  if (raw.steps !== undefined) {
-    if (!Array.isArray(raw.steps) || !raw.steps.length) throw new Error('"steps" do .ovseer/deploy.json precisa ser uma lista com pelo menos uma etapa.')
-    steps = raw.steps.map((s, i) => {
-      if (!isRecord(s) || typeof s.id !== 'string' || typeof s.title !== 'string' || !Array.isArray(s.phases) || !s.phases.every((p) => typeof p === 'string')) {
-        throw new Error(`Etapa ${i + 1} do .ovseer/deploy.json precisa de "id", "title" e "phases".`)
-      }
-      return { id: s.id, title: s.title, phases: s.phases as string[] }
-    })
-  }
-  return {
-    ovseer: 'deploy',
-    version: 1,
-    kind: 'console',
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'Deploy',
-    start: raw.start.trim(),
-    port,
-    steps
-  }
+  return { ovseer: 'deploy', version: 1, kind: 'console', name, start: raw.start.trim(), port, steps: parseSteps(false) ?? DEFAULT_CONSOLE_STEPS }
 }
 
 // ---------- o que a API do console devolve ----------
@@ -157,6 +175,8 @@ export interface DeploySnapshot {
   error?: string
   /** Serviço que sobe o console: o cadastrado (registered) ou o que o app propõe cadastrar */
   service?: { registered: boolean; name: string; command: string; cwd: string }
+  /** Há trava compartilhada para consultar (só o adaptador console tem) */
+  lockSupported: boolean
   /** Endereço do console, para abrir no navegador */
   origin: string
   operation: DeployOperation | null

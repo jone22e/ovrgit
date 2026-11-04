@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_CONSOLE_STEPS, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest,
+  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, stripAnsi,
   type DeployManifest, type DeployRelease
 } from '../src/shared/deploy'
 
@@ -12,15 +12,31 @@ describe('manifesto do deploy', () => {
   it('aceita o mínimo e preenche nome e etapas padrão', () => {
     const m = manifest()
     expect(m.name).toBe('Deploy')
-    expect(m.port).toBe(3098)
+    expect(m.kind === 'console' && m.port).toBe(3098)
     expect(m.steps).toEqual(DEFAULT_CONSOLE_STEPS)
   })
   it('recusa JSON inválido, tipo desconhecido, porta e etapas malformadas com mensagens claras', () => {
     expect(() => parseDeployManifest('{')).toThrow(/JSON válido/)
     expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'x' }))).toThrow(/"ovseer": "deploy"/)
-    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', start: 'x', port: 3000 }))).toThrow(/não suportado: script/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'ssh', start: 'x', port: 3000 }))).toThrow(/não suportado: ssh/)
     expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', start: 'x', port: 80 }))).toThrow(/entre 1024 e 65535/)
     expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', start: 'x', port: 3000, steps: [{ id: 'a' }] }))).toThrow(/Etapa 1/)
+  })
+  it('tipo script exige comando e etapas; etapa sem "phases" usa o próprio id', () => {
+    const m = parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'make deploy', steps: [{ id: 'backup', title: 'Backup' }, { id: 'envio', title: 'Envio', phases: ['rsync'] }] }))
+    expect(m.kind).toBe('script')
+    if (m.kind === 'script') expect(m.command).toBe('make deploy')
+    expect(m.steps).toEqual([{ id: 'backup', title: 'Backup', phases: ['backup'] }, { id: 'envio', title: 'Envio', phases: ['rsync'] }])
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x' }))).toThrow(/precisa da lista "steps"/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', steps: [{ id: 'a', title: 'A' }] }))).toThrow(/"command"/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x', steps: [{ id: 'a', title: 'A' }, { id: 'a', title: 'B' }] }))).toThrow(/repetido/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x', steps: [{ id: 'com espaço', title: 'A' }] }))).toThrow(/Etapa 1/)
+  })
+  it('marcador de etapa na saída do script, mesmo com cores', () => {
+    expect('[ovseer] etapa backup'.match(DEPLOY_STEP_MARKER)?.[1]).toBe('backup')
+    expect('[ovseer] etapa troca-de-trafego  '.match(DEPLOY_STEP_MARKER)?.[1]).toBe('troca-de-trafego')
+    expect('# [ovseer] etapa backup'.match(DEPLOY_STEP_MARKER)).toBeNull()
+    expect(stripAnsi('\x1b[32m[ovseer] etapa build\x1b[0m').match(DEPLOY_STEP_MARKER)?.[1]).toBe('build')
   })
   it('aceita etapas próprias', () => {
     const m = parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', name: ' Publicar ', start: 'npm start', port: 4000, steps: [{ id: 'b', title: 'Build', phases: ['build'] }] }))
