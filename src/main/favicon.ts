@@ -5,7 +5,7 @@ const NAMES = ['favicon.svg', 'favicon.png', 'favicon.ico', 'icon.svg', 'icon.pn
 
 // lugares comuns em projetos web (Vite, Next, CRA, Nuxt, Angular, monorepos)
 const DIRS = ['', 'public', 'static', 'assets', 'src', 'src/assets', 'src/app', 'app', 'src/public', 'www', 'web', 'resources']
-const PARENTS = ['', 'frontend', 'client', 'web', 'app', 'site', 'apps/web', 'apps/frontend', 'packages/web', 'packages/frontend']
+const PARENTS = ['', 'frontend', 'client', 'web', 'app', 'site', 'apps/web', 'apps/frontend', 'packages/web', 'packages/frontend', 'v2/app', 'v2/console']
 
 const MIME: Record<string, string> = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' }
 const MAX_BYTES = 256 * 1024
