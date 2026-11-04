@@ -890,7 +890,7 @@ function registerIpc() {
   ipcMain.handle('deploy:snapshot', (_e, root: string) => deploy.snapshot(String(root)))
   ipcMain.handle('deploy:startConsole', (_e, root: string) => deploy.startConsole(String(root)))
   ipcMain.handle('deploy:lock', (_e, root: string) => deploy.lock(String(root)))
-  ipcMain.handle('deploy:plan', (_e, root: string, typesenseFirst: boolean) => deploy.plan(String(root), typesenseFirst === true))
+  ipcMain.handle('deploy:plan', (_e, root: string, typesenseFirst: boolean, target?: string) => deploy.plan(String(root), typesenseFirst === true, target === undefined ? undefined : String(target)))
   ipcMain.handle('deploy:run', (_e, root: string, planId: string, code?: string) => deploy.run(String(root), String(planId), code === undefined ? undefined : String(code)))
   ipcMain.handle('deploy:cancel', (_e, root: string, operationId: string, tag: string) => deploy.cancel(String(root), String(operationId), String(tag)))
   ipcMain.handle('deploy:resume', (_e, root: string, tag: string, code?: string) => deploy.resume(String(root), String(tag), code === undefined ? undefined : String(code)))

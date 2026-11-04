@@ -1195,7 +1195,8 @@ export interface OvseerApi {
   deployStartConsole(root: string): Promise<void>
   /** Trava compartilhada entre computadores, consultada pelo console */
   deployLock(root: string): Promise<import('./deploy').DeployLock>
-  deployPlan(root: string, typesenseFirst: boolean): Promise<import('./deploy').DeployPlanResult>
+  /** `target`: alvo escolhido, nos projetos cujo manifesto declara targets */
+  deployPlan(root: string, typesenseFirst: boolean, target?: string): Promise<import('./deploy').DeployPlanResult>
   /** Iniciar, retomar e liberar a trava exigem o código do autenticador quando a verificação em duas etapas está ativa */
   deployRun(root: string, planId: string, code?: string): Promise<import('./deploy').DeployOperation>
   deployCancel(root: string, operationId: string, tag: string): Promise<void>

@@ -20,6 +20,7 @@ import { trackPty } from './ptyRegistry'
 
 interface ScriptRun {
   tag: string
+  target?: string
   status: 'running' | 'failed' | 'completed'
   commit: string
   branch: string
@@ -42,7 +43,7 @@ interface Active {
 
 const runsByRoot = new Map<string, ScriptRun[]>()
 const active = new Map<string, Active>()
-const plans = new Map<string, { root: string; tag: string; expiresAt: number }>()
+const plans = new Map<string, { root: string; tag: string; target?: string; expiresAt: number }>()
 const LOG_MAX = 200_000
 const RUNS_MAX = 20
 
@@ -93,6 +94,7 @@ const nextTag = (root: string) => {
 
 const toRelease = (r: ScriptRun): DeployRelease => ({
   tag: r.tag,
+  target: r.target,
   status: r.status,
   commit: r.commit,
   created_at: r.created_at,
@@ -121,18 +123,26 @@ export function lock(): DeployLock {
   return { status: 'free', stale: false, location: '', lock: null, checked_at: new Date().toISOString() }
 }
 
-export async function plan(root: string, m: DeployScriptManifest): Promise<DeployPlanResult> {
+export async function plan(root: string, m: DeployScriptManifest, target?: string): Promise<DeployPlanResult> {
   if (active.get(root)) throw new Error('Já há um deploy em andamento neste projeto.')
+  if (m.targets) {
+    if (!target) throw new Error('Escolha o alvo do deploy.')
+    if (!m.targets.some((t) => t.id === target)) throw new Error(`Alvo desconhecido: ${target}.`)
+  } else {
+    target = undefined
+  }
   const [commit, branch, porcelain] = await Promise.all([git(root, ['rev-parse', 'HEAD']), git(root, ['rev-parse', '--abbrev-ref', 'HEAD']), git(root, ['status', '--porcelain'])])
   const dirty = porcelain ? porcelain.split('\n').filter(Boolean).length : 0
   const previous = loadRuns(root).find((r) => r.status === 'completed')
   const tag = nextTag(root)
   const plan_id = randomBytes(18).toString('base64url')
-  plans.set(plan_id, { root, tag, expiresAt: Date.now() + 15 * 60_000 })
+  plans.set(plan_id, { root, tag, target, expiresAt: Date.now() + 15 * 60_000 })
   const reasons = [`branch ${branch || '?'}`, `${m.steps.length} etapas: ${m.steps.map((s) => s.title).join(' → ')}`]
   const warnings = dirty ? [`${dirty} arquivo(s) com alterações não salvas: o deploy pode recusar ou publicar o que está no disco.`] : []
-  return { plan_id, plan: { tag, commit, previous_tag: previous?.tag ?? '', order: m.command, plan: { reasons, warnings } } }
+  return { plan_id, plan: { tag, target, commit, previous_tag: previous?.tag ?? '', order: commandFor(m, target), plan: { reasons, warnings } } }
 }
+
+const commandFor = (m: DeployScriptManifest, target?: string) => (target ? m.command.replaceAll('{target}', target) : m.command)
 
 export async function run(root: string, m: DeployScriptManifest, planId: string): Promise<DeployOperation> {
   const p = plans.get(planId)
@@ -142,18 +152,19 @@ export async function run(root: string, m: DeployScriptManifest, planId: string)
   const [commit, branch] = await Promise.all([git(root, ['rev-parse', 'HEAD']), git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])])
   const now = new Date().toISOString()
   const first = m.steps[0]
+  const command = commandFor(m, p.target)
   const runRecord: ScriptRun = {
-    tag: p.tag, status: 'running', commit, branch, created_at: now, updated_at: now,
+    tag: p.tag, target: p.target, status: 'running', commit, branch, created_at: now, updated_at: now,
     current: first.id, phases: { [first.id]: { status: 'running', started_at: now } }, logs: {}
   }
   const runs = loadRuns(root)
   runs.unshift(runRecord)
   const { spawn } = await import('@lydell/node-pty')
   const shell = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : '/bin/zsh'
-  const args = process.platform === 'win32' ? ['-NoLogo', '-Command', m.command] : ['-l', '-i', '-c', m.command]
+  const args = process.platform === 'win32' ? ['-NoLogo', '-Command', command] : ['-l', '-i', '-c', command]
   const pty = spawn(shell, args, {
     name: 'xterm-256color', cols: 120, rows: 30, cwd: existsSync(root) ? root : os.homedir(),
-    env: { ...process.env, TERM: 'xterm-256color', TERM_PROGRAM: 'Ovseer', OVSEER_DEPLOY: '1', OVSEER_DEPLOY_TAG: p.tag } as Record<string, string>
+    env: { ...process.env, TERM: 'xterm-256color', TERM_PROGRAM: 'Ovseer', OVSEER_DEPLOY: '1', OVSEER_DEPLOY_TAG: p.tag, ...(p.target ? { OVSEER_DEPLOY_TARGET: p.target } : {}) } as Record<string, string>
   })
   trackPty(pty)
   const a: Active = { run: runRecord, pty, partial: '' }

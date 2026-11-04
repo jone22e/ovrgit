@@ -158,9 +158,9 @@ export async function log(root: string, tag: string, phase: string): Promise<str
 // ---------- ações ----------
 
 /** Gera o plano (preflight: git, AWS, trava); pode levar alguns minutos */
-export const plan = (root: string, typesenseFirst: boolean) => {
+export const plan = (root: string, typesenseFirst: boolean, target?: string) => {
   const m = manifestOf(root)
-  if (m.kind === 'script') return script.plan(root, m)
+  if (m.kind === 'script') return script.plan(root, m, target)
   return post<DeployPlanResult>(root, '/api/plan', { typesense_first: typesenseFirst }, 10 * 60_000)
 }
 

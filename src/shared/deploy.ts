@@ -29,10 +29,16 @@ export interface DeployConsoleManifest extends DeployManifestBase {
   /** Porta local em que o console responde */
   port: number
 }
+/** Alvo escolhido na hora do deploy (uma loja, um ambiente…); o id entra no comando no lugar de {target} */
+export interface DeployTargetSpec {
+  id: string
+  title: string
+}
 export interface DeployScriptManifest extends DeployManifestBase {
   kind: 'script'
-  /** Comando de shell do deploy, rodando na raiz do repositório */
+  /** Comando de shell do deploy, rodando na raiz do repositório; com alvos, contém {target} */
   command: string
+  targets?: DeployTargetSpec[]
 }
 export type DeployManifest = DeployConsoleManifest | DeployScriptManifest
 
@@ -86,7 +92,22 @@ export function parseDeployManifest(text: string): DeployManifest {
   }
   if (raw.kind === 'script') {
     if (typeof raw.command !== 'string' || !raw.command.trim()) throw new Error('O .ovseer/deploy.json de tipo "script" precisa do "command" do deploy.')
-    return { ovseer: 'deploy', version: 1, kind: 'script', name, command: raw.command.trim(), steps: parseSteps(true)! }
+    const command = raw.command.trim()
+    let targets: DeployTargetSpec[] | undefined
+    if (raw.targets !== undefined) {
+      if (!Array.isArray(raw.targets) || !raw.targets.length) throw new Error('"targets" do .ovseer/deploy.json precisa ser uma lista com pelo menos um alvo.')
+      targets = raw.targets.map((t, i) => {
+        if (!isRecord(t) || typeof t.id !== 'string' || !/^[a-z0-9_-]+$/i.test(t.id) || typeof t.title !== 'string' || !t.title.trim()) {
+          throw new Error(`Alvo ${i + 1} do .ovseer/deploy.json precisa de "id" (letras, números, - e _) e "title".`)
+        }
+        return { id: t.id, title: t.title.trim() }
+      })
+      if (new Set(targets.map((t) => t.id)).size !== targets.length) throw new Error('Os alvos do .ovseer/deploy.json têm "id" repetido.')
+      if (!command.includes('{target}')) throw new Error('Com "targets", o "command" do .ovseer/deploy.json precisa conter {target}.')
+    } else if (command.includes('{target}')) {
+      throw new Error('O "command" usa {target}, mas o .ovseer/deploy.json não declara "targets".')
+    }
+    return { ovseer: 'deploy', version: 1, kind: 'script', name, command, steps: parseSteps(true)!, ...(targets ? { targets } : {}) }
   }
   if (typeof raw.start !== 'string' || !raw.start.trim()) throw new Error('O .ovseer/deploy.json precisa do comando "start" que sobe o console.')
   const port = Number(raw.port)
@@ -116,6 +137,8 @@ export interface DeployTestGroup {
 
 export interface DeployRelease {
   tag: string
+  /** Alvo escolhido (deploy por script com targets) */
+  target?: string
   /** validating, running, failed, critical_passed, completed… (status efetivo calculado pelo console) */
   status: string
   commit?: string
@@ -161,6 +184,7 @@ export interface DeployPlanResult {
   plan_id: string
   plan: {
     tag: string
+    target?: string
     commit: string
     previous_tag: string
     order: string

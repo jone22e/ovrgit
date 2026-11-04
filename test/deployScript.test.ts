@@ -88,6 +88,20 @@ describe('deploy por script', () => {
     expect(snap.releases.map((r) => r.status)).toEqual(['completed', 'failed'])
   })
 
+  it('com alvos, o plano exige o alvo e o comando recebe o id no lugar de {target}', async () => {
+    const withTargets = parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'make deploy-aws LOJA={target}', steps: [{ id: 'prep', title: 'Preparação' }], targets: [{ id: 'brasiltec', title: 'Brasiltec' }, { id: 'source', title: 'Source' }] })) as DeployScriptManifest
+    await expect(script.plan(repo, withTargets)).rejects.toThrow(/Escolha o alvo/)
+    await expect(script.plan(repo, withTargets, 'outra')).rejects.toThrow(/Alvo desconhecido/)
+    const plan = await script.plan(repo, withTargets, 'source')
+    expect(plan.plan.target).toBe('source')
+    expect(plan.plan.order).toBe('make deploy-aws LOJA=source')
+    await script.run(repo, withTargets, plan.plan_id)
+    expect(pty.args.at(-1)).toBe('make deploy-aws LOJA=source')
+    expect(script.snapshot(repo).current?.target).toBe('source')
+    pty.exit!({ exitCode: 0 })
+    expect(script.snapshot(repo).current?.status).toBe('completed')
+  })
+
   it('cancelar manda SIGTERM e marca a etapa como cancelada', async () => {
     const plan = await script.plan(repo, manifest)
     await script.run(repo, manifest, plan.plan_id)

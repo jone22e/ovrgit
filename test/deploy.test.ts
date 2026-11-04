@@ -32,6 +32,13 @@ describe('manifesto do deploy', () => {
     expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x', steps: [{ id: 'a', title: 'A' }, { id: 'a', title: 'B' }] }))).toThrow(/repetido/)
     expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x', steps: [{ id: 'com espaço', title: 'A' }] }))).toThrow(/Etapa 1/)
   })
+  it('alvos: ids válidos e únicos, e {target} no comando', () => {
+    const m = parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'make deploy-aws LOJA={target}', steps: [{ id: 'a', title: 'A' }], targets: [{ id: 'brasiltec', title: 'Brasiltec' }, { id: 'source', title: ' Source ' }] }))
+    expect(m.kind === 'script' && m.targets).toEqual([{ id: 'brasiltec', title: 'Brasiltec' }, { id: 'source', title: 'Source' }])
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'make deploy', steps: [{ id: 'a', title: 'A' }], targets: [{ id: 'x', title: 'X' }] }))).toThrow(/conter \{target\}/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'make deploy {target}', steps: [{ id: 'a', title: 'A' }] }))).toThrow(/não declara "targets"/)
+    expect(() => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'script', command: 'x {target}', steps: [{ id: 'a', title: 'A' }], targets: [{ id: 'x', title: 'X' }, { id: 'x', title: 'Y' }] }))).toThrow(/repetido/)
+  })
   it('marcador de etapa na saída do script, mesmo com cores', () => {
     expect('[ovseer] etapa backup'.match(DEPLOY_STEP_MARKER)?.[1]).toBe('backup')
     expect('[ovseer] etapa troca-de-trafego  '.match(DEPLOY_STEP_MARKER)?.[1]).toBe('troca-de-trafego')

@@ -55,6 +55,10 @@ const now = ref(Date.now())
 const repoRoot = computed(() => state.repo?.root ?? '')
 /** Adaptador de script: sem console, sem trava compartilhada, sem retomada */
 const isScript = computed(() => manifest.value?.kind === 'script')
+/** Alvos do deploy (uma loja, um ambiente…): escolhidos a cada novo deploy, sem lembrar o anterior */
+const targets = computed(() => (manifest.value?.kind === 'script' ? manifest.value.targets ?? [] : []))
+const target = ref('')
+const targetTitle = (id?: string) => targets.value.find((t) => t.id === id)?.title ?? id ?? ''
 const lockSupported = computed(() => snap.value?.lockSupported !== false)
 const current = computed(() => snap.value?.current ?? null)
 const steps = computed(() => (manifest.value ? buildDeploySteps(manifest.value, current.value) : []))
@@ -194,7 +198,8 @@ function startPlanning() {
   planning.value = true
   plan.value = null
   planError.value = ''
-  void makePlan()
+  target.value = ''
+  if (!targets.value.length) void makePlan()
 }
 
 async function makePlan() {
@@ -203,7 +208,7 @@ async function makePlan() {
   plan.value = null
   planError.value = ''
   try {
-    const result = await api.deployPlan(repoRoot.value, typesenseFirst.value)
+    const result = await api.deployPlan(repoRoot.value, typesenseFirst.value, target.value || undefined)
     if (request === planRequest) plan.value = result
   } catch (e) {
     if (request === planRequest) planError.value = cleanErr(e)
@@ -220,9 +225,12 @@ function stopPlanning() {
   if (busy.value === 'plan') busy.value = ''
 }
 
-/** Trocar a opção durante a tela de novo deploy refaz o plano */
+/** Trocar a opção ou o alvo durante a tela de novo deploy refaz o plano */
 watch(typesenseFirst, () => {
   if (planning.value) void makePlan()
+})
+watch(target, (t) => {
+  if (planning.value && t) void makePlan()
 })
 const changeReasons = computed(() => (plan.value?.plan.plan?.reasons ?? []).slice(0, 6))
 
@@ -375,8 +383,12 @@ watch(repoRoot, () => void loadManifest())
           <div v-if="planning" class="newdeploy">
             <h5><Icon name="cloudUp" :size="15" /> Novo deploy</h5>
             <label v-if="!isScript" class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan' || busy === 'run'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
+            <div v-if="targets.length" class="targets">
+              <button v-for="t in targets" :key="t.id" class="small" :class="{ primary: target === t.id }" :disabled="busy === 'run'" @click="target = t.id">{{ t.title }}</button>
+            </div>
 
-            <div v-if="busy === 'plan'" class="planning">
+            <p v-if="targets.length && !target" class="msg faint">Escolha o alvo para gerar o plano.</p>
+            <div v-else-if="busy === 'plan'" class="planning">
               <span class="spinner" />
               <div>
                 <strong>Preparando o plano…</strong>
@@ -389,6 +401,7 @@ watch(repoRoot, () => void loadManifest())
               <div class="planbox">
                 <div class="tagline">
                   <span class="tag mono">{{ plan.plan.tag }}</span>
+                  <span v-if="plan.plan.target" class="status target">{{ targetTitle(plan.plan.target) }}</span>
                   <span class="status">aguardando aprovação</span>
                 </div>
                 <div class="meta faint">
@@ -416,7 +429,7 @@ watch(repoRoot, () => void loadManifest())
                   <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="000 000" spellcheck="false" @keydown.enter.prevent="codeOk && runDeploy()" />
                 </label>
                 <button class="primary approve-btn" :disabled="busy === 'run' || !codeOk" @click="runDeploy">
-                  <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy de ${plan.plan.tag}` }}
+                  <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy${plan.plan.target ? ` de ${targetTitle(plan.plan.target)}` : ''} (${plan.plan.tag})` }}
                 </button>
               </template>
               <button class="ghost small" :disabled="busy === 'run'" @click="stopPlanning">Cancelar</button>
@@ -434,6 +447,7 @@ watch(repoRoot, () => void loadManifest())
           <div v-if="current" class="head">
             <div class="tagline">
               <span class="tag mono">{{ current.tag }}</span>
+              <span v-if="current.target" class="status target">{{ targetTitle(current.target) }}</span>
               <span class="status" :class="current.status">{{ releaseStatusLabel(current.status) }}</span>
             </div>
             <div class="meta faint">
@@ -513,6 +527,7 @@ watch(repoRoot, () => void loadManifest())
             <h6>Releases anteriores</h6>
             <div v-for="r in history" :key="r.tag" class="hrow">
               <span class="mono">{{ r.tag }}</span>
+              <span v-if="r.target" class="status target">{{ targetTitle(r.target) }}</span>
               <span class="status" :class="r.status">{{ releaseStatusLabel(r.status) }}</span>
               <span class="faint">{{ date(r.created_at) }}</span>
             </div>
@@ -566,6 +581,8 @@ watch(repoRoot, () => void loadManifest())
 .status.running, .status.validating { color: var(--accent); background: var(--accent-soft); }
 .status.failed { color: var(--del); }
 .status.completed, .status.critical_passed { color: var(--add); }
+.status.target { color: var(--text); background: var(--panel-2); border: 1px solid var(--border); }
+.targets { display: flex; gap: 6px; flex-wrap: wrap; }
 .meta { margin-top: 3px; font-size: 11.5px; }
 .steps { list-style: none; margin: 2px 0 0; padding: 2px 0 0; position: relative; }
 /* trilho vertical discreto, passando pelo centro dos marcadores (6px de padding + metade dos 22px) */
