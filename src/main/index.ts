@@ -46,6 +46,7 @@ import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
 import * as deploy from './deploy'
+import * as deployAuth from './deployAuth'
 import * as agentApi from './agentApi'
 import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
@@ -890,10 +891,14 @@ function registerIpc() {
   ipcMain.handle('deploy:startConsole', (_e, root: string) => deploy.startConsole(String(root)))
   ipcMain.handle('deploy:lock', (_e, root: string) => deploy.lock(String(root)))
   ipcMain.handle('deploy:plan', (_e, root: string, typesenseFirst: boolean) => deploy.plan(String(root), typesenseFirst === true))
-  ipcMain.handle('deploy:run', (_e, root: string, planId: string) => deploy.run(String(root), String(planId)))
+  ipcMain.handle('deploy:run', (_e, root: string, planId: string, code?: string) => deploy.run(String(root), String(planId), code === undefined ? undefined : String(code)))
   ipcMain.handle('deploy:cancel', (_e, root: string, operationId: string, tag: string) => deploy.cancel(String(root), String(operationId), String(tag)))
-  ipcMain.handle('deploy:resume', (_e, root: string, tag: string) => deploy.resume(String(root), String(tag)))
-  ipcMain.handle('deploy:releaseLock', (_e, root: string) => deploy.releaseLock(String(root)))
+  ipcMain.handle('deploy:resume', (_e, root: string, tag: string, code?: string) => deploy.resume(String(root), String(tag), code === undefined ? undefined : String(code)))
+  ipcMain.handle('deploy:releaseLock', (_e, root: string, code?: string) => deploy.releaseLock(String(root), code === undefined ? undefined : String(code)))
+  ipcMain.handle('deployAuth:status', () => deployAuth.status())
+  ipcMain.handle('deployAuth:begin', () => deployAuth.begin())
+  ipcMain.handle('deployAuth:confirm', (_e, code: string) => deployAuth.confirm(String(code ?? '')))
+  ipcMain.handle('deployAuth:disable', (_e, code: string) => deployAuth.disable(String(code ?? '')))
   ipcMain.handle('deploy:log', (_e, root: string, tag: string, phase: string) => deploy.log(String(root), String(tag), String(phase)))
   ipcMain.handle('deploy:openConsole', (_e, root: string) => deploy.openConsole(String(root)))
   ipcMain.handle('aws:status', () => aws.awsStatus())

@@ -11,25 +11,27 @@ import Icon from './Icon.vue'
 import ModelPicker from './ModelPicker.vue'
 import OvseerPanel from './OvseerPanel.vue'
 import AwsPanel from './AwsPanel.vue'
+import DeployPanel from './DeployPanel.vue'
 
 /** Configurações: menu lateral com seções, conteúdo largo. Aparência e terminal aplicam na hora; o resto no Salvar. */
 const emit = defineEmits<{ close: [] }>()
 const s = state.settings!
 
-type Section = 'general' | 'commits' | 'agents' | 'terminal' | 'tasks' | 'aws'
+type Section = 'general' | 'commits' | 'agents' | 'terminal' | 'tasks' | 'aws' | 'deploy'
 /** O mascote é ligado pelo processo principal (abre e fecha a janelinha); o estado local acompanha na hora */
 function toggleBuddy(on: boolean) {
   if (state.settings) state.settings.buddy = on
   api.buddySet(on).catch(() => undefined)
 }
 
-const SECTIONS: { id: Section; label: string; icon: 'settings' | 'sparkles' | 'bot' | 'terminal' | 'task' | 'cloud' }[] = [
+const SECTIONS: { id: Section; label: string; icon: 'settings' | 'sparkles' | 'bot' | 'terminal' | 'task' | 'cloud' | 'shield' }[] = [
   { id: 'general', label: 'Geral', icon: 'settings' },
   { id: 'commits', label: 'IA dos commits', icon: 'sparkles' },
   { id: 'agents', label: 'Agentes', icon: 'bot' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
   { id: 'tasks', label: 'Tarefas', icon: 'task' },
-  { id: 'aws', label: 'AWS', icon: 'cloud' }
+  { id: 'aws', label: 'AWS', icon: 'cloud' },
+  { id: 'deploy', label: 'Deploy', icon: 'shield' }
 ]
 const section = ref<Section>((localStorage.getItem('ovseer.settings.section') as Section) || 'general')
 function go(id: Section) {
@@ -493,6 +495,12 @@ async function save() {
           <template v-else-if="section === 'aws'">
             <h2>AWS</h2>
             <div class="block"><AwsPanel /></div>
+          </template>
+
+          <!-- Deploy -->
+          <template v-else-if="section === 'deploy'">
+            <h2>Deploy</h2>
+            <div class="block"><DeployPanel /></div>
           </template>
 
           <!-- Tarefas -->

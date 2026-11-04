@@ -204,6 +204,17 @@ export interface SshImportCandidate {
 
 /** Comando salvo do terminal (geral ou só de uma conexão) */
 /** Serviço: um comando que fica rodando em segundo plano (porta encaminhada, servidor de desenvolvimento…) */
+export interface DeployAuthStatus {
+  enabled: boolean
+}
+export interface DeployAuthSetup {
+  /** Chave em base32, em grupos de 4, para digitar no autenticador se o QR não puder ser lido */
+  secret: string
+  otpauth: string
+  /** QR code em SVG com a URL otpauth */
+  qrSvg: string
+}
+
 export interface Service {
   id: string
   name: string
@@ -1185,10 +1196,16 @@ export interface OvseerApi {
   /** Trava compartilhada entre computadores, consultada pelo console */
   deployLock(root: string): Promise<import('./deploy').DeployLock>
   deployPlan(root: string, typesenseFirst: boolean): Promise<import('./deploy').DeployPlanResult>
-  deployRun(root: string, planId: string): Promise<import('./deploy').DeployOperation>
+  /** Iniciar, retomar e liberar a trava exigem o código do autenticador quando a verificação em duas etapas está ativa */
+  deployRun(root: string, planId: string, code?: string): Promise<import('./deploy').DeployOperation>
   deployCancel(root: string, operationId: string, tag: string): Promise<void>
-  deployResume(root: string, tag: string): Promise<import('./deploy').DeployOperation>
-  deployReleaseLock(root: string): Promise<import('./deploy').DeployLock>
+  deployResume(root: string, tag: string, code?: string): Promise<import('./deploy').DeployOperation>
+  deployReleaseLock(root: string, code?: string): Promise<import('./deploy').DeployLock>
+  /** Verificação em duas etapas do deploy (Configurações → Deploy): QR code para o autenticador do telefone */
+  deployAuthStatus(): Promise<DeployAuthStatus>
+  deployAuthBegin(): Promise<DeployAuthSetup>
+  deployAuthConfirm(code: string): Promise<DeployAuthStatus>
+  deployAuthDisable(code: string): Promise<DeployAuthStatus>
   deployLog(root: string, tag: string, phase: string): Promise<string>
   deployOpenConsole(root: string): Promise<void>
   /** AWS: instalação do CLI, perfis e sessão (Configurações → AWS) */

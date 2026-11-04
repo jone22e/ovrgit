@@ -31,6 +31,12 @@ const planError = ref('')
 let planRequest = 0
 const confirmCancel = ref(false)
 const confirmUnlock = ref(false)
+const confirmResume = ref(false)
+/** Verificação em duas etapas ativa: iniciar, retomar e liberar a trava pedem o código do autenticador */
+const totp = ref(false)
+const authCode = ref('')
+const codeOk = computed(() => !totp.value || /^\d{6}$/.test(authCode.value.replace(/\s/g, '')))
+const codeArg = () => (totp.value ? authCode.value.replace(/\s/g, '') : undefined)
 const historyOpen = ref(false)
 const now = ref(Date.now())
 
@@ -149,7 +155,10 @@ async function toggle() {
   if (!open.value) return
   confirmCancel.value = false
   confirmUnlock.value = false
+  confirmResume.value = false
+  authCode.value = ''
   stopPlanning()
+  void api.deployAuthStatus().then((s) => (totp.value = s.enabled)).catch(() => undefined)
   await refresh()
   void refreshLock()
 }
@@ -210,7 +219,8 @@ async function runDeploy() {
   busy.value = 'run'
   try {
     const tag = plan.value.plan.tag
-    await api.deployRun(repoRoot.value, plan.value.plan_id)
+    await api.deployRun(repoRoot.value, plan.value.plan_id, codeArg())
+    authCode.value = ''
     stopPlanning()
     toast(`Deploy ${tag} iniciado.`)
     await refresh()
@@ -242,7 +252,9 @@ async function resumeDeploy() {
   if (!c) return
   busy.value = 'resume'
   try {
-    await api.deployResume(repoRoot.value, c.tag)
+    await api.deployResume(repoRoot.value, c.tag, codeArg())
+    authCode.value = ''
+    confirmResume.value = false
     toast(`Retomando ${c.tag}…`)
     await refresh()
   } catch (e) {
@@ -255,7 +267,8 @@ async function resumeDeploy() {
 async function unlock() {
   busy.value = 'unlock'
   try {
-    lock.value = await api.deployReleaseLock(repoRoot.value)
+    lock.value = await api.deployReleaseLock(repoRoot.value, codeArg())
+    authCode.value = ''
     confirmUnlock.value = false
     toast('Trava liberada.')
   } catch (e) {
@@ -338,8 +351,11 @@ watch(repoRoot, () => void loadManifest())
             <Icon name="lock" :size="14" />
             <span class="txt">{{ lockLine(lock, now) }}</span>
             <template v-if="lock.stale">
-              <button v-if="!confirmUnlock" class="ghost small" title="Só depois de confirmar com o outro operador que o deploy foi abandonado" @click="confirmUnlock = true">Liberar trava</button>
-              <button v-else class="small danger" :disabled="busy === 'unlock'" @click="unlock">Confirmar liberação</button>
+              <button v-if="!confirmUnlock" class="ghost small" title="Só depois de confirmar com o outro operador que o deploy foi abandonado" @click="confirmUnlock = true; authCode = ''">Liberar trava</button>
+              <template v-else>
+                <input v-if="totp" v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" />
+                <button class="small danger" :disabled="busy === 'unlock' || !codeOk" @click="unlock">Confirmar liberação</button>
+              </template>
             </template>
           </div>
 
@@ -377,7 +393,11 @@ watch(repoRoot, () => void loadManifest())
                 </ul>
               </div>
               <p class="note"><Icon name="shield" :size="13" /> Nada foi enviado ainda. O deploy só começa depois da sua aprovação.</p>
-              <button class="primary approve-btn" :disabled="busy === 'run'" @click="runDeploy">
+              <label v-if="totp" class="auth">
+                <span>Código do aplicativo autenticador</span>
+                <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="000 000" spellcheck="false" @keydown.enter.prevent="codeOk && runDeploy()" />
+              </label>
+              <button class="primary approve-btn" :disabled="busy === 'run' || !codeOk" @click="runDeploy">
                 <Icon name="check" :size="15" /> {{ busy === 'run' ? 'Iniciando…' : `Aprovar e iniciar o deploy de ${plan.plan.tag}` }}
               </button>
               <button class="ghost small" :disabled="busy === 'run'" @click="stopPlanning">Cancelar</button>
@@ -453,9 +473,16 @@ watch(repoRoot, () => void loadManifest())
               <button class="small primary" :disabled="lockedElsewhere || busy !== ''" :title="lockedElsewhere ? 'Outro computador está com a trava' : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>
-              <button v-if="!isScript && current?.status === 'failed'" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="resumeDeploy">
-                <Icon name="forward" :size="13" /> Retomar
-              </button>
+              <template v-if="!isScript && current?.status === 'failed'">
+                <button v-if="!totp || !confirmResume" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="totp ? (confirmResume = true, authCode = '') : resumeDeploy()">
+                  <Icon name="forward" :size="13" /> Retomar
+                </button>
+                <template v-else>
+                  <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" @keydown.enter.prevent="codeOk && resumeDeploy()" />
+                  <button class="small primary" :disabled="busy === 'resume' || !codeOk" @click="resumeDeploy">Retomar {{ current.tag }}</button>
+                  <button class="ghost small" @click="confirmResume = false">Voltar</button>
+                </template>
+              </template>
             </template>
             <span class="spacer" />
             <button class="ghost small icon" :class="{ on: historyOpen }" title="Releases anteriores" @click="historyOpen = !historyOpen"><Icon name="history" :size="13" /></button>
@@ -569,6 +596,8 @@ li.pending .title { font-weight: 500; }
 .reasons { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--text); }
 .note { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
 .approve-btn { height: 36px; font-size: 13px; justify-content: center; }
+.auth { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
+.code { width: 96px; height: 28px; font-size: 14px; letter-spacing: 0.12em; text-align: center; }
 .approve .ghost { align-self: center; }
 .planfail { display: flex; flex-direction: column; gap: 8px; }
 .planfail p { margin: 0; }

@@ -9,6 +9,7 @@ import {
 import { getSettings, saveSettings } from './settings'
 import * as services from './services'
 import * as script from './deployScript'
+import { requireCode } from './deployAuth'
 
 /**
  * Deploy pelo app: o repositório declara em `.ovseer/deploy.json` como o deploy dele funciona.
@@ -163,8 +164,9 @@ export const plan = (root: string, typesenseFirst: boolean) => {
   return post<DeployPlanResult>(root, '/api/plan', { typesense_first: typesenseFirst }, 10 * 60_000)
 }
 
-export const run = async (root: string, planId: string) => {
+export const run = async (root: string, planId: string, code?: string) => {
   const m = manifestOf(root)
+  requireCode(code)
   if (m.kind === 'script') return script.run(root, m, planId)
   return (await post<{ operation: DeployOperation }>(root, '/api/deploy', { confirmed: true, plan_id: planId })).operation
 }
@@ -175,11 +177,15 @@ export const cancel = async (root: string, operationId: string, tag: string) => 
   await post(root, '/api/operations/cancel', { confirmation: 'CANCELAR', operation_id: operationId, release_tag: tag })
 }
 
-export const resume = async (root: string, tag: string) =>
-  (await post<{ operation: DeployOperation }>(root, `/api/releases/${encodeURIComponent(tag)}/resume`, {})).operation
+export const resume = async (root: string, tag: string, code?: string) => {
+  requireCode(code)
+  return (await post<{ operation: DeployOperation }>(root, `/api/releases/${encodeURIComponent(tag)}/resume`, {})).operation
+}
 
-export const releaseLock = async (root: string) =>
-  (await post<{ lock: DeployLock }>(root, '/api/lock/release', { confirmation: 'LIBERAR' }, 30_000)).lock
+export const releaseLock = async (root: string, code?: string) => {
+  requireCode(code)
+  return (await post<{ lock: DeployLock }>(root, '/api/lock/release', { confirmation: 'LIBERAR' }, 30_000)).lock
+}
 
 export function openConsole(root: string): Promise<void> {
   return shell.openExternal(originOf(consoleManifestOf(root)))
