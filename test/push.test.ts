@@ -48,7 +48,7 @@ describe('Enviar quando o servidor está na frente', () => {
     sh(b, 'pull', '-q')
     expect(sh(b, 'log', '--format=%s')).toMatch(/minha versao/)
     expect(sh(a, 'status', '--porcelain')).toContain('rascunho.txt')
-  })
+  }, 20000) // clone, commits, pull e push reais: com a suíte inteira em paralelo passa de 5 s
 })
 
 describe('erros do Git em linguagem simples', () => {
