@@ -7,8 +7,8 @@ import Icon from './Icon.vue'
 /**
  * Configurações → Deploy: verificação em duas etapas com o aplicativo autenticador do telefone (Google
  * Authenticator, Authy, 1Password…). Ativar mostra um QR code e pede o primeiro código para confirmar;
- * depois disso, iniciar ou retomar um deploy e liberar a trava compartilhada exigem o código, em todos os
- * projetos. Desativar também pede o código.
+ * depois disso, o primeiro deploy após abrir o Ovseer exige o código, em todos os projetos.
+ * Liberar a trava compartilhada e desativar sempre pedem o código.
  */
 const status = ref<DeployAuthStatus | null>(null)
 const setup = ref<DeployAuthSetup | null>(null)
@@ -81,10 +81,10 @@ onMounted(load)
         <strong>Verificação em duas etapas</strong>
         <p v-if="!status">Verificando…</p>
         <p v-else-if="status.enabled">
-          <span class="ok">Ativada</span> · iniciar ou retomar um deploy e liberar a trava compartilhada pedem o código do aplicativo autenticador, em todos os projetos.
+          <span class="ok">Ativada</span> · o primeiro deploy após abrir o Ovseer pede o código do aplicativo autenticador; os seguintes nesta execução não pedem de novo. Liberar a trava sempre pede código.
         </p>
         <p v-else>
-          <span class="bad">Desativada</span> · o botão Deploy não inicia, retoma nem libera a trava sem ela. Ative para que cada uma dessas ações peça o código de 6 dígitos do aplicativo autenticador do telefone.
+          <span class="bad">Desativada</span> · o botão Deploy não inicia, retoma nem libera a trava sem ela. Ative para confirmar com o código de 6 dígitos do autenticador no primeiro deploy após abrir o Ovseer.
         </p>
       </div>
       <template v-if="status && !setup && !disabling">

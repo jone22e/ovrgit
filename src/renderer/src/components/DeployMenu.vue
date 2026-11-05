@@ -33,13 +33,25 @@ const confirmCancel = ref(false)
 const confirmUnlock = ref(false)
 const confirmResume = ref(false)
 /**
- * Verificação em duas etapas: obrigatória. Iniciar, retomar e liberar a trava pedem o código do autenticador;
- * sem ela ativada (null: ainda não consultada) o app não deixa começar e manda para Configurações → Deploy.
+ * Verificação em duas etapas: obrigatória no primeiro deploy após abrir o Ovseer.
+ * Sem ela ativada (null: ainda não consultada), o app manda para Configurações → Deploy.
  */
 const totp = ref<boolean | null>(null)
+const authenticated = ref(false)
 const authCode = ref('')
-const codeOk = computed(() => totp.value === true && /^\d{6}$/.test(authCode.value.replace(/\s/g, '')))
-const codeArg = () => authCode.value.replace(/\s/g, '')
+const codeOk = computed(() => totp.value === true && (authenticated.value || /^\d{6}$/.test(authCode.value.replace(/\s/g, ''))))
+const unlockCodeOk = computed(() => totp.value === true && /^\d{6}$/.test(authCode.value.replace(/\s/g, '')))
+const codeArg = () => authenticated.value ? undefined : authCode.value.replace(/\s/g, '')
+async function refreshAuthStatus() {
+  try {
+    const status = await api.deployAuthStatus()
+    totp.value = status.enabled
+    authenticated.value = status.authenticated
+  } catch {
+    totp.value = false
+    authenticated.value = false
+  }
+}
 function openDeploySettings() {
   try {
     localStorage.setItem('ovseer.settings.section', 'deploy')
@@ -174,7 +186,7 @@ async function toggle() {
   confirmResume.value = false
   authCode.value = ''
   stopPlanning()
-  void api.deployAuthStatus().then((s) => (totp.value = s.enabled)).catch(() => (totp.value = false))
+  void refreshAuthStatus()
   await refresh()
   void refreshLock()
 }
@@ -247,6 +259,7 @@ async function runDeploy() {
   } catch (e) {
     toast(cleanErr(e))
   } finally {
+    await refreshAuthStatus()
     busy.value = ''
   }
 }
@@ -280,6 +293,7 @@ async function resumeDeploy() {
   } catch (e) {
     toast(cleanErr(e))
   } finally {
+    await refreshAuthStatus()
     busy.value = ''
   }
 }
@@ -287,13 +301,14 @@ async function resumeDeploy() {
 async function unlock() {
   busy.value = 'unlock'
   try {
-    lock.value = await api.deployReleaseLock(repoRoot.value, codeArg())
+    lock.value = await api.deployReleaseLock(repoRoot.value, authCode.value.replace(/\s/g, ''))
     authCode.value = ''
     confirmUnlock.value = false
     toast('Trava liberada.')
   } catch (e) {
     toast(cleanErr(e))
   } finally {
+    await refreshAuthStatus()
     busy.value = ''
   }
 }
@@ -374,7 +389,7 @@ watch(repoRoot, () => void loadManifest())
               <button v-if="!confirmUnlock" class="ghost small" title="Só depois de confirmar com o outro operador que o deploy foi abandonado" @click="confirmUnlock = true; authCode = ''">Liberar trava</button>
               <template v-else>
                 <input v-if="totp" v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" />
-                <button v-if="totp" class="small danger" :disabled="busy === 'unlock' || !codeOk" @click="unlock">Confirmar liberação</button>
+                <button v-if="totp" class="small danger" :disabled="busy === 'unlock' || !unlockCodeOk" @click="unlock">Confirmar liberação</button>
                 <button v-else class="small" @click="openDeploySettings">Ativar verificação</button>
               </template>
             </template>
@@ -424,7 +439,7 @@ watch(repoRoot, () => void loadManifest())
                 <button class="small primary" @click="openDeploySettings"><Icon name="shield" :size="13" /> Ativar em Configurações → Deploy</button>
               </div>
               <template v-else>
-                <label class="auth">
+                <label v-if="!authenticated" class="auth">
                   <span>Código do aplicativo autenticador</span>
                   <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="000 000" spellcheck="false" @keydown.enter.prevent="codeOk && runDeploy()" />
                 </label>
@@ -511,7 +526,7 @@ watch(repoRoot, () => void loadManifest())
                   <Icon name="forward" :size="13" /> Retomar
                 </button>
                 <template v-else>
-                  <input v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" @keydown.enter.prevent="codeOk && resumeDeploy()" />
+                  <input v-if="!authenticated" v-model="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="mono code" placeholder="código" spellcheck="false" @keydown.enter.prevent="codeOk && resumeDeploy()" />
                   <button class="small primary" :disabled="busy === 'resume' || !codeOk" @click="resumeDeploy">Retomar {{ current.tag }}</button>
                   <button class="ghost small" @click="confirmResume = false">Voltar</button>
                 </template>

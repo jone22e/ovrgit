@@ -9,7 +9,7 @@ import {
 import { getSettings, saveSettings } from './settings'
 import * as services from './services'
 import * as script from './deployScript'
-import { requireCode } from './deployAuth'
+import { requireCode, requireCodeAlways } from './deployAuth'
 
 /**
  * Deploy pelo app: o repositório declara em `.ovseer/deploy.json` como o deploy dele funciona.
@@ -183,7 +183,7 @@ export const resume = async (root: string, tag: string, code?: string) => {
 }
 
 export const releaseLock = async (root: string, code?: string) => {
-  requireCode(code)
+  requireCodeAlways(code)
   return (await post<{ lock: DeployLock }>(root, '/api/lock/release', { confirmation: 'LIBERAR' }, 30_000)).lock
 }
 

@@ -206,6 +206,8 @@ export interface SshImportCandidate {
 /** Serviço: um comando que fica rodando em segundo plano (porta encaminhada, servidor de desenvolvimento…) */
 export interface DeployAuthStatus {
   enabled: boolean
+  /** Código confirmado para iniciar ou retomar deploy nesta execução do Ovseer */
+  authenticated: boolean
 }
 export interface DeployAuthSetup {
   /** Chave em base32, em grupos de 4, para digitar no autenticador se o QR não puder ser lido */
@@ -1197,7 +1199,7 @@ export interface OvseerApi {
   deployLock(root: string): Promise<import('./deploy').DeployLock>
   /** `target`: alvo escolhido, nos projetos cujo manifesto declara targets */
   deployPlan(root: string, typesenseFirst: boolean, target?: string): Promise<import('./deploy').DeployPlanResult>
-  /** Iniciar, retomar e liberar a trava exigem o código do autenticador quando a verificação em duas etapas está ativa */
+  /** Iniciar e retomar exigem o código no primeiro deploy da execução; liberar a trava sempre exige */
   deployRun(root: string, planId: string, code?: string): Promise<import('./deploy').DeployOperation>
   deployCancel(root: string, operationId: string, tag: string): Promise<void>
   deployResume(root: string, tag: string, code?: string): Promise<import('./deploy').DeployOperation>

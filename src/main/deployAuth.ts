@@ -8,7 +8,8 @@ import { base32Decode, base32Encode, newSecret, otpauthUrl, verifyTotp } from '.
 
 /**
  * Verificação em duas etapas do deploy: o usuário lê um QR code no aplicativo autenticador do telefone e,
- * a partir daí, iniciar, retomar um deploy ou liberar a trava exige o código de 6 dígitos. O segredo fica
+ * a partir daí, o primeiro deploy após abrir o Ovseer exige o código de 6 dígitos. Liberar a trava
+ * compartilhada sempre exige código. O segredo fica
  * criptografado pelo sistema (Keychain no Mac, DPAPI no Windows) em userData, nunca no repositório nem nas
  * configurações; o processo principal confere o código, a tela só o digita. Vale para todos os projetos e é
  * obrigatória: sem ela ativada, nenhum deploy começa pelo app.
@@ -22,6 +23,8 @@ interface Stored {
 
 const file = () => path.join(app.getPath('userData'), 'deploy-totp.bin')
 let pending: { secret: Buffer; base32: string } | null = null
+/** Autorização válida somente enquanto este processo do Ovseer estiver aberto. */
+let authenticated = false
 
 function read(): Stored | null {
   try {
@@ -43,7 +46,8 @@ function write(stored: Stored) {
 export const enabled = () => existsSync(file()) && read() !== null
 
 export function status(): DeployAuthStatus {
-  return { enabled: enabled() }
+  const isEnabled = enabled()
+  return { enabled: isEnabled, authenticated: isEnabled && authenticated }
 }
 
 /** Começa a ativação: novo segredo, QR code e chave para digitar; só vale depois de confirmar um código */
@@ -62,25 +66,39 @@ export function confirm(code: string): DeployAuthStatus {
   if (!result.ok) throw new Error('Código inválido. Confira o relógio do telefone e tente de novo.')
   write({ secret: pending.base32, last: result.counter })
   pending = null
+  authenticated = false
   return status()
 }
 
 export function disable(code: string): DeployAuthStatus {
-  requireCode(code)
+  verifyCode(code)
   try {
     unlinkSync(file())
   } catch {
     /* já não existe */
   }
+  authenticated = false
   return status()
 }
 
-/** Barreira das ações de deploy: exige a verificação ativada e um código válido e inédito */
-export function requireCode(code?: string) {
+function verifyCode(code?: string) {
   const stored = read()
   if (!stored) throw new Error('Ative a verificação em duas etapas em Configurações → Deploy antes de fazer deploy.')
   if (!code) throw new Error('Digite o código do aplicativo autenticador.')
   const result = verifyTotp(base32Decode(stored.secret), String(code), { lastCounter: stored.last })
   if (!result.ok) throw new Error('Código do autenticador inválido ou já usado.')
   write({ ...stored, last: result.counter })
+}
+
+/** Barreira para iniciar ou retomar deploy: confirma uma vez por execução do Ovseer. */
+export function requireCode(code?: string) {
+  if (!enabled()) throw new Error('Ative a verificação em duas etapas em Configurações → Deploy antes de fazer deploy.')
+  if (authenticated) return
+  verifyCode(code)
+  authenticated = true
+}
+
+/** Liberar a trava exige um código novo mesmo após autorizar deploys nesta execução. */
+export function requireCodeAlways(code?: string) {
+  verifyCode(code)
 }
