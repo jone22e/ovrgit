@@ -774,6 +774,8 @@ export interface AgentSnapshot {
   uid: string
   /** Última resposta da conversa; permanece igual ao fechar e reabrir o app */
   lastTurnId?: string
+  /** Posição persistente da última resposta concluída (maior = mais recente) */
+  doneOrder?: number
   /** Ícone escolhido para esta conversa */
   icon?: string
   title: string

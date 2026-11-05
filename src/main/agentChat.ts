@@ -15,6 +15,7 @@ import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryIcon, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
+import { completedOrder } from './agentOrder'
 import { quickAsk } from './quickAi'
 import { sessionContext } from './agentWatch'
 import { agentApiInfo } from './agentApi'
@@ -864,7 +865,7 @@ export function reportSnapshot(uid: string, snap: AgentSnapshot) {
   const w = wins.get(uid)
   if (!w || !snap || typeof snap !== 'object') return
   const was = w.snap
-  w.snap = { ...snap, uid }
+  w.snap = { ...snap, uid, doneOrder: completedOrder(w.info.sessionId, snap.lastTurnId, snap.status) }
   broadcastSnapshots()
   for (const fn of snapshotListeners) fn()
   // passou a esperar por você: notificação com as opções como botões e um campo de resposta

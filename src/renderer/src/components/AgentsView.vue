@@ -38,7 +38,9 @@ const pinnedFirst = (list: AgentSnapshot[], by: (a: AgentSnapshot, b: AgentSnaps
 /** Precisa de você: esperando resposta primeiro (a mais antiga no topo), depois as que falharam */
 const needYou = computed(() => [...pinnedFirst(byStatus('waiting'), (a, b) => a.since - b.since), ...pinnedFirst(byStatus('error'), (a, b) => b.since - a.since)])
 const running = computed(() => pinnedFirst(byStatus('live'), (a, b) => a.since - b.since))
-const done = computed(() => pinnedFirst(byStatus('done'), (a, b) => b.since - a.since))
+const done = computed(() => pinnedFirst(byStatus('done'), (a, b) =>
+  a.doneOrder !== undefined && b.doneOrder !== undefined ? b.doneOrder - a.doneOrder : b.since - a.since
+))
 /** Sem conversa e fora da espera: uma conversa recém-criada (ou reiniciada), que você vai usar agora; a mais nova primeiro */
 const fresh = computed(() => pinnedFirst(byStatus('idle').filter((a) => !a.standby), (a, b) => b.since - a.since))
 /** Em espera: pega tarefas da fila; fica no fim */
