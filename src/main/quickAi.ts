@@ -6,14 +6,29 @@ import path from 'node:path'
 import type { AgentEffort, CliProvider } from '../shared/types'
 import { findBinary, needsShell } from './cli'
 import { knownModels } from './agentWatch'
+import { askOllama, runOllamaTurn } from './ollamaAgent'
+import { DEFAULT_MODEL } from '../shared/models'
 
 /**
  * Pergunta rápida a uma IA, sem sessão. Por padrão usa o modelo mais leve e nenhuma ferramenta; o agente raiz
  * pode escolher um modelo e ler um projeto em modo somente leitura para responder com evidência.
  */
-const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
+const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy', ollama: 'ollama' }
 
 export async function quickAsk(provider: CliProvider, prompt: string, timeoutMs = 20_000, selected?: { model?: string; effort?: AgentEffort; cwd?: string; extraDirs?: string[] }): Promise<string> {
+  if (provider === 'ollama') {
+    const controller = new AbortController()
+    const project = selected?.cwd && existsSync(selected.cwd) ? selected.cwd : undefined
+    const timer = setTimeout(() => controller.abort(), project ? Math.max(timeoutMs, 90_000) : timeoutMs)
+    try {
+      if (!project) return await askOllama(selected?.model || DEFAULT_MODEL.ollama, prompt, controller.signal)
+      let answer = ''
+      await runOllamaTurn({ model: selected?.model || DEFAULT_MODEL.ollama, effort: selected?.effort ?? 'low', mode: 'plan', cwd: project,
+        prompt, turns: [], signal: controller.signal, onEvent: (e) => { if (e.type === 'text') answer += e.delta } })
+      return answer
+    }
+    finally { clearTimeout(timer) }
+  }
   const bin = await findBinary(BIN[provider])
   if (!bin) throw new Error(`${provider} não encontrado.`)
   const model = selected?.model && /^[\w.:/-]+$/.test(selected.model) ? selected.model : undefined

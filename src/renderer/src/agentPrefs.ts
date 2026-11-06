@@ -28,7 +28,7 @@ export function readAgentPrefs(): AgentPrefs {
     const saved = JSON.parse(localStorage.getItem(AGENT_PREFS) ?? '{}') as Partial<AgentPrefs>
     // um modo que não existe mais (o antigo "Só edições") volta ao padrão
     const mode = MODES.some((m) => m.id === saved.mode) ? saved.mode! : base.mode
-    return { ...base, ...saved, mode, model: { ...base.model, ...saved.model }, effort: { ...base.effort, ...saved.effort } }
+    return { ...base, ...saved, provider: saved.provider && saved.provider in base.model ? saved.provider : base.provider, mode, model: { ...base.model, ...saved.model }, effort: { ...base.effort, ...saved.effort } }
   } catch {
     return base
   }

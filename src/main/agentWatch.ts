@@ -155,7 +155,7 @@ export function codexUsage(): ProviderUsage | null {
 /** Modelos vistos recentemente em cada CLI, do mais recente para o mais antigo, e o catálogo do Codex. */
 export function knownModels(): KnownModels {
   const sorted = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id).slice(0, 12)
-  return { claude: sorted(seenModels.claude), codex: sorted(seenModels.codex), agy: [], codexCatalog: codexCatalog(), agyCatalog: agyCache?.list ?? [] }
+  return { claude: sorted(seenModels.claude), codex: sorted(seenModels.codex), agy: [], ollama: [], codexCatalog: codexCatalog(), agyCatalog: agyCache?.list ?? [], ollamaCatalog: [] }
 }
 
 // catálogo do Antigravity: `agy models` consulta o serviço, então fica em cache por 1 h

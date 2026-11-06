@@ -74,7 +74,7 @@ export type DesignAction =
   | { type: 'skip' }
   | { type: 'cancel' }
   | { type: 'select'; index: number }
-  | { type: 'ai'; provider: 'claude' | 'codex' | 'agy'; model: string; effort: string }
+  | { type: 'ai'; provider: 'claude' | 'codex' | 'agy' | 'ollama'; model: string; effort: string }
 
 /** Estado do Modo Arquiteto de uma conversa (fica na vez da descoberta e vai junto na transcrição) */
 export interface ArchState {
@@ -84,7 +84,7 @@ export interface ArchState {
   /** Resumo aprovado na descoberta */
   brief?: string
   design?: {
-    provider: 'claude' | 'codex' | 'agy'
+    provider: 'claude' | 'codex' | 'agy' | 'ollama'
     model: string
     effort: string
     versions: DesignVersion[]

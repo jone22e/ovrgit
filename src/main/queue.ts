@@ -677,9 +677,9 @@ async function routeManaged(task: QueueTask): Promise<void> {
     const base = agentChat.agentBase()
     const settings = getSettings()
     const configured = settings.provider
-    const provider = task.config?.provider ?? base?.provider ?? (configured === 'claude' || configured === 'codex' || configured === 'agy' ? configured : null)
+    const provider = task.config?.provider ?? base?.provider ?? (configured === 'claude' || configured === 'codex' || configured === 'agy' || configured === 'ollama' ? configured : null)
     if (!provider) throw new Error('Defina um provedor de agentes nas configurações.')
-    const model = task.config?.model ?? (base?.provider === provider ? base.model : undefined) ?? (provider === 'claude' ? settings.claudeModel : provider === 'codex' ? settings.codexModel : settings.agyModel)
+    const model = task.config?.model ?? (base?.provider === provider ? base.model : undefined) ?? (provider === 'claude' ? settings.claudeModel : provider === 'codex' ? settings.codexModel : provider === 'ollama' ? settings.model : settings.agyModel)
     const agent = await agentChat.openAgentWindow({ provider, model, effort: task.config?.effort ?? (base?.provider === provider ? base.effort : 'high'), mode: task.config?.mode ?? 'full', cwd: task.cwd, extraDirs: task.extraDirs, firstMessage: taskPrompt(task), firstFiles: task.attachments?.map((a) => a.path), firstAttachments: task.attachments, managerTaskId: task.id, quiet: true })
     task.uid = agent.uid
     task.agentTitle = agent.title || 'Novo agente'

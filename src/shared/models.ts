@@ -50,18 +50,23 @@ export const CLAUDE_EXACT = CLAUDE_FAMILIES.flatMap((f) => f.models)
 export const PROVIDERS: { id: CliProvider; label: string }[] = [
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'ChatGPT' },
-  { id: 'agy', label: 'Antigravity' }
+  { id: 'agy', label: 'Antigravity' },
+  { id: 'ollama', label: 'Ollama' }
 ]
-export const PROVIDER_LABEL: Record<CliProvider, string> = { claude: 'Claude', codex: 'ChatGPT', agy: 'Antigravity' }
+export const PROVIDER_LABEL: Record<CliProvider, string> = { claude: 'Claude', codex: 'ChatGPT', agy: 'Antigravity', ollama: 'Ollama' }
 
 /** Catálogo de modelos de um provedor entre os conhecidos (para rótulos) */
 export function catalogOf(known: KnownModels | null | undefined, p: CliProvider): ModelInfo[] | undefined {
   if (!known) return undefined
-  return p === 'codex' ? known.codexCatalog : p === 'agy' ? known.agyCatalog : undefined
+  return p === 'codex' ? known.codexCatalog : p === 'agy' ? known.agyCatalog : p === 'ollama' ? known.ollamaCatalog : undefined
 }
 
 /** Níveis de esforço (raciocínio) aceitos por cada CLI, do menor para o maior. */
 export const EFFORTS: Record<CliProvider, { id: AgentEffort; label: string }[]> = {
+  ollama: [
+    { id: 'low', label: 'Baixo' },
+    { id: 'high', label: 'Alto' }
+  ],
   agy: [
     { id: 'low', label: 'Baixo' },
     { id: 'medium', label: 'Médio' },
@@ -94,9 +99,9 @@ export function effortsFor(provider: CliProvider, model: ModelInfo | undefined):
   return EFFORTS[provider]
 }
 
-export const DEFAULT_EFFORT: Record<CliProvider, AgentEffort> = { claude: 'high', codex: 'high', agy: 'high' }
+export const DEFAULT_EFFORT: Record<CliProvider, AgentEffort> = { claude: 'high', codex: 'high', agy: 'high', ollama: 'low' }
 /** Modelo inicial de cada provedor (vazio = padrão da conta) */
-export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', codex: '', agy: '' }
+export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', codex: '', agy: '', ollama: 'SparkLLM/Spark-X2.6-4B:latest' }
 
 /** Modos de permissão do agente, do mais cauteloso para o mais livre. */
 export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChecks' | 'drafting' | 'zap'; hint: string }[] = [
@@ -108,9 +113,10 @@ export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChe
 
 /** Nome curto e legível de um modelo (ex.: "claude-opus-4-6" → "Opus 4.6", "gpt-5.6-sol" → "GPT-5.6 Sol"). */
 export function modelLabel(provider: CliProvider, id: string, catalog?: ModelInfo[]): string {
-  if (!id) return 'Padrão da conta'
+  if (!id) return provider === 'ollama' ? 'Selecione um modelo' : 'Padrão da conta'
   const known = catalog?.find((m) => m.id === id)
   if (known) return known.label
+  if (provider === 'ollama') return id
   if (provider === 'claude') {
     const alias = CLAUDE_ALIASES.find((m) => m.id === id)
     if (alias) return alias.label.split(':')[0]

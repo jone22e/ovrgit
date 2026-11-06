@@ -421,8 +421,9 @@ export interface FeaturePreview {
   dirty: boolean
 }
 
-/** CLIs de agente: Claude Code, Codex (ChatGPT) e Antigravity (Google, comando `agy`) */
-export type CliProvider = 'claude' | 'codex' | 'agy'
+/** Provedores da conversa de agente; Ollama usa a API local em vez de um CLI de agente. */
+export type CliProvider = 'claude' | 'codex' | 'agy' | 'ollama'
+export type CliUpdateProvider = Exclude<CliProvider, 'ollama'>
 /** CLIs com login gerenciado nas Configurações */
 export type AuthProvider = 'claude' | 'codex'
 
@@ -926,16 +927,19 @@ export interface CliUpdateInfo {
   available: boolean
 }
 /** Por CLI; nulo quando o CLI não está instalado */
-export type CliUpdates = Record<CliProvider, CliUpdateInfo | null>
+export type CliUpdates = Record<CliUpdateProvider, CliUpdateInfo | null>
 
 /** Modelos de cada CLI: vistos nas sessões recentes (ids reais) e o catálogo que o CLI guarda localmente */
 export interface KnownModels {
   claude: string[]
   codex: string[]
+  ollama: string[]
   /** Catálogo do Codex (~/.codex/models_cache.json), na ordem do app */
   codexCatalog: ModelInfo[]
   /** Catálogo do Antigravity (`agy models`) */
   agyCatalog: ModelInfo[]
+  /** Modelos instalados no servidor Ollama local */
+  ollamaCatalog: ModelInfo[]
   agy: string[]
 }
 
@@ -1064,6 +1068,7 @@ export interface ProviderStatus {
   codex: string | null
   agy: string | null
   ollama: boolean
+  ollamaInstalled: boolean
 }
 
 export interface OvseerApi {
@@ -1154,6 +1159,7 @@ export interface OvseerApi {
   onSettingsChanged(cb: (s: Settings) => void): () => void
   listModels(): Promise<string[]>
   detectProviders(): Promise<ProviderStatus>
+  ollamaPull(model: string): Promise<void>
   /** Situação do login de um CLI (o Antigravity só informa; o login é pelo próprio comando) */
   authStatus(provider: CliProvider): Promise<AuthStatus>
   authLogin(provider: AuthProvider): Promise<void>
@@ -1325,9 +1331,9 @@ export interface OvseerApi {
   /** Há versão nova de claude, codex ou agy? (consulta a cada 6 h; `force` consulta de novo) */
   cliUpdates(force?: boolean): Promise<CliUpdates>
   /** Roda o `update` do próprio CLI; devolve a situação depois dele */
-  cliUpdate(id: CliProvider): Promise<CliUpdateInfo | null>
+  cliUpdate(id: CliUpdateProvider): Promise<CliUpdateInfo | null>
   /** Instala o CLI pelo instalador oficial; devolve a situação depois dele */
-  cliInstall(id: CliProvider): Promise<CliUpdateInfo | null>
+  cliInstall(id: CliUpdateProvider): Promise<CliUpdateInfo | null>
   onAgentEvent(cb: (uid: string, ev: AgentChatEvent) => void): () => void
   onAgentWindows(cb: (sessionIds: string[]) => void): () => void
   /** A janela do agente informa a situação da conversa dela */

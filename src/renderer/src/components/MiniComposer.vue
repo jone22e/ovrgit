@@ -16,7 +16,7 @@ const props = defineProps<{ agent?: AgentSnapshot; manager?: boolean; cwd?: stri
 const emit = defineEmits<{ send: [text: string, opts: { model: string; effort: AgentEffort; mode: AgentMode }, attachments: AgentAttachment[]]; managerTask: [task: QueueTask]; endConversation: [] }>()
 const api = window.ovseer
 const prefs = readAgentPrefs()
-const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
+const pickerDefaults = Object.fromEntries((['claude', 'codex', 'agy', 'ollama'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
 
 const text = ref('')
 const box = ref<HTMLTextAreaElement>()

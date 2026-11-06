@@ -5,18 +5,30 @@ import path from 'node:path'
 import type { CliProvider } from '../shared/types'
 import { findBinary, runCli } from './cli'
 import { agentBase } from './agentChat'
+import { runOllamaTurn } from './ollamaAgent'
+import { DEFAULT_MODEL } from '../shared/models'
 
 /**
  * O agente de raciocínio da fila: uma chamada só de leitura ao CLI do provedor padrão (o do último agente aberto),
  * na pasta da tarefa, que devolve uma análise curta. Não altera nada: o Claude só com Read, Glob e Grep; o Codex em
  * sandbox só leitura; o Antigravity em modo plano. Sem sessão e sem aparecer no gerenciador.
  */
-const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
+const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy', ollama: 'ollama' }
 
 export async function reasonAbout(o: { cwd?: string; extraDirs?: string[]; prompt: string; timeoutMs?: number }): Promise<string> {
   const last = agentBase()
   const provider: CliProvider = last?.provider ?? 'claude'
   const model = last?.provider === provider ? last?.model ?? '' : ''
+  if (provider === 'ollama') {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), o.timeoutMs ?? 4 * 60_000)
+    let answer = ''
+    try {
+      await runOllamaTurn({ model: model || DEFAULT_MODEL.ollama, effort: 'low', mode: 'plan', cwd: o.cwd && existsSync(o.cwd) ? o.cwd : os.homedir(),
+        prompt: o.prompt, turns: [], signal: controller.signal, onEvent: (e) => { if (e.type === 'text') answer += e.delta } })
+      return answer
+    } finally { clearTimeout(timer) }
+  }
   const bin = await findBinary(BIN[provider])
   if (!bin) throw new Error(`${provider} não encontrado.`)
   const cwd = o.cwd && existsSync(o.cwd) ? o.cwd : os.homedir()

@@ -1,5 +1,5 @@
 import os from 'node:os'
-import type { CliProvider, CliUpdateInfo, CliUpdates } from '../shared/types'
+import type { CliUpdateProvider, CliUpdateInfo, CliUpdates } from '../shared/types'
 import { findBinary, forgetBinary, runCli } from './cli'
 
 /**
@@ -13,7 +13,7 @@ import { findBinary, forgetBinary, runCli } from './cli'
 const CACHE_MS = 6 * 3600_000
 let cache: { at: number; value: CliUpdates } | null = null
 
-const LATEST: Record<CliProvider, () => Promise<string | null>> = {
+const LATEST: Record<CliUpdateProvider, () => Promise<string | null>> = {
   claude: () => npmLatest('@anthropic-ai/claude-code'),
   codex: () => npmLatest('@openai/codex'),
   agy: async () => {
@@ -38,7 +38,7 @@ function newer(a: string, b: string) {
   return false
 }
 
-async function installed(id: CliProvider): Promise<string | null> {
+async function installed(id: CliUpdateProvider): Promise<string | null> {
   const bin = await findBinary(id)
   if (!bin) return null
   try {
@@ -49,7 +49,7 @@ async function installed(id: CliProvider): Promise<string | null> {
   }
 }
 
-async function check(id: CliProvider): Promise<CliUpdateInfo | null> {
+async function check(id: CliUpdateProvider): Promise<CliUpdateInfo | null> {
   const current = await installed(id)
   if (!current) return null // não instalado: nada a mostrar
   const latest = await LATEST[id]().catch(() => null)
@@ -64,7 +64,7 @@ export async function getCliUpdates(force = false): Promise<CliUpdates> {
 }
 
 /** Roda o `update` do próprio CLI e devolve a situação depois dele */
-export async function updateCli(id: CliProvider): Promise<CliUpdateInfo | null> {
+export async function updateCli(id: CliUpdateProvider): Promise<CliUpdateInfo | null> {
   const bin = await findBinary(id)
   if (!bin) throw new Error('CLI não encontrado.')
   const r = await runCli(bin, ['update'], '', os.tmpdir(), 5 * 60_000)
@@ -78,14 +78,14 @@ export async function updateCli(id: CliProvider): Promise<CliUpdateInfo | null> 
 }
 
 /** Instaladores oficiais: script para macOS/Linux e para Windows (PowerShell) */
-const INSTALLER: Record<CliProvider, { sh: string; ps1: string }> = {
+const INSTALLER: Record<CliUpdateProvider, { sh: string; ps1: string }> = {
   claude: { sh: 'https://claude.ai/install.sh', ps1: 'https://claude.ai/install.ps1' },
   codex: { sh: 'https://chatgpt.com/codex/install.sh', ps1: 'https://chatgpt.com/codex/install.ps1' },
   agy: { sh: 'https://antigravity.google/cli/install.sh', ps1: 'https://antigravity.google/cli/install.ps1' }
 }
 
 /** Instala o CLI pelo instalador oficial, sem perguntas, e devolve a situação depois dele */
-export async function installCli(id: CliProvider): Promise<CliUpdateInfo | null> {
+export async function installCli(id: CliUpdateProvider): Promise<CliUpdateInfo | null> {
   const url = INSTALLER[id]
   const r =
     process.platform === 'win32'

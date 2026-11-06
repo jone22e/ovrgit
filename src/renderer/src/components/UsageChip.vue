@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { CliProvider, CliUpdates, ProviderUsage, UsageInfo, UsageWindow } from '@shared/types'
+import type { CliUpdateProvider, CliUpdates, ProviderUsage, UsageInfo, UsageWindow } from '@shared/types'
 import { api } from '../store'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
@@ -18,10 +18,10 @@ let timer: ReturnType<typeof setInterval>
 
 const updates = ref<CliUpdates | null>(null)
 /** CLI sendo atualizado agora */
-const updating = ref<CliProvider | null>(null)
-const updateError = ref<Partial<Record<CliProvider, string>>>({})
+const updating = ref<CliUpdateProvider | null>(null)
+const updateError = ref<Partial<Record<CliUpdateProvider, string>>>({})
 /** Atualizado nesta sessão: mostra a confirmação no lugar do botão */
-const updated = ref<Partial<Record<CliProvider, string>>>({})
+const updated = ref<Partial<Record<CliUpdateProvider, string>>>({})
 
 async function loadUpdates(force = false) {
   try {
@@ -32,7 +32,7 @@ async function loadUpdates(force = false) {
 }
 const hasUpdate = computed(() => rows.value.some((r) => updates.value?.[r.id]?.available))
 
-async function runUpdate(id: CliProvider) {
+async function runUpdate(id: CliUpdateProvider) {
   if (updating.value) return
   updating.value = id
   delete updateError.value[id]
@@ -48,9 +48,9 @@ async function runUpdate(id: CliProvider) {
 }
 
 /** CLI sendo instalado agora; instalado nesta sessão (falta entrar na conta) */
-const installing = ref<CliProvider | null>(null)
-const installed = ref<Partial<Record<CliProvider, boolean>>>({})
-async function runInstall(id: CliProvider) {
+const installing = ref<CliUpdateProvider | null>(null)
+const installed = ref<Partial<Record<CliUpdateProvider, boolean>>>({})
+async function runInstall(id: CliUpdateProvider) {
   if (installing.value || updating.value) return
   installing.value = id
   delete updateError.value[id]
@@ -64,9 +64,9 @@ async function runInstall(id: CliProvider) {
     installing.value = null
   }
 }
-const NAMES: Record<CliProvider, string> = { claude: 'Claude', codex: 'ChatGPT', agy: 'Antigravity' }
+const NAMES: Record<CliUpdateProvider, string> = { claude: 'Claude', codex: 'ChatGPT', agy: 'Antigravity' }
 /** Comando que abre o CLI para entrar na conta pela primeira vez */
-const LOGIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex login', agy: 'agy' }
+const LOGIN: Record<CliUpdateProvider, string> = { claude: 'claude', codex: 'codex login', agy: 'agy' }
 /** CLIs que não estão nesta máquina (a consulta de versões respondeu e não achou o executável), mais os
  * instalados agora e ainda sem uso: aparecem no painel com o botão de instalar ou o aviso de login */
 const missing = computed(() =>

@@ -107,6 +107,7 @@ const api: OvseerApi = {
   },
   listModels: () => ipcRenderer.invoke('ai:models'),
   detectProviders: () => ipcRenderer.invoke('ai:detect'),
+  ollamaPull: (model) => ipcRenderer.invoke('ollama:pull', model),
   authStatus: (p) => ipcRenderer.invoke('auth:status', p),
   authLogin: (p) => ipcRenderer.invoke('auth:login', p),
   authSendCode: (code) => ipcRenderer.invoke('auth:code', code),

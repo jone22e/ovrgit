@@ -14,6 +14,7 @@ import { findBinary, needsShell } from './cli'
 import { listSourceFiles } from './sourceFiles'
 import { projectMap } from './projectMap'
 import { knownModels } from './agentWatch'
+import { askOllama } from './ollamaAgent'
 
 /**
  * Mapa funcional do projeto (aba Mapa). A varredura dos imports é feita aqui, em milissegundos, e serve de insumo.
@@ -31,8 +32,8 @@ const MAX_BYTES = 400 * 1024
 const PARALLEL = 6
 const CHUNK_TIMEOUT = 150_000
 const REDUCE_TIMEOUT = 420_000
-const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
-const NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
+const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy', ollama: 'ollama' }
+const NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity', ollama: 'Ollama' }
 
 const mapsDir = () => path.join(app.getPath('userData'), 'maps')
 const cacheFile = (root: string) => path.join(mapsDir(), `${createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 16)}.json`)
@@ -154,6 +155,7 @@ interface Run {
   root: string
   children: Set<ChildProcessWithoutNullStreams>
   cancelled: boolean
+  ollamaControllers?: Set<AbortController>
   /** Último andamento publicado: quem abre a aba no meio do mapeamento recebe a barra no ponto certo */
   last: MapEvent | null
 }
@@ -170,6 +172,13 @@ export function mappingState(root: string): MapEvent | null {
  */
 async function askOnce(run: Run, bin: string, provider: CliProvider, model: string, effort: AgentEffort | undefined, prompt: string, timeoutMs: number): Promise<string> {
   if (run.cancelled) throw new Error('Interrompido.')
+  if (provider === 'ollama') {
+    const controller = new AbortController()
+    ;(run.ollamaControllers ??= new Set()).add(controller)
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try { return await askOllama(model, prompt, controller.signal) }
+    finally { clearTimeout(timer); run.ollamaControllers?.delete(controller) }
+  }
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ovseer-map-'))
   try {
     let args: string[]
@@ -316,7 +325,7 @@ async function analyzeChunks(s: Session, chunks: { path: string; digest: string 
       onEvent({ type: 'progress', done, total, text: shortDir(dir), stage: 'chunks', found: foundCount, sample: found[i].slice(0, 4).map((c) => c.name) })
     }
   }
-  await Promise.all(Array.from({ length: Math.min(PARALLEL, chunks.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(s.provider === 'ollama' ? 1 : PARALLEL, chunks.length) }, worker))
   if (run.cancelled) throw new Error('Interrompido.')
   if (failures === chunks.length) throw new Error('Nenhum lote foi analisado. Confira o login da IA em ⚙ Configurações.')
   return dedupeCandidates(found.flat())
@@ -393,6 +402,7 @@ export function cancelMap(root: string) {
   const run = runs.get(path.resolve(root))
   if (!run) return
   run.cancelled = true
+  for (const controller of run.ollamaControllers ?? []) controller.abort()
   for (const child of run.children) {
     child.kill('SIGTERM')
     setTimeout(() => !child.killed && child.kill('SIGKILL'), 3000)

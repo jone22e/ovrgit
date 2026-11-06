@@ -29,7 +29,7 @@ export interface OpenAgent {
 
 const MAX_AGENTS = 24
 const SESSION_ID = /^[\w-]{8,80}$/
-const PROVIDERS = new Set<CliProvider>(['claude', 'codex', 'agy'])
+const PROVIDERS = new Set<CliProvider>(['claude', 'codex', 'agy', 'ollama'])
 
 const file = () => path.join(app.getPath('userData'), 'open-agents.json')
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, effortsFor, modelLabel } from '@shared/models'
-import type { AgentEffort, CliProvider, KnownModels, ModelInfo } from '@shared/types'
+import type { AgentEffort, CliProvider, KnownModels, ModelInfo, ProviderStatus } from '@shared/types'
 import { readCodexFast, writeCodexFast } from '../agentPrefs'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
@@ -34,12 +34,39 @@ const root = ref<HTMLElement>()
 /** Modo rápido do Codex: uma preferência só, de todas as conversas (outra janela pode ter mudado: relê ao abrir) */
 const fast = ref(readCodexFast())
 const showFast = computed(() => provider.value === 'codex' && !props.noEffort && !props.noFast)
+const showEffort = computed(() => !props.noEffort && (provider.value !== 'ollama' || /^SparkLLM\/Spark-X2\.6-4B(?::|$)/i.test(model.value)))
 function toggleFast() {
   fast.value = !fast.value
   writeCodexFast(fast.value)
 }
 watch(open, (o) => o && (fast.value = readCodexFast()))
 const CUSTOM = '__custom__'
+const ollamaStatus = ref<ProviderStatus | null>(null)
+const localModels = ref<string[]>([])
+const pulling = ref(false)
+const pullError = ref('')
+const spark = 'SparkLLM/Spark-X2.6-4B:latest'
+async function refreshOllama() {
+  ollamaStatus.value = await window.ovseer.detectProviders().catch(() => null)
+  localModels.value = await window.ovseer.listModels().catch(() => [])
+}
+watch(provider, (p) => { if (p === 'ollama') void refreshOllama() }, { immediate: true })
+const installedModels = computed(() => new Set([...(props.known?.ollama ?? []), ...localModels.value]))
+const modelInstalled = computed(() => installedModels.value.has(model.value))
+function openOllamaDownload() { void window.ovseer.openExternal('https://ollama.com/download') }
+async function pullModel() {
+  if (!model.value || pulling.value) return
+  pulling.value = true
+  pullError.value = ''
+  try {
+    await window.ovseer.ollamaPull(model.value)
+    await refreshOllama()
+  } catch (e) {
+    pullError.value = String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  } finally {
+    pulling.value = false
+  }
+}
 
 /** Catálogo do provedor atual: o do Codex vem do próprio CLI; o do Claude é a lista fixa do app. */
 const catalog = computed<ModelInfo[]>(() =>
@@ -47,6 +74,8 @@ const catalog = computed<ModelInfo[]>(() =>
     ? (props.known?.codexCatalog ?? [])
     : provider.value === 'agy'
       ? (props.known?.agyCatalog ?? [])
+      : provider.value === 'ollama'
+        ? [...new Set([spark, ...installedModels.value])].map((id) => ({ id, label: id === spark ? 'Spark X2.6 4B' : id, description: installedModels.value.has(id) ? 'Instalado neste computador' : 'Disponível para baixar' }))
       : [...CLAUDE_ALIASES.map((m) => ({ id: m.id, label: m.label.split(':')[0], description: m.label.split(': ')[1] })), ...CLAUDE_EXACT]
 )
 const selected = computed(() => catalog.value.find((m) => m.id === model.value))
@@ -68,7 +97,7 @@ watch(efforts, (list) => {
 const isClaudeId = (id: string) => /^claude|^(sonnet|opus|haiku|fable)$/.test(id)
 // cada IA lembra o último modelo e esforço usados nela; no primeiro uso vale o padrão (Claude: Sonnet; ChatGPT: conta)
 /** Modelo válido para a IA (vazio = padrão da conta); um id de outra IA é descartado. O Antigravity serve vários fornecedores. */
-const fits = (p: CliProvider, id: string | undefined) => id !== undefined && (!id || p === 'agy' || (p === 'claude') === isClaudeId(id))
+const fits = (p: CliProvider, id: string | undefined) => id !== undefined && (!id || p === 'agy' || p === 'ollama' || (p === 'claude' ? isClaudeId(id) : !isClaudeId(id) && !id.includes('/') && !id.includes(':')))
 const validEffort = (p: CliProvider, e: AgentEffort | undefined) => (e && EFFORTS[p].some((x) => x.id === e) ? e : DEFAULT_EFFORT[p])
 const rememberedFor = (p: CliProvider) => ({
   model: fits(p, props.defaults?.[p]?.model) ? props.defaults![p]!.model : DEFAULT_MODEL[p],
@@ -77,7 +106,8 @@ const rememberedFor = (p: CliProvider) => ({
 const remembered: Record<CliProvider, { model: string; effort: AgentEffort }> = {
   claude: rememberedFor('claude'),
   codex: rememberedFor('codex'),
-  agy: rememberedFor('agy')
+  agy: rememberedFor('agy'),
+  ollama: rememberedFor('ollama')
 }
 // modelo do outro provedor (ex.: reaberto com dados trocados) não vale
 if (!fits(provider.value, model.value)) model.value = remembered[provider.value].model
@@ -100,7 +130,7 @@ const groups = computed(() => {
     out.push({ label: 'Sempre a versão mais recente', items: CLAUDE_ALIASES.map((m) => ({ id: m.id, label: m.label.split(':')[0] })) })
     for (const f of CLAUDE_FAMILIES) out.push({ label: `${f.family} · versão fixa`, items: f.models })
   } else if (catalog.value.length) {
-    out.push({ label: provider.value === 'codex' ? 'Modelos do Codex' : 'Modelos do Antigravity', items: catalog.value })
+    out.push({ label: provider.value === 'codex' ? 'Modelos do Codex' : provider.value === 'ollama' ? 'Modelos locais' : 'Modelos do Antigravity', items: catalog.value })
   }
   if (recent.length) out.push({ label: 'Outros usados recentemente', items: recent.map((id) => ({ id, label: modelLabel(provider.value, id) })) })
   return out
@@ -166,8 +196,9 @@ const filteredGroups = computed(() => {
 })
 const flatIds = computed(() => filteredGroups.value.flatMap((g) => g.items.map((m) => m.id)))
 const flatIndex = (id: string) => flatIds.value.indexOf(id)
-/** Índices das duas opções fixas do fim ("Padrão da conta", "Outro") */
-const extraIndex = (n: number) => flatIds.value.length + n
+/** Índices das opções finais (Ollama não tem "Padrão da conta"). */
+const defaultIndex = () => flatIds.value.length
+const customIndex = () => flatIds.value.length + (provider.value === 'ollama' ? 0 : 1)
 function placeList() {
   const r = selRoot.value?.getBoundingClientRect()
   if (!r) return
@@ -183,7 +214,7 @@ function toggleList() {
   listOpen.value = !listOpen.value
   if (!listOpen.value) return
   query.value = ''
-  listIndex.value = customMode.value ? extraIndex(1) : model.value ? Math.max(0, flatIndex(model.value)) : extraIndex(0)
+  listIndex.value = customMode.value ? customIndex() : model.value ? Math.max(0, flatIndex(model.value)) : defaultIndex()
   placeList()
   nextTick(() => {
     searchEl.value?.focus()
@@ -195,7 +226,7 @@ function pick(id: string) {
   listOpen.value = false
 }
 function onListKey(e: KeyboardEvent) {
-  const n = flatIds.value.length + 2
+  const n = flatIds.value.length + (provider.value === 'ollama' ? 1 : 2)
   if (e.key === 'Escape') return (listOpen.value = false)
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
@@ -204,7 +235,7 @@ function onListKey(e: KeyboardEvent) {
   } else if (e.key === 'Enter') {
     e.preventDefault()
     const i = listIndex.value
-    pick(i < flatIds.value.length ? flatIds.value[i] : i === extraIndex(0) ? '' : CUSTOM)
+    pick(i < flatIds.value.length ? flatIds.value[i] : provider.value !== 'ollama' && i === defaultIndex() ? '' : CUSTOM)
   }
 }
 watch(query, () => (listIndex.value = 0))
@@ -230,7 +261,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
     <button v-if="!inline" type="button" class="chip" :class="{ on: open }" :disabled="disabled" title="Modelo e esforço" @click="open = !open">
       <AgentLogo :source="provider" :size="12" />
       <span class="chip-model ellipsis">{{ label }}</span>
-      <span class="chip-effort">{{ effortLabel }}</span>
+      <span v-if="showEffort" class="chip-effort">{{ effortLabel }}</span>
       <Icon v-if="showFast && fast" name="zap" :size="11" class="chip-fast" />
       <Icon name="chevron" :size="12" class="chev" />
     </button>
@@ -257,7 +288,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
       <!-- seletor de modelo: botão com o atual; a lista (com busca) vai para o body para não ser cortada -->
       <div ref="selRoot" class="sel-wrap">
         <button type="button" class="sel" :class="{ on: listOpen }" @click="toggleList">
-          <span class="sel-name ellipsis">{{ customMode ? 'Outro (digitar o ID)' : model ? label : 'Padrão da conta' }}</span>
+          <span class="sel-name ellipsis">{{ customMode ? 'Outro (digitar o ID)' : model ? label : provider === 'ollama' ? 'Selecione um modelo' : 'Padrão da conta' }}</span>
           <Icon name="chevron" :size="12" class="sel-chev" />
         </button>
         <Teleport to="body">
@@ -284,11 +315,11 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
               </template>
               <p v-if="!filteredGroups.length" class="faint none">Nenhum modelo com esse nome.</p>
               <hr class="sep" />
-              <button type="button" class="ghost mrow" :class="{ cur: listIndex === extraIndex(0), sel: !customMode && !model }" @mouseenter="listIndex = extraIndex(0)" @click="pick('')">
+              <button v-if="provider !== 'ollama'" type="button" class="ghost mrow" :class="{ cur: listIndex === defaultIndex(), sel: !customMode && !model }" @mouseenter="listIndex = defaultIndex()" @click="pick('')">
                 <span class="mrow-name ellipsis">Padrão da conta</span>
                 <Icon v-if="!customMode && !model" name="check" :size="13" class="ok" />
               </button>
-              <button type="button" class="ghost mrow" :class="{ cur: listIndex === extraIndex(1), sel: customMode }" @mouseenter="listIndex = extraIndex(1)" @click="pick(CUSTOM)">
+              <button type="button" class="ghost mrow" :class="{ cur: listIndex === customIndex(), sel: customMode }" @mouseenter="listIndex = customIndex()" @click="pick(CUSTOM)">
                 <span class="mrow-name ellipsis">Outro (digitar o ID)…</span>
                 <Icon v-if="customMode" name="check" :size="13" class="ok" />
               </button>
@@ -302,15 +333,26 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
         @input="onCustomInput"
         type="text"
         class="mono custom"
-        :placeholder="provider === 'claude' ? 'ex.: claude-opus-5-5' : provider === 'agy' ? 'ex.: gemini-3.8-flash-high' : 'ex.: gpt-5.6-sol'"
+        :placeholder="provider === 'claude' ? 'ex.: claude-opus-5-5' : provider === 'agy' ? 'ex.: gemini-3.8-flash-high' : provider === 'ollama' ? 'ex.: gemma3:4b' : 'ex.: gpt-5.6-sol'"
         spellcheck="false"
       />
 
-      <div v-if="!noEffort" class="eff-head">
+      <div v-if="provider === 'ollama'" class="ollama-install">
+        <button v-if="ollamaStatus && !ollamaStatus.ollamaInstalled" type="button" class="small" @click="openOllamaDownload">Instalar Ollama</button>
+        <template v-else-if="ollamaStatus && !ollamaStatus.ollama">
+          <span class="faint">Abra o Ollama para usar os modelos locais.</span>
+          <button type="button" class="small ghost" @click="refreshOllama">Verificar novamente</button>
+        </template>
+        <button v-else-if="ollamaStatus && model && !modelInstalled" type="button" class="small" :disabled="pulling" @click="pullModel">{{ pulling ? 'Baixando modelo…' : 'Baixar modelo' }}</button>
+        <span v-else-if="modelInstalled" class="faint">Modelo instalado neste computador.</span>
+        <p v-if="pullError" class="bad">{{ pullError }}</p>
+      </div>
+
+      <div v-if="showEffort" class="eff-head">
         <span class="lbl">Esforço</span>
         <strong class="eff-name">{{ effortLabel }}</strong>
       </div>
-      <div v-if="!noEffort" class="slider">
+      <div v-if="showEffort" class="slider">
         <input
           type="range"
           :min="0"
@@ -355,7 +397,9 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
   animation: rise 0.12s ease-out;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
-.providers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 4px; }
+.providers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 4px; }
+.ollama-install { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 11px; }
+.ollama-install p { width: 100%; margin: 0; }
 .prov { height: 34px; gap: 6px; padding: 0 8px; font-weight: 600; min-width: 0; font-size: 12.5px; }
 .prov span, .prov { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prov.active { border-color: var(--accent); background: var(--accent-soft); }

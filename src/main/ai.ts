@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AiProvider, Analysis, ChangeGroup, CommitType, FileChange, ProviderStatus, Settings } from '../shared/types'
 import { contextHash } from './analysisStore'
-import { findBinary, needsShell, runCli } from './cli'
+import { findBinary, forgetBinary, needsShell, runCli } from './cli'
 import { heuristicGroups, slugify } from '../shared/parse'
 
 const TYPES: CommitType[] = ['feat', 'fix', 'refactor', 'test', 'chore', 'docs', 'style', 'perf']
@@ -443,14 +443,17 @@ export async function runJsonTask<T>(
 }
 
 export async function detectProviders(settings: Settings): Promise<ProviderStatus> {
-  const [claude, codex, agy, ollama] = await Promise.all([
+  // O usuário pode ter instalado o Ollama depois de abrir o app.
+  forgetBinary('ollama')
+  const [claude, codex, agy, ollamaInstalled, ollama] = await Promise.all([
     findBinary('claude'),
     findBinary('codex'),
     findBinary('agy'),
+    findBinary('ollama').then(Boolean),
     listModels(settings).then(
       () => true,
       () => false
     )
   ])
-  return { claude, codex, agy, ollama }
+  return { claude, codex, agy, ollama, ollamaInstalled: ollamaInstalled || ollama }
 }

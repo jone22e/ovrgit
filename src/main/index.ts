@@ -9,7 +9,7 @@ import path from 'node:path'
 import icon from '../../build/icon.png?asset'
 import type {
   ProjectOverview, TaskHint, AgentAttachment, AgentChatOpen, AgentSendOptions, AgentTurn, GridPlacement, GridSize,
-  AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds,
+  AgentAction, AgentEffort, AgentSnapshot, AgentStatus, Analysis, AuthProvider, CliProvider, CliUpdateProvider, FileChange, OvseerDeliveryInput, OvseerNewTask, Settings, TerminalSpec, WindowBounds,
   HandoffMaterial, QueueTask,
   Service
 } from '../shared/types'
@@ -627,7 +627,7 @@ function registerIpc() {
   })
   ipcMain.handle('agents:list', () => agentWatch.listAgents())
   const provider = (p: unknown): CliProvider => {
-    if (p !== 'claude' && p !== 'codex' && p !== 'agy') throw new Error('Provedor inválido.')
+    if (p !== 'claude' && p !== 'codex' && p !== 'agy' && p !== 'ollama') throw new Error('Provedor inválido.')
     return p
   }
   const authProvider = (p: unknown): AuthProvider => {
@@ -682,7 +682,7 @@ function registerIpc() {
         effort: opts?.effort,
         mode: agentChat.normalizeMode(opts?.mode),
         fast: opts?.fast === true,
-        provider: opts?.provider === 'claude' || opts?.provider === 'codex' || opts?.provider === 'agy' ? opts.provider : undefined
+        provider: opts?.provider === 'claude' || opts?.provider === 'codex' || opts?.provider === 'agy' || opts?.provider === 'ollama' ? opts.provider : undefined
       },
       (Array.isArray(attachments) ? attachments : []).slice(0, 20).map((a) => agentChat.describeFile(String(a?.path ?? '')))
     )
@@ -780,7 +780,7 @@ function registerIpc() {
   // pedidos do gerenciador e compatibilidade com tarefas da fila anterior
   ipcMain.handle('queue:list', () => taskQueue.list())
   ipcMain.handle('queue:history', (_e, before?: string) => taskQueue.historyPage(typeof before === 'string' ? before : undefined))
-  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; managerSessionId?: string; attachments?: AgentAttachment[]; config?: QueueTask['config'] }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined, stage: task?.stage === 'ready' ? 'ready' : 'reasoning', managed: task?.managed === true, managerSessionId: typeof task?.managerSessionId === 'string' && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(task.managerSessionId) ? task.managerSessionId : undefined, attachments: Array.isArray(task?.attachments) ? task.attachments.filter((a) => typeof a?.path === 'string').slice(0, 20) : undefined, config: task?.config && (task.config.provider === 'claude' || task.config.provider === 'codex' || task.config.provider === 'agy') ? { provider: task.config.provider, model: String(task.config.model ?? '').slice(0, 80), effort: task.config.effort, mode: agentChat.normalizeMode(task.config.mode) } : undefined }))
+  ipcMain.handle('queue:add', (_e, task: { text: string; cwd?: string; extraDirs?: string[]; stage?: 'reasoning' | 'ready'; managed?: boolean; managerSessionId?: string; attachments?: AgentAttachment[]; config?: QueueTask['config'] }) => taskQueue.add({ text: String(task?.text ?? ''), extraDirs: Array.isArray(task?.extraDirs) ? task.extraDirs.filter((d): d is string => typeof d === 'string').slice(0, 12) : undefined, cwd: task?.cwd ? String(task.cwd) : undefined, stage: task?.stage === 'ready' ? 'ready' : 'reasoning', managed: task?.managed === true, managerSessionId: typeof task?.managerSessionId === 'string' && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(task.managerSessionId) ? task.managerSessionId : undefined, attachments: Array.isArray(task?.attachments) ? task.attachments.filter((a) => typeof a?.path === 'string').slice(0, 20) : undefined, config: task?.config && (task.config.provider === 'claude' || task.config.provider === 'codex' || task.config.provider === 'agy' || task.config.provider === 'ollama') ? { provider: task.config.provider, model: String(task.config.model ?? '').slice(0, 80), effort: task.config.effort, mode: agentChat.normalizeMode(task.config.mode) } : undefined }))
   ipcMain.handle('queue:pick', async (e, cwd?: string) => {
     const owner = BrowserWindow.fromWebContents(e.sender) ?? win
     const opts: Electron.OpenDialogOptions = { title: 'Anexar arquivos', defaultPath: typeof cwd === 'string' && existsSync(cwd) ? cwd : undefined, properties: ['openFile', 'multiSelections'] }
@@ -842,15 +842,28 @@ function registerIpc() {
   ipcMain.handle('agent:displays', (e) => agentChat.agentDisplays(BrowserWindow.fromWebContents(e.sender)))
   ipcMain.handle('agents:models', async () => {
     await agentWatch.refreshAgyCatalog(findBinary, async (bin, args) => (await runCli(bin, args, '', os.tmpdir(), 30_000)).stdout)
-    return agentWatch.knownModels()
+    const known = agentWatch.knownModels()
+    known.ollama = await listModels(getSettings()).catch(() => [])
+    known.ollamaCatalog = known.ollama.map((id) => ({ id, label: id === 'SparkLLM/Spark-X2.6-4B:latest' ? 'Spark X2.6 4B' : id }))
+    return known
+  })
+  ipcMain.handle('ollama:pull', async (_e, model: string) => {
+    if (typeof model !== 'string' || !/^[\w./:-]{1,80}$/.test(model)) throw new Error('Modelo inválido.')
+    const url = getSettings().ollamaUrl.replace(/\/+$/, '')
+    let response: Response
+    try {
+      response = await fetch(`${url}/api/pull`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false }), signal: AbortSignal.timeout(30 * 60_000) })
+    } catch { throw new Error(`Não foi possível conectar ao Ollama em ${url}. Abra o Ollama e tente de novo.`) }
+    const result = await response.json().catch(() => ({})) as { status?: string; error?: string }
+    if (!response.ok || result.status !== 'success') throw new Error(result.error || 'Não foi possível baixar o modelo.')
   })
   ipcMain.handle('usage:get', (_e, force?: boolean) => getUsage(!!force))
   ipcMain.handle('cli:updates', (_e, force?: boolean) => getCliUpdates(!!force))
-  ipcMain.handle('cli:update', (_e, id: CliProvider) => {
+  ipcMain.handle('cli:update', (_e, id: CliUpdateProvider) => {
     if (id !== 'claude' && id !== 'codex' && id !== 'agy') throw new Error('CLI desconhecido.')
     return updateCli(id)
   })
-  ipcMain.handle('cli:install', (_e, id: CliProvider) => {
+  ipcMain.handle('cli:install', (_e, id: CliUpdateProvider) => {
     if (id !== 'claude' && id !== 'codex' && id !== 'agy') throw new Error('CLI desconhecido.')
     return installCli(id)
   })

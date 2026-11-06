@@ -206,7 +206,7 @@ const pickerDefaults = (() => {
   try {
     const p = JSON.parse(localStorage.getItem('ovseer.agent.prefs') ?? '{}') as { model?: Record<string, string>; effort?: Record<string, AgentEffort> }
     return Object.fromEntries(
-      (['claude', 'codex', 'agy'] as CliProvider[]).map((k) => [k, { model: p.model?.[k] ?? DEFAULT_MODEL[k], effort: p.effort?.[k] ?? DEFAULT_EFFORT[k] }])
+      (['claude', 'codex', 'agy', 'ollama'] as CliProvider[]).map((k) => [k, { model: p.model?.[k] ?? DEFAULT_MODEL[k], effort: p.effort?.[k] ?? DEFAULT_EFFORT[k] }])
     )
   } catch {
     return undefined
@@ -1122,9 +1122,10 @@ async function approveDiscovery(concept: boolean) {
   if (!concept) return startArchPlan()
   a.phase = 'concept'
   if (!a.design) {
-    // a IA do design é própria: por padrão o Claude (desenha bem em HTML), no modelo que ele usa por último
-    const d = pickerDefaults?.claude
-    a.design = { provider: 'claude', model: d?.model ?? DEFAULT_MODEL.claude, effort: d?.effort ?? DEFAULT_EFFORT.claude, versions: [], current: 0 }
+    // Um agente local começa o design no próprio Ollama; os demais continuam com Claude por padrão.
+    const designProvider = provider.value === 'ollama' ? 'ollama' : 'claude'
+    const d = pickerDefaults?.[designProvider]
+    a.design = { provider: designProvider, model: d?.model ?? DEFAULT_MODEL[designProvider], effort: d?.effort ?? DEFAULT_EFFORT[designProvider], versions: [], current: 0 }
   }
   openDesign()
   drawDesign()

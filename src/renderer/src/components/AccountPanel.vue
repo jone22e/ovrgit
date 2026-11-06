@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import type { AuthStatus, CliProvider } from '@shared/types'
+import type { AuthStatus, CliUpdateProvider } from '@shared/types'
 import { api, openTerminalTab, toast } from '../store'
 import Icon from './Icon.vue'
 import AgentLogo from './AgentLogo.vue'
 
-const props = defineProps<{ provider: CliProvider }>()
+const props = defineProps<{ provider: CliUpdateProvider }>()
 
-const LABEL: Record<CliProvider, { name: string; account: string; install: string; installHint: string }> = {
+const LABEL: Record<CliUpdateProvider, { name: string; account: string; install: string; installHint: string }> = {
   claude: {
     name: 'Claude Code',
     account: 'conta Claude',

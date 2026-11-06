@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, Notification, screen, shell, WebContentsView, webContents as allWebContents } from 'electron'
-import type { AgentAction, AgentAttachment, AgentChatEvent, BackgroundTask, AgentContext, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
+import type { AgentAction, AgentAttachment, AgentChatEvent, BackgroundTask, AgentContext, AgentHandoff, AgentSnapshot, AgentChatOpen, AgentEffort, AgentMode, AgentSendOptions, AgentStatus, AgentTurn, AgentWindowInfo, CliProvider, FileRepo, FileStat, GridCell, GridPlacement, GridSize, HandoffMaterial, WindowBounds, DisplayInfo } from '../shared/types'
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
@@ -22,6 +22,9 @@ import { agentApiInfo } from './agentApi'
 import { ClaudeCompletion } from './claudeCompletion'
 import os from 'node:os'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { askOllama, runOllamaTurn } from './ollamaAgent'
+import { listModels } from './ai'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -39,6 +42,9 @@ interface AgentWin {
    * A vista imita o pedaço da BrowserWindow que este módulo usa; `isEmbedded` diz qual é */
   win: BrowserWindow
   child: ChildProcessWithoutNullStreams | null
+  ollamaAbort?: AbortController
+  /** Histórico recente já concluído, em memória para a próxima mensagem não depender do salvamento da janela. */
+  ollamaTurns?: AgentTurn[]
   /** A resposta atual já terminou (o processo pode ainda estar encerrando) */
   turnDone: boolean
   /** Aguarda por um possível início de resposta após um resultado do Claude com mensagens enviadas no meio da vez */
@@ -67,6 +73,7 @@ interface AgentWin {
   context?: AgentContext
   /** Processo do conceito visual (Modo Arquiteto), separado da conversa e possivelmente de outra IA */
   designChild?: ChildProcessWithoutNullStreams | null
+  designAbort?: AbortController
   /** Segundo plano: fechar a janela só a esconde, e o agente continua (o gerenciador é quem fecha de verdade) */
   background?: boolean
   /** Fechamento pedido pelo gerenciador: vale mesmo com o segundo plano ligado */
@@ -468,7 +475,9 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
     const w = wins.get(uid)
     if (dockedUid === uid) dockedUid = null
     if (w?.child) terminate(w.child, 'codex')
+    w?.ollamaAbort?.abort()
     if (w?.designChild) terminate(w.designChild, 'codex')
+    w?.designAbort?.abort()
     closeDesignWindow(uid)
     wins.delete(uid)
     broadcastWindows()
@@ -504,8 +513,8 @@ function rehost(w: AgentWin, embedded: boolean, show = false) {
   if (!old.isDestroyed()) old.destroy()
 }
 
-const PROVIDER_NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' }
-const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy' }
+const PROVIDER_NAME: Record<CliProvider, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity', ollama: 'Ollama' }
+const BIN: Record<CliProvider, string> = { claude: 'claude', codex: 'codex', agy: 'agy', ollama: 'ollama' }
 
 function title(info: AgentWindowInfo) {
   const extra = info.extraDirs?.length ? ` +${info.extraDirs.length}` : ''
@@ -1854,12 +1863,66 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     w.info.provider = opts.provider
   }
   const provider = w.info.provider
+  if (provider === 'ollama') {
+    if (w.ollamaAbort) throw new Error('O Ollama ainda está respondendo. Aguarde ou interrompa a resposta.')
+    const model = safeModel(opts.model || '')
+    if (!model) throw new Error('Selecione um modelo do Ollama.')
+    const installed = await listModels(getSettings()).catch(() => { throw new Error(`Ollama não está rodando em ${getSettings().ollamaUrl}. Abra o Ollama e tente de novo.`) })
+    if (!installed.includes(model)) throw new Error(`Modelo ${model} não instalado. Use “Baixar modelo” no seletor.`)
+    const previous = w.ollamaTurns ?? (w.info.sessionId ? loadTranscript(w.info.sessionId) ?? [] : [])
+    const firstTurn = !w.info.sessionId
+    w.info.model = model
+    w.info.effort = opts.effort
+    w.info.mode = normalizeMode(opts.mode)
+    lastAgent = { provider, model, effort: opts.effort, mode: w.info.mode, cwd: w.info.cwd }
+    if (firstTurn) {
+      w.info.sessionId = randomUUID()
+      w.info.title = text.replace(/\s+/g, ' ').trim().slice(0, 90)
+      emit(w, { type: 'session', sessionId: w.info.sessionId, model })
+      emit(w, { type: 'title', title: w.info.title })
+      broadcastWindows()
+    }
+    w.info.previousSessionId = null
+    w.info.handoff = null
+    w.info.running = true
+    w.turnDone = false
+    if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
+    const controller = new AbortController()
+    w.ollamaAbort = controller
+    const { prompt, inlineImages } = composeMessage(provider, text, attachments)
+    const images = inlineImages.filter((i) => i.size <= 10_000_000).flatMap((i) => {
+      try { return [readFileSync(i.path).toString('base64')] } catch { return [] }
+    })
+    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote()].filter(Boolean).join('\n\n')
+    let answer = ''
+    const finish = (ev: Extract<AgentChatEvent, { type: 'done' }>) => {
+      if (w.ollamaAbort !== controller) return
+      if (ev.ok) {
+        const turn: AgentTurn = { id: randomUUID(), user: text, attachments: [], blocks: [{ kind: 'text', text: answer }], running: false, thinking: false }
+        w.ollamaTurns = [...previous.filter((t) => !t.running), turn].slice(-12)
+      }
+      w.ollamaAbort = undefined
+      w.info.running = false
+      w.turnDone = true
+      emit(w, ev)
+    }
+    const task = runOllamaTurn({ model, effort: opts.effort, mode: w.info.mode, cwd: w.info.cwd, prompt, turns: previous, images,
+      instructions, signal: controller.signal, onEvent: (ev) => {
+        if (ev.type === 'text') answer += ev.delta
+        if (!w.win.isDestroyed() && w.ollamaAbort === controller) emit(w, ev)
+      } })
+      .then(() => finish({ type: 'done', ok: true }))
+      .catch((e) => finish({ type: 'done', ok: false, error: String((e as Error).message ?? e) }))
+    w.exited = task
+    return
+  }
   const bin = await findBinary(BIN[provider])
   if (!bin) {
     const hints: Record<CliProvider, string> = {
       claude: 'Claude Code não encontrado. Instale em claude.com/claude-code e faça login rodando "claude".',
       codex: 'Codex CLI não encontrado. Instale com "npm i -g @openai/codex" e rode "codex login".',
-      agy: 'Antigravity CLI não encontrado. Instale o Antigravity (Google) e rode "agy" uma vez para fazer login.'
+      agy: 'Antigravity CLI não encontrado. Instale o Antigravity (Google) e rode "agy" uma vez para fazer login.',
+      ollama: 'Ollama não encontrado. Instale em ollama.com/download.'
     }
     throw new Error(hints[provider])
   }
@@ -2290,6 +2353,7 @@ const shortTitle = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 9
 
 /** Pede à mesma IA um título curto para a conversa, numa chamada separada e barata (não entra na sessão). */
 export async function generateTitle(provider: CliProvider, request: string, answer: string): Promise<string | null> {
+  if (provider === 'ollama') return null
   const bin = await findBinary(BIN[provider])
   if (!bin) return null
   // sem resposta ainda (título antecipado): titula só pelo pedido, sem tentar atendê-lo
@@ -2354,6 +2418,22 @@ export async function runDesign(uid: string, o: DesignRunOptions): Promise<void>
   if (!w) throw new Error('Janela do agente não encontrada.')
   if (w.designChild) throw new Error('O conceito ainda está sendo desenhado. Aguarde ou interrompa.')
   const provider = o.provider
+  if (provider === 'ollama') {
+    if (w.designAbort) throw new Error('O conceito ainda está sendo desenhado. Aguarde ou interrompa.')
+    const controller = new AbortController()
+    w.designAbort = controller
+    const send = (ev: AgentChatEvent) => !w.win.isDestroyed() && w.win.webContents.send('agent:design', uid, ev)
+    const { prompt: withFiles, inlineImages } = composeMessage(provider, String(o.prompt), o.attachments ?? [])
+    const prompt = `${DESIGN_RULES}\n\n${withFiles.slice(0, 400_000)}\n\n${designMap(w.info.cwd)}`
+    const images = inlineImages.filter((i) => i.size <= 10_000_000).flatMap((i) => {
+      try { return [readFileSync(i.path).toString('base64')] } catch { return [] }
+    })
+    void askOllama(safeModel(o.model), prompt, controller.signal, images)
+      .then((answer) => { if (w.designAbort === controller) { send({ type: 'text', delta: answer }); send({ type: 'done', ok: true }) } })
+      .catch((e) => { if (w.designAbort === controller) send({ type: 'done', ok: false, error: String((e as Error).message ?? e) }) })
+      .finally(() => { if (w.designAbort === controller) w.designAbort = undefined })
+    return
+  }
   const bin = await findBinary(BIN[provider])
   if (!bin) throw new Error(`${PROVIDER_NAME[provider]} não encontrado neste computador.`)
   const model = safeModel(o.model ?? '')
@@ -2510,6 +2590,7 @@ export function closeDesignWindow(uid: string) {
 export function cancelDesign(uid: string) {
   const w = wins.get(uid)
   if (w?.designChild) terminate(w.designChild, 'codex')
+  w?.designAbort?.abort()
 }
 
 /**
@@ -2532,6 +2613,8 @@ export async function newChat(uid: string) {
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
   w.pendingSend = undefined
+  w.ollamaAbort?.abort()
+  if (w.ollamaAbort) await w.exited
   if (w.child) {
     terminate(w.child, w.info.provider)
     await w.exited
@@ -2539,6 +2622,7 @@ export async function newChat(uid: string) {
   // a conversa anterior fica ao alcance de "voltar" enquanto a nova não recebe a primeira mensagem
   w.info.previousSessionId = w.info.sessionId
   w.info.sessionId = null
+  w.ollamaTurns = undefined
   w.info.resumeId = undefined
   w.info.firstMessage = undefined
   w.info.title = ''
@@ -2680,6 +2764,7 @@ export function cancelAgent(uid: string) {
     emit(w, { type: 'done', ok: false, error: 'Interrompido.' })
   }
   if (w?.child) terminate(w.child, w.info.provider)
+  w?.ollamaAbort?.abort()
 }
 
 /** O app está encerrando: as janelas em segundo plano também fecham */
@@ -2693,6 +2778,8 @@ export function shutdownAgents() {
   for (const w of wins.values()) {
     w.pendingSend = undefined
     if (w.child) terminate(w.child, w.info.provider)
+    w.ollamaAbort?.abort()
+    w.designAbort?.abort()
   }
 }
 

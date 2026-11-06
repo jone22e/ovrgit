@@ -27,18 +27,19 @@ const opening = ref(false)
 
 
 // o seletor lembra o último modelo/esforço de cada IA durante o diálogo; aqui entram os guardados entre sessões
-const defaults = Object.fromEntries((['claude', 'codex', 'agy'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
+const defaults = Object.fromEntries((['claude', 'codex', 'agy', 'ollama'] as CliProvider[]).map((p) => [p, { model: prefs.model[p], effort: prefs.effort[p] }]))
 
 onMounted(async () => {
   ;[known.value, detected.value] = await Promise.all([api.knownModels().catch(() => null), api.detectProviders().catch(() => null)])
 })
 
 
-const CLI_NAME: Record<CliProvider, string> = { claude: 'Claude Code', codex: 'Codex CLI', agy: 'Antigravity CLI' }
+const CLI_NAME: Record<CliProvider, string> = { claude: 'Claude Code', codex: 'Codex CLI', agy: 'Antigravity CLI', ollama: 'Ollama' }
 const INSTALL: Record<CliProvider, string> = {
   claude: 'Instale em claude.com/claude-code.',
   codex: 'Instale com "npm i -g @openai/codex".',
-  agy: 'Instale o Antigravity (Google) e rode "agy" uma vez para entrar.'
+  agy: 'Instale o Antigravity (Google) e rode "agy" uma vez para entrar.',
+  ollama: 'Use o botão de instalação no seletor de modelos.'
 }
 void PROVIDER_LABEL
 
@@ -49,6 +50,7 @@ const brief = ref(state.newAgentBrief)
 
 async function openAgent() {
   if (!state.repo) return
+  detected.value = await api.detectProviders().catch(() => detected.value)
   if (detected.value && !detected.value[provider.value]) {
     toast(`${CLI_NAME[provider.value]} não foi encontrado neste computador.`)
     return
