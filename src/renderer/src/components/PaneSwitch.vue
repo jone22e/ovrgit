@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { count } from '@shared/plural'
-import { myDoingCount, setPane, setShowTasks, state } from '../store'
+import { api, myDoingCount, setPane, setShowTasks, state, toast } from '../store'
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
@@ -10,6 +10,25 @@ import UserMenu from './UserMenu.vue'
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
+const checkingUpdate = ref(false)
+async function checkUpdate() {
+  if (checkingUpdate.value) return
+  checkingUpdate.value = true
+  try {
+    const update = await api.updateCheck()
+    state.update = update
+    if (update.status === 'unsupported') toast('Atualizações disponíveis apenas no app instalado.')
+    else if (update.status === 'error') toast(update.error ?? 'Não foi possível verificar atualizações.')
+    else if (update.status === 'available') toast(`Ovseer ${update.version} disponível. Abra Configurações para baixar.`)
+    else if (update.status === 'downloading') toast(`Baixando Ovseer ${update.version ?? ''}…`)
+    else if (update.status === 'ready') toast(`Ovseer ${update.version} pronto para instalar.`)
+    else if (update.status === 'idle') toast('Você está na versão mais recente.')
+  } catch {
+    toast('Não foi possível verificar atualizações.')
+  } finally {
+    checkingUpdate.value = false
+  }
+}
 function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
   if (v === 'changes') {
     if (state.showGit) {
@@ -55,6 +74,9 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
       <span v-if="myDoingCount" class="run" :title="count(myDoingCount, 'tarefa em execução', 'tarefas em execução')" />
     </button>
     <span class="gap" />
+    <button title="Verificar atualizações" aria-label="Verificar atualizações" :disabled="checkingUpdate || state.update?.status === 'checking' || state.update?.status === 'downloading'" @click="checkUpdate">
+      <Icon name="refresh" :size="18" /><span class="lbl">Verificar atualizações</span>
+    </button>
     <!-- conta e configurações no pé, como no Codex -->
     <UserMenu side />
   </nav>
