@@ -331,6 +331,16 @@ async function toggleStep(s: DeployStepView) {
   }
 }
 
+async function copyStepError(s: DeployStepView) {
+  const text = [s.error, !logLoading.value ? logText.value : ''].filter(Boolean).join('\n\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('Erro copiado.')
+  } catch {
+    toast('Não foi possível copiar o erro.')
+  }
+}
+
 const onDoc = (e: MouseEvent) => {
   if (open.value && root.value && !root.value.contains(e.target as Node)) open.value = false
 }
@@ -361,6 +371,9 @@ watch(repoRoot, () => void loadManifest())
       <Icon name="chevron" :size="11" class="chev" />
     </button>
     <div v-if="open" class="pop" @keydown.esc="open = false">
+      <div class="pop-actions">
+        <button type="button" class="ghost small" @click="open = false"><Icon name="x" :size="13" /> Fechar</button>
+      </div>
       <p v-if="manifestError" class="msg err">{{ manifestError }}</p>
       <template v-else>
         <p v-if="!snap" class="msg faint"><span class="spinner" /> Consultando o console de deploy…</p>
@@ -501,7 +514,10 @@ watch(repoRoot, () => void loadManifest())
                 </li>
               </ul>
               <div v-if="expanded === s.id" class="more">
-                <p v-if="s.error" class="err">{{ s.error }}</p>
+                <div v-if="s.error" class="step-error">
+                  <p class="err">{{ s.error }}</p>
+                  <button type="button" class="ghost small" title="Copiar mensagem e log do erro" @click="copyStepError(s)"><Icon name="clipboard" :size="13" /> Copiar erro</button>
+                </div>
                 <p v-if="logLoading" class="faint"><span class="spinner" /> Carregando log…</p>
                 <pre v-else-if="logText" class="log mono">{{ logText }}</pre>
                 <p v-else-if="s.phases.length" class="faint">Sem log para esta etapa.</p>
@@ -577,6 +593,7 @@ watch(repoRoot, () => void loadManifest())
   background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   max-height: calc(100vh - 80px); overflow: auto; font-size: 12.5px;
 }
+.pop-actions { position: sticky; top: -8px; z-index: 2; display: flex; justify-content: flex-end; margin: -8px -8px 4px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--border); border-radius: 12px 12px 0 0; }
 .msg { margin: 8px; display: flex; gap: 8px; align-items: center; }
 .err { color: var(--del); white-space: pre-wrap; word-break: break-word; }
 .console-off { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px; }
@@ -634,7 +651,10 @@ li.pending .title { font-weight: 500; }
 .subs .title { font-size: 12px; font-weight: 500; }
 .more { padding: 2px 8px 8px 40px; }
 .more p { margin: 4px 0; }
-.log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+.step-error { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.step-error .err { min-width: 0; user-select: text; }
+.step-error button { flex: none; }
+.log { margin: 4px 0 0; padding: 8px; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap; word-break: break-word; user-select: text; }
 .newdeploy { display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 2px; }
 .newdeploy h5 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .planning { display: flex; align-items: flex-start; gap: 12px; padding: 14px 12px; border: 1px dashed var(--border); border-radius: 10px; }
