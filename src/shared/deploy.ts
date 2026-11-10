@@ -250,7 +250,7 @@ function stepStatus(phases: DeployPhase[], specCount: number): DeployPhaseStatus
 
 const groupName = (file: string) => file.replace(/\.tap$/, '')
 
-function testsDetail(result: Record<string, unknown> | undefined): { detail: string; subs: DeploySubStep[] } {
+function testsDetail(result: Record<string, unknown> | undefined, phaseStatus?: string): { detail: string; subs: DeploySubStep[] } {
   if (!result) return { detail: '', subs: [] }
   const total = Number(result.total ?? 0)
   const passed = Number(result.passed ?? 0)
@@ -259,10 +259,10 @@ function testsDetail(result: Record<string, unknown> | undefined): { detail: str
   const subs: DeploySubStep[] = groups.map((g) => ({
     id: g.file,
     title: groupName(g.file),
-    status: g.failed > 0 ? 'failed' : g.passed >= g.total && g.total > 0 ? 'completed' : 'running',
+    status: g.failed > 0 ? 'failed' : g.passed >= g.total && g.total > 0 ? 'completed' : phaseStatus === 'completed' ? 'completed' : phaseStatus === 'failed' ? 'failed' : 'running',
     detail: `${g.passed} / ${g.total}${g.failed ? ` · ${g.failed} falhas` : ''}`
   }))
-  const detail = total ? `${passed} / ${total}${failed ? ` · ${failed} falhas` : ''}` : ''
+  const detail = total ? `${passed} / ${total} · ${failed} ${failed === 1 ? 'falha' : 'falhas'}` : ''
   return { detail, subs }
 }
 
@@ -280,7 +280,7 @@ export function buildDeploySteps(manifest: DeployManifest, release: DeployReleas
     let detail = ''
     let subs: DeploySubStep[] = []
     if (spec.phases.includes('tests')) {
-      const t = testsDetail(release?.phases?.tests?.result)
+      const t = testsDetail(release?.phases?.tests?.result, release?.phases?.tests?.status)
       detail = t.detail
       subs = t.subs
     } else if (status === 'skipped') {
@@ -300,6 +300,16 @@ export function buildDeploySteps(manifest: DeployManifest, release: DeployReleas
       subs
     }
   })
+}
+
+/** Falha da release, inclusive quando aconteceu fora das etapas declaradas no manifesto. */
+export function releaseFailure(release: DeployRelease | null, steps: DeployStepView[]): { title: string; detail: string } | null {
+  if (release?.status !== 'failed') return null
+  const phase = release.failure_phase || Object.entries(release.phases).find(([, p]) => p.status === 'failed')?.[0]
+  const step = phase ? steps.find((s) => s.phases.includes(phase)) : steps.find((s) => s.status === 'failed')
+  const title = step?.title ?? (phase === 'orquestracao_local' ? 'Orquestração local' : phase?.replace(/[_-]/g, ' ') || 'etapa não identificada')
+  const detail = release.failure_detail?.trim() || step?.error?.trim() || 'O console não registrou o motivo da falha.'
+  return { title, detail }
 }
 
 /** Maior status entre as etapas, para o ponto do botão: falhou > em andamento > concluído > nada */

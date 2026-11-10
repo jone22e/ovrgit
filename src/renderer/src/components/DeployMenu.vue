@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DeployLock, DeployManifest, DeployPlanResult, DeploySnapshot, DeployStepView } from '@shared/deploy'
-import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseStatusLabel } from '@shared/deploy'
+import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseFailure, releaseStatusLabel } from '@shared/deploy'
 import { api, state, toast } from '../store'
 import Icon from './Icon.vue'
 
@@ -74,7 +74,10 @@ const targetTitle = (id?: string) => targets.value.find((t) => t.id === id)?.tit
 const lockSupported = computed(() => snap.value?.lockSupported !== false)
 const current = computed(() => snap.value?.current ?? null)
 const steps = computed(() => (manifest.value ? buildDeploySteps(manifest.value, current.value) : []))
+const failure = computed(() => releaseFailure(current.value, steps.value))
+const runningStep = computed(() => steps.value.find((s) => s.status === 'running'))
 const operation = computed(() => snap.value?.operation ?? null)
+const executing = computed(() => !!operation.value)
 const live = computed(() => !!operation.value || isLiveRelease(current.value))
 /** Trava de outro lugar: a deste computador aparece junto com a operação ativa do console */
 const lockedElsewhere = computed(() => lock.value?.status === 'active' && !operation.value)
@@ -85,19 +88,20 @@ const lockedElsewhere = computed(() => lock.value?.status === 'active' && !opera
  */
 const dot = computed(() => {
   if (!snap.value) return ''
-  if (snap.value.console === 'starting' || busy.value === 'plan' || busy.value === 'run' || live.value) return 'live'
+  if (snap.value.console === 'starting' || busy.value === 'plan' || busy.value === 'run' || executing.value) return 'live'
   if (snap.value.console !== 'ready') return 'off'
   if (planning.value && plan.value) return 'wait'
   if (lockedElsewhere.value) return 'locked'
-  if (current.value?.status === 'failed') return 'wait'
+  if (current.value?.status === 'failed') return 'failed'
   if (isSuccessfulRelease(current.value)) return 'ok'
+  if (isLiveRelease(current.value)) return 'unknown'
   return ''
 })
 const history = computed(() => (snap.value?.releases ?? []).slice(0, 8))
 const elapsed = computed(() => {
   const c = current.value
   if (!c?.created_at) return ''
-  const end = isLiveRelease(c) ? now.value : Date.parse(c.updated_at ?? '') || now.value
+  const end = executing.value ? now.value : Date.parse(c.updated_at ?? '') || now.value
   return formatDuration(end - Date.parse(c.created_at))
 })
 const time = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '')
@@ -366,6 +370,9 @@ watch(repoRoot, () => void loadManifest())
     >
       <Icon name="cloudUp" :size="13" />
       <span>{{ manifest?.name ?? 'Deploy' }}</span>
+      <span v-if="executing" class="deploy-word">Em execução</span>
+      <span v-else-if="current?.status === 'failed'" class="deploy-word failed">Falhou</span>
+      <span v-else-if="isLiveRelease(current)" class="deploy-word unknown">Sem operação local</span>
       <span v-if="dot === 'ok'" class="done" title="Última release concluída"><Icon name="check" :size="12" /></span>
       <span v-else-if="dot" class="dot" :class="dot" />
       <Icon name="chevron" :size="11" class="chev" />
@@ -476,16 +483,33 @@ watch(repoRoot, () => void loadManifest())
             <div class="tagline">
               <span class="tag mono">{{ current.tag }}</span>
               <span v-if="current.target" class="status target">{{ targetTitle(current.target) }}</span>
-              <span class="status" :class="current.status">{{ releaseStatusLabel(current.status) }}</span>
+              <span class="status" :class="operation ? 'running' : current.status">{{ operation ? 'Em execução' : releaseStatusLabel(current.status) }}</span>
             </div>
             <div class="meta faint">
               commit <span class="mono">{{ (current.commit ?? '').slice(0, 8) }}</span>
               · início {{ time(current.created_at) }}
-              · {{ live ? 'decorrido' : 'duração' }} <span class="mono">{{ elapsed }}</span>
+              · {{ executing ? 'decorrido' : 'duração' }} <span class="mono">{{ elapsed }}</span>
               <template v-if="operation"> · operação: {{ operation.name }}</template>
             </div>
           </div>
           <p v-else class="msg faint">Nenhuma release registrada neste computador.</p>
+
+          <div v-if="current" class="release-state" :class="{ failed: current.status === 'failed' && !operation, running: !!operation }">
+            <span v-if="operation" class="spinner state-spinner" />
+            <Icon v-else :name="isSuccessfulRelease(current) ? 'check' : 'alert'" :size="17" />
+            <div>
+              <strong v-if="operation">Deploy em execução</strong>
+              <strong v-else-if="current.status === 'failed'">Falhou em {{ failure?.title }}</strong>
+              <strong v-else-if="isLiveRelease(current)">Release marcada como em andamento</strong>
+              <strong v-else-if="isSuccessfulRelease(current)">Deploy concluído</strong>
+              <strong v-else>{{ releaseStatusLabel(current.status) }}</strong>
+              <p v-if="operation">{{ runningStep ? `Etapa atual: ${runningStep.title}.` : `Operação ${operation.name} ativa no console.` }}</p>
+              <p v-else-if="current.status === 'failed'">Parado · nenhuma operação em execução.</p>
+              <p v-else-if="isLiveRelease(current)">Nenhuma operação ativa registrada neste computador.</p>
+              <p v-else>Nenhuma operação em execução.</p>
+              <pre v-if="current.status === 'failed' && !operation" class="failure-detail">{{ failure?.detail }}</pre>
+            </div>
+          </div>
 
           <ol class="steps">
             <li v-for="s in steps" :key="s.id" :class="[s.status, { open: expanded === s.id }]">
@@ -575,12 +599,17 @@ watch(repoRoot, () => void loadManifest())
 .deploy { border: 0; height: 24px; gap: 5px; cursor: pointer; }
 .deploy:hover, .deploy.on { filter: brightness(1.15); }
 .deploy.broken { color: var(--mod); }
+.deploy-word { font-size: 10.5px; color: var(--accent); }
+.deploy-word.failed { color: var(--del); }
+.deploy-word.unknown { color: var(--mod); }
 .chev { transform: rotate(90deg); opacity: 0.7; }
 .dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
 .done { display: inline-flex; align-items: center; color: var(--add); flex: none; }
 .done svg { stroke-width: 3; }
 .dot.locked { background: var(--mod); }
 .dot.off { background: var(--faint); opacity: 0.5; }
+.dot.failed { background: var(--del); }
+.dot.unknown { background: var(--mod); }
 /* rodando (azul) e esperando você (vermelho): a bolinha pisca e solta um anel que se expande */
 .dot.live { background: var(--accent); animation: blink 1s ease-in-out infinite; }
 .dot.wait { background: var(--del); animation: blink 1s ease-in-out infinite; }
@@ -616,6 +645,16 @@ watch(repoRoot, () => void loadManifest())
 .status.target { color: var(--text); background: var(--panel-2); border: 1px solid var(--border); }
 .targets { display: flex; gap: 6px; flex-wrap: wrap; }
 .meta { margin-top: 3px; font-size: 11.5px; }
+.release-state { display: flex; align-items: flex-start; gap: 9px; margin: 0 8px 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
+.release-state > svg, .state-spinner { margin-top: 2px; color: var(--muted); }
+.release-state > div { min-width: 0; flex: 1; }
+.release-state strong { display: block; font-size: 12.5px; }
+.release-state p { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; }
+.release-state.failed { border-color: var(--del); background: color-mix(in srgb, var(--del) 8%, var(--panel)); }
+.release-state.failed > svg, .release-state.failed strong { color: var(--del); }
+.release-state.running > .state-spinner, .release-state.running strong { color: var(--accent); }
+.state-spinner { width: 15px; height: 15px; flex: none; }
+.failure-detail { margin: 8px 0 0; padding: 8px; max-height: 160px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.4 var(--mono); user-select: text; }
 .steps { list-style: none; margin: 2px 0 0; padding: 2px 0 0; position: relative; }
 /* trilho vertical discreto, passando pelo centro dos marcadores (6px de padding + metade dos 22px) */
 .steps > li { position: relative; }

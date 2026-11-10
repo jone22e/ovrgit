@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, stripAnsi,
+  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, releaseFailure, stripAnsi,
   type DeployManifest, type DeployRelease
 } from '../src/shared/deploy'
 
@@ -77,10 +77,10 @@ describe('etapas numeradas', () => {
     const steps = buildDeploySteps(manifest(), r)
     const by = Object.fromEntries(steps.map((s) => [s.id, s]))
     expect(by.tests.status).toBe('completed')
-    expect(by.tests.detail).toBe('1416 / 1425')
+    expect(by.tests.detail).toBe('1416 / 1425 · 0 falhas')
     expect(by.tests.subs).toEqual([
       { id: 'marketplace.tap', title: 'marketplace', status: 'completed', detail: '529 / 529' },
-      { id: 'stock.tap', title: 'stock', status: 'running', detail: '200 / 265' }
+      { id: 'stock.tap', title: 'stock', status: 'completed', detail: '200 / 265' }
     ])
     expect(by['workers-prep'].status).toBe('completed')
     expect(by.systems.status).toBe('running')
@@ -99,7 +99,7 @@ describe('etapas numeradas', () => {
     const by = Object.fromEntries(steps.map((s) => [s.id, s]))
     expect(by.tests.status).toBe('failed')
     expect(by.tests.error).toBe('make falhou com codigo 2')
-    expect(by.tests.detail).toBe('3 / 10 · 1 falhas')
+    expect(by.tests.detail).toBe('3 / 10 · 1 falha')
     expect(by.tests.subs[0].status).toBe('failed')
     expect(overallStatus(steps)).toBe('failed')
   })
@@ -109,6 +109,26 @@ describe('etapas numeradas', () => {
     expect(by.systems.status).toBe('failed')
     const live = release({ prepare_systems: { status: 'completed' } }, 'running')
     expect(buildDeploySteps(manifest(), live).find((s) => s.id === 'systems')?.status).toBe('running')
+  })
+  it('mostra a falha da orquestração local mesmo sem uma fase falhada na lista', () => {
+    const r = release({
+      preflight: { status: 'completed' },
+      plan: { status: 'completed' },
+      tests: { status: 'completed', result: { total: 1453, passed: 1444, failed: 0, groups: [{ file: 'venda-editor.tap', total: 230, passed: 221, failed: 0 }] } }
+    }, 'failed')
+    r.failure_phase = 'orquestracao_local'
+    r.failure_detail = 'retomada exige o commit da release em checkout'
+    const steps = buildDeploySteps(manifest(), r)
+    expect(steps[2]).toMatchObject({ status: 'completed', detail: '1444 / 1453 · 0 falhas' })
+    expect(steps[2].subs[0].status).toBe('completed')
+    expect(steps.some((s) => s.status === 'failed')).toBe(false)
+    expect(releaseFailure(r, steps)).toEqual({ title: 'Orquestração local', detail: 'retomada exige o commit da release em checkout' })
+    const running = release({ tests: { status: 'running', result: { total: 230, passed: 221, failed: 0, groups: [{ file: 'venda-editor.tap', total: 230, passed: 221, failed: 0 }] } } })
+    expect(buildDeploySteps(manifest(), running)[2].subs[0].status).toBe('running')
+  })
+  it('usa o erro da etapa quando o console não envia o detalhe da falha', () => {
+    const r = release({ tests: { status: 'failed', error: 'testes falharam' } }, 'failed')
+    expect(releaseFailure(r, buildDeploySteps(manifest(), r))).toEqual({ title: 'Testes', detail: 'testes falharam' })
   })
 })
 
