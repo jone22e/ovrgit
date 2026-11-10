@@ -91,6 +91,28 @@ function renewClaudeToken(): Promise<void> {
 
 const expired = (login: ClaudeLogin) => login.expiresAt !== undefined && login.expiresAt - Date.now() < 60_000
 
+/** Nome do plano mostrado pelo perfil da conta; o tier do token é só o fallback técnico. */
+export function claudePlanLabel(profileJson: string | null, subscriptionType?: string, tier?: string): string | undefined {
+  try {
+    const profile = JSON.parse(profileJson ?? '') as { oauthAccount?: { planDisplayName?: unknown } }
+    const name = profile.oauthAccount?.planDisplayName
+    if (typeof name === 'string' && name.trim()) return name.trim()
+  } catch {
+    /* perfil indisponível: usa o tipo da assinatura no token */
+  }
+  return subscriptionType ? `${subscriptionType}${tier ? ` ${tier}` : ''}` : undefined
+}
+
+function claudePlan(login: ClaudeLogin): string | undefined {
+  let profileJson: string | null = null
+  try {
+    profileJson = readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')
+  } catch {
+    /* Claude Code pode ainda não ter salvo o perfil */
+  }
+  return claudePlanLabel(profileJson, login.plan, login.tier)
+}
+
 async function claudeUsage(): Promise<ProviderUsage | null> {
   let login = await claudeToken()
   if (!login) return null
@@ -107,12 +129,12 @@ async function claudeUsage(): Promise<ProviderUsage | null> {
     usage = await fetchClaudeUsage(login)
   }
   if (usage !== 'unauthorized') return usage
-  const plan = login.plan ? `${login.plan}${login.tier ? ` ${login.tier}` : ''}` : undefined
+  const plan = claudePlan(login)
   return { fiveHour: null, week: null, plan, at: Date.now(), error: 'Login do Claude expirado: rode "claude" no terminal para renovar.' }
 }
 
 async function fetchClaudeUsage(login: ClaudeLogin): Promise<ProviderUsage | 'unauthorized'> {
-  const plan = login.plan ? `${login.plan}${login.tier ? ` ${login.tier}` : ''}` : undefined
+  const plan = claudePlan(login)
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 10_000)
   try {

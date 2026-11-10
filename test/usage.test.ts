@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { parseAgyUsage } from '../src/main/usage'
+import { claudePlanLabel, parseAgyUsage } from '../src/main/usage'
+
+describe('claudePlanLabel', () => {
+  it('mostra o nome do plano do perfil em vez do tier técnico do token', () => {
+    expect(claudePlanLabel(JSON.stringify({ oauthAccount: { planDisplayName: 'Ultra' } }), 'max', '20x')).toBe('Ultra')
+    expect(claudePlanLabel(null, 'max', '20x')).toBe('max 20x')
+  })
+})
 
 describe('parseAgyUsage', () => {
   it('pega, por janela, o grupo mais gasto e quando zera', () => {
