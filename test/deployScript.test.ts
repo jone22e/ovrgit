@@ -48,6 +48,7 @@ describe('deploy por script', () => {
 
     const op = await script.run(repo, manifest, plan.plan_id)
     expect(op.release_tag).toBe(plan.plan.tag)
+    expect(script.activeRoots()).toContain(repo)
     expect(pty.args.at(-1)).toBe('make deploy')
     expect(pty.cwd).toBe(repo)
     let snap = script.snapshot(repo)
@@ -65,6 +66,7 @@ describe('deploy por script', () => {
 
     pty.data!('rsync: connection refused\r\n')
     pty.exit!({ exitCode: 12 })
+    expect(script.activeRoots()).not.toContain(repo)
     snap = script.snapshot(repo)
     expect(snap.operation).toBeNull()
     expect(snap.current?.status).toBe('failed')

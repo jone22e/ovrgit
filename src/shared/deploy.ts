@@ -210,6 +210,13 @@ export interface DeploySnapshot {
   expectedTests: number
 }
 
+/** Último estado de deploy de cada projeto recente com manifesto. */
+export interface DeployOverviewEntry {
+  root: string
+  manifest: DeployManifest
+  snapshot: DeploySnapshot
+}
+
 // ---------- etapas numeradas ----------
 
 export interface DeploySubStep {

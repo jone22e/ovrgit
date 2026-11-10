@@ -43,6 +43,7 @@ interface Active {
 
 const runsByRoot = new Map<string, ScriptRun[]>()
 const active = new Map<string, Active>()
+export const activeRoots = () => [...active.keys()]
 const plans = new Map<string, { root: string; tag: string; target?: string; expiresAt: number }>()
 const LOG_MAX = 200_000
 const RUNS_MAX = 20

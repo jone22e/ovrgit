@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { count } from '@shared/plural'
-import { api, myDoingCount, setPane, setShowTasks, state, toast } from '../store'
+import { api, myDoingCount, setPane, setShowDeploys, setShowTasks, state, toast } from '../store'
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
@@ -10,6 +10,8 @@ import UserMenu from './UserMenu.vue'
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
+const activeDeploys = computed(() => state.deployOverview.filter((d) => !!d.snapshot.operation).length)
+const failedDeploys = computed(() => state.deployOverview.filter((d) => !d.snapshot.operation && d.snapshot.current?.status === 'failed').length)
 const checkingUpdate = ref(false)
 async function checkUpdate() {
   if (checkingUpdate.value) return
@@ -73,6 +75,11 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
       <Icon name="listTodo" :size="18" /><span class="lbl">Tarefas</span>
       <span v-if="myDoingCount" class="run" :title="count(myDoingCount, 'tarefa em execução', 'tarefas em execução')" />
     </button>
+    <button :class="{ on: state.showDeploys }" :title="activeDeploys ? `${activeDeploys} deploy(s) em execução` : 'Acompanhar deploys dos projetos'" @click="setShowDeploys(!state.showDeploys)">
+      <Icon name="cloudUp" :size="18" /><span class="lbl">Deploys</span>
+      <span v-if="activeDeploys" class="deploy-count">{{ activeDeploys }}</span>
+      <span v-else-if="failedDeploys" class="deploy-failed" title="Há deploy que falhou">!</span>
+    </button>
     <span class="gap" />
     <button title="Verificar atualizações" aria-label="Verificar atualizações" :disabled="checkingUpdate || state.update?.status === 'checking' || state.update?.status === 'downloading'" @click="checkUpdate">
       <Icon name="refresh" :size="18" /><span class="lbl">Verificar atualizações</span>
@@ -100,6 +107,8 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
 }
 .cnt { background: var(--panel); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
 .need { background: var(--mod); color: #1a1a1a; }
+.deploy-count { position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--on-accent); font-size: 9.5px; font-weight: 700; box-shadow: 0 0 0 2px var(--panel); }
+.deploy-failed { position: absolute; top: -3px; right: -4px; width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; background: var(--del); color: #fff; font-size: 10px; font-weight: 700; box-shadow: 0 0 0 2px var(--panel); }
 /* tarefa sua em execução: um ponto na cor do tema */
 .run { position: absolute; top: 4px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
 </style>

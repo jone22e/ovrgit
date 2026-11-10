@@ -14,6 +14,7 @@ import SourceEditor from './components/SourceEditor.vue'
 import SourceTree from './components/SourceTree.vue'
 import MergeBanner from './components/MergeBanner.vue'
 import DeliveryDialog from './components/DeliveryDialog.vue'
+import DeployOverviewPanel from './components/DeployOverviewPanel.vue'
 import NewAgentDialog from './components/NewAgentDialog.vue'
 import NewTaskDialog from './components/NewTaskDialog.vue'
 import PaneSwitch from './components/PaneSwitch.vue'
@@ -36,7 +37,7 @@ import ServicesDialog from './components/ServicesDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, setPane, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, refreshDeployOverview, setPane, setShowDiff, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
@@ -82,7 +83,7 @@ const gitNarrow = ref(gitOverlayQuery.matches)
 const onGitNarrow = (e: MediaQueryListEvent) => (gitNarrow.value = e.matches)
 onMounted(() => gitOverlayQuery.addEventListener('change', onGitNarrow))
 onUnmounted(() => gitOverlayQuery.removeEventListener('change', onGitNarrow))
-const gitOverlay = computed(() => gitNarrow.value || state.showTasks)
+const gitOverlay = computed(() => gitNarrow.value || state.showTasks || state.showDeploys)
 const gitEl = ref<HTMLElement>()
 const GIT_MIN_WIDTH = 540
 const gitWidth = ref(Math.max(GIT_MIN_WIDTH, Number(localStorage.getItem('ovseer.gitWidth')) || 0))
@@ -173,9 +174,16 @@ function startTermResize(e: MouseEvent) {
 
 const onFocus = () => refresh()
 let offMenu: (() => void) | undefined
+let deployTimer: ReturnType<typeof setInterval> | undefined
+let deployTick = 0
 
 onMounted(() => {
   init()
+  void refreshDeployOverview()
+  deployTimer = setInterval(() => {
+    deployTick += 1
+    if (state.showDeploys || deployTick % 3 === 0) void refreshDeployOverview()
+  }, 5000)
   window.addEventListener('focus', onFocus)
   window.addEventListener('keydown', onShiftKey)
   offMenu = window.ovseer.onMenu((action) => {
@@ -201,6 +209,7 @@ onMounted(() => {
   })
 })
 onUnmounted(() => {
+  if (deployTimer) clearInterval(deployTimer)
   window.removeEventListener('focus', onFocus)
   window.removeEventListener('keydown', onShiftKey)
   offMenu?.()
@@ -240,6 +249,7 @@ onUnmounted(() => {
         <div class="git-resizer" role="separator" aria-orientation="vertical" aria-label="Ajustar largura da coluna do Git" tabindex="0" @mousedown.prevent="startGitResize" @keydown.left.prevent="resizeGitBy(-20)" @keydown.right.prevent="resizeGitBy(20)" />
       </aside>
       <div v-if="state.showTasks" class="tasks-wrap"><TasksPanel /></div>
+      <div v-if="state.showDeploys" class="deploy-wrap"><DeployOverviewPanel /></div>
       <div class="workspace">
         <main v-if="state.tab === 'changes'" class="split" :class="{ 'diff-open': state.showDiff }">
           <template v-if="state.showGit && state.pane === 'changes'">
@@ -318,6 +328,7 @@ onUnmounted(() => {
 .shell { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
+.deploy-wrap { width: min(400px, 44vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
 .git-wrap { position: relative; max-width: calc(100% - 320px); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
 .git-wrap > :deep(.list) { flex: 1; height: auto; min-height: 0; }
 .git-resizer { position: absolute; top: 0; bottom: 0; right: -4px; z-index: 2; width: 8px; cursor: col-resize; }

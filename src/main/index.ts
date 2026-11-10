@@ -901,6 +901,7 @@ function registerIpc() {
   // AWS: instalação do CLI, login por SSO e sessão (Configurações → AWS)
   ipcMain.handle('deploy:manifest', (_e, root: string) => deploy.readManifest(String(root)))
   ipcMain.handle('deploy:snapshot', (_e, root: string) => deploy.snapshot(String(root)))
+  ipcMain.handle('deploy:overview', () => deploy.overview())
   ipcMain.handle('deploy:startConsole', (_e, root: string) => deploy.startConsole(String(root)))
   ipcMain.handle('deploy:lock', (_e, root: string) => deploy.lock(String(root)))
   ipcMain.handle('deploy:plan', (_e, root: string, typesenseFirst: boolean, target?: string) => deploy.plan(String(root), typesenseFirst === true, target === undefined ? undefined : String(target)))

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { shell, webContents } from 'electron'
 import type { Service } from '../shared/types'
 import {
-  parseDeployManifest, type DeployConsoleManifest, type DeployLock, type DeployManifest, type DeployOperation, type DeployPlanResult, type DeployRelease, type DeploySnapshot
+  parseDeployManifest, type DeployConsoleManifest, type DeployLock, type DeployManifest, type DeployOperation, type DeployOverviewEntry, type DeployPlanResult, type DeployRelease, type DeploySnapshot
 } from '../shared/deploy'
 import { getSettings, saveSettings } from './settings'
 import * as services from './services'
@@ -138,6 +138,24 @@ export async function snapshot(root: string): Promise<DeploySnapshot> {
     }
   }
   return { console: 'ready', origin, operation: boot.active_operation ?? null, releases, current, expectedTests: Number(boot.expected_test_total) || 0, lockSupported: true }
+}
+
+/** Consulta os projetos recentes sem depender do repositório aberto na interface. */
+export async function overview(): Promise<DeployOverviewEntry[]> {
+  const settings = getSettings()
+  const roots = new Set([...settings.recentProjects, ...settings.services.map((service) => service.cwd), ...script.activeRoots()])
+  const projects = [...roots].flatMap((root) => {
+    const { manifest } = readManifest(root)
+    return manifest ? [{ root, manifest }] : []
+  })
+  return Promise.all(projects.map(async ({ root, manifest }) => ({
+    root,
+    manifest,
+    snapshot: await snapshot(root).catch((e): DeploySnapshot => ({
+      console: 'error', error: (e as Error).message, origin: '', operation: null, releases: [], current: null,
+      expectedTests: 0, lockSupported: manifest.kind === 'console'
+    }))
+  })))
 }
 
 /** Trava compartilhada: o console consulta o S3, então demora um ou dois segundos */

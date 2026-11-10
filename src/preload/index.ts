@@ -186,6 +186,7 @@ const api: OvseerApi = {
   },
   deployManifest: (root) => ipcRenderer.invoke('deploy:manifest', root),
   deploySnapshot: (root) => ipcRenderer.invoke('deploy:snapshot', root),
+  deployOverview: () => ipcRenderer.invoke('deploy:overview'),
   deployStartConsole: (root) => ipcRenderer.invoke('deploy:startConsole', root),
   deployLock: (root) => ipcRenderer.invoke('deploy:lock', root),
   deployPlan: (root, typesenseFirst, target) => ipcRenderer.invoke('deploy:plan', root, typesenseFirst, target),

@@ -1201,6 +1201,7 @@ export interface OvseerApi {
   /** Deploy pelo app, nos repositórios com .ovseer/deploy.json (ver shared/deploy.ts) */
   deployManifest(root: string): Promise<{ manifest: import('./deploy').DeployManifest | null; error?: string }>
   deploySnapshot(root: string): Promise<import('./deploy').DeploySnapshot>
+  deployOverview(): Promise<import('./deploy').DeployOverviewEntry[]>
   /** Sobe o console de deploy como serviço (reaproveita o cadastrado com o mesmo comando e pasta) */
   deployStartConsole(root: string): Promise<void>
   /** Trava compartilhada entre computadores, consultada pelo console */

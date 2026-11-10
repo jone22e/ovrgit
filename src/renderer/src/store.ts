@@ -1,5 +1,6 @@
 import { count } from '@shared/plural'
 import { computed, reactive, watch } from 'vue'
+import type { DeployOverviewEntry } from '@shared/deploy'
 import { heuristicGroups, slugify } from '@shared/parse'
 import { applyTheme } from './theme'
 import type {
@@ -80,6 +81,11 @@ export const state = reactive({
   planTasks: {} as Record<string, string | null>,
   /** Painel de tarefas à esquerda, formulário de nova tarefa e canal em tempo real */
   showTasks: readPref('ovseer.tasks') === '1',
+  /** Deploys dos projetos recentes, inclusive quando outro projeto está aberto */
+  deployOverview: [] as DeployOverviewEntry[],
+  deployOverviewAt: 0,
+  deployOverviewError: null as string | null,
+  showDeploys: false,
   showNewTask: false,
   deliveryTask: null as OvseerTask | null,
   /** Tarefa aberta nos detalhes */
@@ -211,8 +217,33 @@ export function setShowQueue(v: boolean) {
 
 export function setShowTasks(v: boolean) {
   state.showTasks = v
+  if (v) state.showDeploys = false
   writePref('ovseer.tasks', v ? '1' : '0')
   if (v) loadTasks()
+}
+
+export function setShowDeploys(v: boolean) {
+  state.showDeploys = v
+  if (v) {
+    state.showGit = false
+    setShowTasks(false)
+    void refreshDeployOverview()
+  }
+}
+
+let deployOverviewLoading = false
+export async function refreshDeployOverview() {
+  if (deployOverviewLoading) return
+  deployOverviewLoading = true
+  try {
+    state.deployOverview = await api.deployOverview()
+    state.deployOverviewAt = Date.now()
+    state.deployOverviewError = null
+  } catch (e) {
+    state.deployOverviewError = String((e as Error)?.message ?? e)
+  } finally {
+    deployOverviewLoading = false
+  }
 }
 
 export function setTerminalMax(v: boolean) {
