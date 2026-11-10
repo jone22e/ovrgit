@@ -13,6 +13,7 @@ export const CLAUDE_FAMILIES: { family: string; models: { id: string; label: str
   {
     family: 'Fable',
     models: [
+      { id: 'claude-fable-5-2', label: 'Fable 5.2' },
       { id: 'claude-fable-5-1', label: 'Fable 5.1' },
       { id: 'claude-fable-5', label: 'Fable 5' }
     ]
