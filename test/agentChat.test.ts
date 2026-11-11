@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, dockedBounds, parseClaudeLine, parseCodexLine, sourceLinkPath, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, codexBrowserAccessNote, dockedBounds, parseClaudeLine, parseCodexLine, sourceLinkPath, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -119,6 +119,25 @@ describe('saída do Codex (exec --json)', () => {
     const s2 = st()
     parseCodexLine(j({ type: 'item.completed', item: { id: 'e', type: 'error', message: 'deu ruim' } }), s2)
     expect(parseCodexLine(j({ type: 'turn.completed' }), s2)).toEqual([{ type: 'done', ok: false, error: 'deu ruim' }])
+  })
+
+  it('mostra a causa de falha de uma ferramenta MCP', () => {
+    const s = st()
+    const events = parseCodexLine(j({ type: 'item.completed', item: {
+      id: 'm1', type: 'mcp_tool_call', server: 'cua_repl', tool: 'js', status: 'failed',
+      error: { message: 'The browser access host is unavailable' }
+    } }), s)
+    expect(events).toEqual([
+      { type: 'tool', id: 'm1', name: 'MCP', title: 'js', detail: 'cua_repl' },
+      { type: 'toolResult', id: 'm1', ok: false, output: 'The browser access host is unavailable' }
+    ])
+  })
+})
+
+describe('acesso ao navegador do Codex', () => {
+  it('avisa quando falta a conexão do host e dispensa o aviso quando ela existe', () => {
+    expect(codexBrowserAccessNote({})).toContain('não foi fornecido')
+    expect(codexBrowserAccessNote({ BROWSER_USE_ACCESS_PIPE_PATH: '/tmp/pipe', BROWSER_USE_ACCESS_VERIFYING_IDENTITY: 'key', BROWSER_USE_ACCESS_EXECUTOR_ID: 'id' })).toBe('')
   })
 })
 

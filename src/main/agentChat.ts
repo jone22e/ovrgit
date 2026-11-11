@@ -1351,6 +1351,12 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
   return args
 }
 
+/** O host do navegador do Codex só aceita chamadas com a conexão e a identidade fornecidas pelo app. */
+export function codexBrowserAccessNote(env: NodeJS.ProcessEnv): string {
+  if (env.BROWSER_USE_ACCESS_PIPE_PATH && env.BROWSER_USE_ACCESS_VERIFYING_IDENTITY && env.BROWSER_USE_ACCESS_EXECUTOR_ID) return ''
+  return '<browser_access>O host de acesso ao navegador do Codex não foi fornecido a este processo. Não tente usar a ferramenta de navegador que depende desse host. Se o usuário pedir navegação, explique essa indisponibilidade; não atribua a falha a uma ação do usuário sem evidência.</browser_access>\n\n'
+}
+
 /**
  * Antigravity (`agy`): o prompt vai colado ao próprio -p (ele não lê stdin em modo texto).
  * Modos: os de plano → --mode plan; Controle Total → --dangerously-skip-permissions.
@@ -1643,6 +1649,8 @@ interface CodexItem {
   query?: string
   server?: string
   tool?: string
+  error?: string | { message?: string }
+  result?: { content?: { type?: string; text?: string }[]; isError?: boolean }
 }
 
 /** Tira o invólucro do shell que o Codex põe em todo comando ("/bin/zsh -lc '…'"). */
@@ -1706,7 +1714,12 @@ export function parseCodexLine(line: string, st: CodexParseState): AgentChatEven
         st.emitted.set(id, 1)
         out.push({ type: 'tool', id, name: 'MCP', title: it.tool ?? 'Ferramenta', detail: it.server })
       }
-      if (completed) out.push({ type: 'toolResult', id, ok: it.status !== 'failed' })
+      if (completed) {
+        const error = typeof it.error === 'string' ? it.error : it.error?.message
+        const failed = it.status === 'failed' || !!it.result?.isError || !!error
+        const result = it.result?.content?.filter((c) => c.type === 'text' && c.text).map((c) => c.text).join('\n')
+        out.push({ type: 'toolResult', id, ok: !failed, output: failed ? (error || result || '').slice(-4000) || undefined : undefined })
+      }
     } else if (it.type === 'error' && it.message) {
       st.error = it.message
     }
@@ -1966,7 +1979,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const intro =
     (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : '') + workspaceBlock + servicesBlock
+      : '') + workspaceBlock + servicesBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env) : '')
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
