@@ -2025,11 +2025,12 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         : agyArgs({ ...run, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)
+  const chromeToken = chromeMcp?.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN
   const child = spawn(shellMode ? `"${bin}"` : bin, args, {
     cwd: w.info.cwd,
     shell: shellMode,
     windowsHide: true,
-    env: { ...process.env, NO_COLOR: '1' }
+    env: { ...process.env, ...(chromeToken ? { PLAYWRIGHT_MCP_EXTENSION_TOKEN: chromeToken } : {}), NO_COLOR: '1' }
   })
   w.child = child
   w.turnDone = false
