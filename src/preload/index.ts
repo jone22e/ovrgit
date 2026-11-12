@@ -99,6 +99,8 @@ const api: OvseerApi = {
   fileReveal: (p) => ipcRenderer.invoke('files:reveal', p),
   copyImage: (dataUrl) => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  chromeExtensionTokenStatus: () => ipcRenderer.invoke('chrome-extension-token:status'),
+  chromeExtensionTokenSet: (token) => ipcRenderer.invoke('chrome-extension-token:set', token),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   onSettingsChanged: (cb) => {
     const h = (_e: unknown, s: Settings) => cb(s)

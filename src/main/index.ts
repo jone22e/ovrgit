@@ -42,6 +42,7 @@ import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from
 import * as g from './git'
 import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, resolveSourcePath, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
+import { chromeExtensionTokenConfigured, setChromeExtensionToken } from './chromeExtension'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
@@ -868,6 +869,8 @@ function registerIpc() {
     return installCli(id)
   })
   ipcMain.handle('settings:get', () => getSettings())
+  ipcMain.handle('chrome-extension-token:status', () => chromeExtensionTokenConfigured())
+  ipcMain.handle('chrome-extension-token:set', (_e, token: string) => setChromeExtensionToken(String(token ?? '')))
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)
     // as outras janelas (chats de agente) acompanham tema e fonte sem precisar reabrir

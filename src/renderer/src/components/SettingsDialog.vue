@@ -112,6 +112,23 @@ const commitCodex = ref<'codex'>('codex')
 const commitAgy = ref<'agy'>('agy')
 const knownModels = ref<KnownModels | null>(null)
 const agentInstructions = ref(s.agentInstructions ?? '')
+const chromeToken = ref('')
+const chromeTokenSaved = ref(false)
+const chromeTokenBusy = ref(false)
+const chromeTokenError = ref('')
+
+async function setChromeToken(token: string) {
+  chromeTokenBusy.value = true
+  chromeTokenError.value = ''
+  try {
+    chromeTokenSaved.value = await api.chromeExtensionTokenSet(token)
+    chromeToken.value = ''
+  } catch (e) {
+    chromeTokenError.value = String((e as Error).message ?? e)
+  } finally {
+    chromeTokenBusy.value = false
+  }
+}
 const url = ref(s.ollamaUrl)
 const model = ref(s.model)
 const models = ref<string[]>([])
@@ -139,6 +156,7 @@ async function loadModels() {
 
 onMounted(async () => {
   ;[detected.value, knownModels.value] = await Promise.all([api.detectProviders(), api.knownModels().catch(() => null)])
+  chromeTokenSaved.value = await api.chromeExtensionTokenStatus().catch(() => false)
   if (detected.value.ollama) loadModels()
   window.addEventListener('keydown', onKey)
 })
@@ -432,6 +450,19 @@ async function save() {
                   <option value="ring">Anel</option>
                   <option value="mascot">Mascote</option>
                 </select>
+              </div>
+            </div>
+            <div class="block">
+              <div class="field">
+                <label for="chrome-extension-token">Token da extensão Playwright para o Codex</label>
+                <div class="row">
+                  <input id="chrome-extension-token" v-model="chromeToken" type="password" class="mono" autocomplete="new-password" spellcheck="false" placeholder="Cole o token da extensão" />
+                  <button type="button" :disabled="chromeTokenBusy || !chromeToken.trim()" @click="setChromeToken(chromeToken)">Salvar</button>
+                  <button v-if="chromeTokenSaved" type="button" :disabled="chromeTokenBusy" @click="setChromeToken('')">Remover</button>
+                </div>
+                <p v-if="chromeTokenError" class="bad">{{ chromeTokenError }}</p>
+                <p v-else-if="chromeTokenSaved" class="ok">Token salvo neste Mac. Novas conexões ao Chrome não precisam do botão “Allow & select”.</p>
+                <p v-else class="faint">Copie o valor mostrado pela extensão após PLAYWRIGHT_MCP_EXTENSION_TOKEN=. Sem ele, o Chrome pede autorização a cada conexão.</p>
               </div>
             </div>
             <div class="block">

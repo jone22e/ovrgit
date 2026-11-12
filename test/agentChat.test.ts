@@ -57,11 +57,13 @@ describe('argumentos dos CLIs', () => {
     const args = codexArgs({ model: '', mode: 'full', resume: null, chromeMcp: {
       command: '/Applications/Ovseer.app/Contents/MacOS/Ovseer',
       args: ['/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js', '--extension', '--ignore-roots'],
-      env: { ELECTRON_RUN_AS_NODE: '1' }
+      env: { ELECTRON_RUN_AS_NODE: '1', PLAYWRIGHT_MCP_EXTENSION_TOKEN: 'test-token' }
     } })
     expect(args).toContain('mcp_servers.ovseer_chrome.command="/Applications/Ovseer.app/Contents/MacOS/Ovseer"')
     expect(args).toContain('mcp_servers.ovseer_chrome.args=["/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js","--extension","--ignore-roots"]')
     expect(args).toContain('mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
+    expect(args).toContain('mcp_servers.ovseer_chrome.env_vars=["PLAYWRIGHT_MCP_EXTENSION_TOKEN"]')
+    expect(args.join(' ')).not.toContain('test-token')
   })
 })
 

@@ -1353,6 +1353,7 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
     args.push('-c', `mcp_servers.ovseer_chrome.command=${JSON.stringify(o.chromeMcp.command)}`)
     args.push('-c', `mcp_servers.ovseer_chrome.args=${JSON.stringify(o.chromeMcp.args)}`)
     args.push('-c', 'mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
+    if (o.chromeMcp.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN) args.push('-c', 'mcp_servers.ovseer_chrome.env_vars=["PLAYWRIGHT_MCP_EXTENSION_TOKEN"]')
   }
   // sempre sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs), e nos modos Plano o que impede
   // alterações é a instrução de só planejar
