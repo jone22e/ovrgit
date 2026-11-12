@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto'
 import { askOllama, runOllamaTurn } from './ollamaAgent'
 import { listModels } from './ai'
 import { computerUseBinary } from './computerUse'
+import { chromeExtensionMcp } from './chromeExtension'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -1335,7 +1336,7 @@ export function normalizeMode(m: unknown): AgentMode {
   return m === 'plan' || m === 'checklist' || m === 'architect' ? m : 'full'
 }
 
-export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; computerUseBin?: string | null }): string[] {
+export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; computerUseBin?: string | null; chromeMcp?: ReturnType<typeof chromeExtensionMcp> }): string[] {
   const args = ['exec']
   if (o.resume) args.push('resume')
   args.push('--json', '--skip-git-repo-check')
@@ -1348,6 +1349,11 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
     args.push('-c', `mcp_servers.ovseer_computer_use.command=${JSON.stringify(o.computerUseBin)}`)
     args.push('-c', 'mcp_servers.ovseer_computer_use.args=[]')
   }
+  if (o.chromeMcp) {
+    args.push('-c', `mcp_servers.ovseer_chrome.command=${JSON.stringify(o.chromeMcp.command)}`)
+    args.push('-c', `mcp_servers.ovseer_chrome.args=${JSON.stringify(o.chromeMcp.args)}`)
+    args.push('-c', 'mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
+  }
   // sempre sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs), e nos modos Plano o que impede
   // alterações é a instrução de só planejar
   args.push('--dangerously-bypass-approvals-and-sandbox')
@@ -1357,9 +1363,12 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
 }
 
 /** O host do navegador do Codex só aceita chamadas com a conexão e a identidade fornecidas pelo app. */
-export function codexBrowserAccessNote(env: NodeJS.ProcessEnv, computerUseAvailable = false): string {
-  if (computerUseAvailable) {
-    return '<computer_access>O Ovseer disponibiliza a ferramenta MCP ovseer_computer_use para ler a tela e controlar aplicativos, mouse e teclado neste Mac, após as permissões do macOS. Leia o estado do aplicativo antes de usar um índice de elemento. Para usar um navegador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>\n\n'
+export function codexBrowserAccessNote(env: NodeJS.ProcessEnv, computerUseAvailable = false, chromeExtensionAvailable = false): string {
+  if (computerUseAvailable || chromeExtensionAvailable) {
+    return '<computer_access>' +
+      (computerUseAvailable ? 'O Ovseer disponibiliza a ferramenta MCP ovseer_computer_use para ler a tela e controlar aplicativos, mouse e teclado neste Mac, após as permissões do macOS. Leia o estado do aplicativo antes de usar um índice de elemento.' : '') +
+      (chromeExtensionAvailable ? ' Para controlar abas e páginas do Chrome, use ovseer_chrome, que requer a extensão Playwright MCP instalada no Chrome.' : '') +
+      ' Para usar um navegador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>\n\n'
   }
   if (env.BROWSER_USE_ACCESS_PIPE_PATH && env.BROWSER_USE_ACCESS_VERIFYING_IDENTITY && env.BROWSER_USE_ACCESS_EXECUTOR_ID) return ''
   return '<browser_access>O host de acesso ao navegador do Codex não foi fornecido a este processo. Não tente usar a ferramenta de navegador que depende desse host. Se o usuário pedir navegação, explique essa indisponibilidade; não atribua a falha a uma ação do usuário sem evidência.</browser_access>\n\n'
@@ -1965,6 +1974,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.effort = clean.effort
   w.info.mode = clean.mode
   const computerUseBin = provider === 'codex' ? computerUseBinary() : null
+  const chromeMcp = provider === 'codex' ? chromeExtensionMcp() : null
   lastAgent = { provider: w.info.provider, model: w.info.model, effort: w.info.effort, mode: w.info.mode, cwd: w.info.cwd }
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
@@ -1988,7 +1998,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const intro =
     (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : '') + workspaceBlock + servicesBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin) : '')
+      : '') + workspaceBlock + servicesBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin, !!chromeMcp) : '')
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
@@ -2011,7 +2021,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     provider === 'claude'
       ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
       : provider === 'codex'
-        ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), computerUseBin })
+        ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), computerUseBin, chromeMcp })
         : agyArgs({ ...run, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)

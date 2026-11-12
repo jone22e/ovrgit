@@ -52,6 +52,17 @@ describe('argumentos dos CLIs', () => {
     expect(args).toContain('mcp_servers.ovseer_computer_use.command="/Applications/Ovseer.app/Contents/Resources/native/ovseer-computer"')
     expect(args).toContain('mcp_servers.ovseer_computer_use.args=[]')
   })
+
+  it('codex: registra o Chrome pela extensão no MCP', () => {
+    const args = codexArgs({ model: '', mode: 'full', resume: null, chromeMcp: {
+      command: '/Applications/Ovseer.app/Contents/MacOS/Ovseer',
+      args: ['/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js', '--extension', '--ignore-roots'],
+      env: { ELECTRON_RUN_AS_NODE: '1' }
+    } })
+    expect(args).toContain('mcp_servers.ovseer_chrome.command="/Applications/Ovseer.app/Contents/MacOS/Ovseer"')
+    expect(args).toContain('mcp_servers.ovseer_chrome.args=["/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js","--extension","--ignore-roots"]')
+    expect(args).toContain('mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
+  })
 })
 
 describe('saída do Claude Code (stream-json)', () => {
@@ -145,6 +156,8 @@ describe('acesso ao navegador do Codex', () => {
     expect(codexBrowserAccessNote({})).toContain('não foi fornecido')
     expect(codexBrowserAccessNote({ BROWSER_USE_ACCESS_PIPE_PATH: '/tmp/pipe', BROWSER_USE_ACCESS_VERIFYING_IDENTITY: 'key', BROWSER_USE_ACCESS_EXECUTOR_ID: 'id' })).toBe('')
     expect(codexBrowserAccessNote({}, true)).toContain('ovseer_computer_use')
+    expect(codexBrowserAccessNote({}, true, true)).toContain('ovseer_chrome')
+    expect(codexBrowserAccessNote({}, false, true)).not.toContain('não foi fornecido')
   })
 })
 
