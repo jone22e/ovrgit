@@ -46,6 +46,12 @@ describe('argumentos dos CLIs', () => {
     expect(codexArgs({ model: '', effort: 'high', mode: 'full', resume: null }).join(' ')).not.toContain('service_tier')
     expect(codexArgs({ model: '', effort: 'high', mode: 'full', fast: true, resume: null })).toContain('service_tier="fast"')
   })
+
+  it('codex: registra o controle do computador quando o ajudante existe', () => {
+    const args = codexArgs({ model: '', mode: 'full', resume: null, computerUseBin: '/Applications/Ovseer.app/Contents/Resources/native/ovseer-computer' })
+    expect(args).toContain('mcp_servers.ovseer_computer_use.command="/Applications/Ovseer.app/Contents/Resources/native/ovseer-computer"')
+    expect(args).toContain('mcp_servers.ovseer_computer_use.args=[]')
+  })
 })
 
 describe('saída do Claude Code (stream-json)', () => {
@@ -138,6 +144,7 @@ describe('acesso ao navegador do Codex', () => {
   it('avisa quando falta a conexão do host e dispensa o aviso quando ela existe', () => {
     expect(codexBrowserAccessNote({})).toContain('não foi fornecido')
     expect(codexBrowserAccessNote({ BROWSER_USE_ACCESS_PIPE_PATH: '/tmp/pipe', BROWSER_USE_ACCESS_VERIFYING_IDENTITY: 'key', BROWSER_USE_ACCESS_EXECUTOR_ID: 'id' })).toBe('')
+    expect(codexBrowserAccessNote({}, true)).toContain('ovseer_computer_use')
   })
 })
 

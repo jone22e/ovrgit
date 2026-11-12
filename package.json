@@ -104,7 +104,8 @@
         }
       ],
       "binaries": [
-        "Contents/Resources/native/ovseer-transcribe"
+        "Contents/Resources/native/ovseer-transcribe",
+        "Contents/Resources/native/ovseer-computer"
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "O Ovseer usa o microfone para gravar a explicação em áudio das tarefas e para ditar mensagens aos agentes.",
