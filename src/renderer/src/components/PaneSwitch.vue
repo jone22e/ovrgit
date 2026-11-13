@@ -5,8 +5,7 @@ import { api, myDoingCount, setPane, setShowDeploys, setShowTasks, state, toast 
 import Icon from './Icon.vue'
 import UserMenu from './UserMenu.vue'
 
-/** Barra lateral de ícones: o Git abre uma coluna ao lado da área atual; Arquivos, Histórico, Agentes e Mapa
- * escolhem a área principal. Tarefas abre seu próprio painel à esquerda. */
+/** Barra lateral de ícones: Git e Deploys abrem painéis sobre a área atual. */
 const current = () => (state.tab === 'changes' ? state.pane : state.tab)
 /** Agentes esperando resposta ou que falharam: selo no botão */
 const needYou = computed(() => state.agentSnaps.filter((a) => a.status === 'waiting' || a.status === 'error').length)
@@ -35,11 +34,10 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
   if (v === 'changes') {
     if (state.showGit) {
       state.showGit = false
-      if (state.tab === 'changes') state.tab = state.gitReturnTab
     } else {
-      if (state.tab !== 'changes') state.gitReturnTab = state.tab
-      state.tab = state.gitReturnTab
-      setPane('changes')
+      state.gitReturnTab = state.tab
+      state.gitReturnPane = state.pane
+      setShowDeploys(false)
       state.showGit = true
     }
     return
@@ -59,7 +57,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     <button :class="{ on: current() === 'agents' }" title="Agentes: todas as janelas de agente abertas, o que cada uma precisa de você" @click="go('agents')">
       <Icon name="bot" :size="18" /><span class="lbl">Agentes</span><span v-if="needYou" class="need">{{ needYou }}</span>
     </button>
-    <button :class="{ on: state.showGit }" :title="state.showGit ? 'Fechar coluna de alterações' : 'Abrir coluna de alterações'" @click="go('changes')">
+    <button :class="{ on: state.showGit }" :title="state.showGit ? 'Fechar alterações' : 'Abrir alterações'" @click="go('changes')">
       <Icon name="commit" :size="18" /><span class="lbl">Alterações</span><span v-if="state.repo?.files.length" class="cnt">{{ state.repo.files.length }}</span>
     </button>
     <button :class="{ on: current() === 'files' }" title="Todos os arquivos do projeto: abrir no editor" @click="go('files')">

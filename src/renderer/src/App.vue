@@ -78,18 +78,12 @@ const onNarrow = (e: MediaQueryListEvent) => ((narrow.value = e.matches), (state
 onMounted(() => narrowQuery.addEventListener('change', onNarrow))
 onUnmounted(() => narrowQuery.removeEventListener('change', onNarrow))
 const overlayMode = computed(() => narrow.value && state.showDiff)
-const gitOverlayQuery = window.matchMedia('(max-width: 1200px)')
-const gitNarrow = ref(gitOverlayQuery.matches)
-const onGitNarrow = (e: MediaQueryListEvent) => (gitNarrow.value = e.matches)
-onMounted(() => gitOverlayQuery.addEventListener('change', onGitNarrow))
-onUnmounted(() => gitOverlayQuery.removeEventListener('change', onGitNarrow))
-const gitOverlay = computed(() => gitNarrow.value || state.showTasks || state.showDeploys)
 const gitEl = ref<HTMLElement>()
 const GIT_MIN_WIDTH = 540
 const gitWidth = ref(Math.max(GIT_MIN_WIDTH, Number(localStorage.getItem('ovseer.gitWidth')) || 0))
 function resizeGitTo(width: number) {
   const available = gitEl.value?.parentElement?.clientWidth ?? window.innerWidth
-  const max = Math.max(0, available - (gitOverlay.value ? 40 : 320))
+  const max = Math.max(0, available - 40)
   gitWidth.value = Math.max(Math.min(GIT_MIN_WIDTH, max), Math.min(Math.round(width), max))
 }
 function saveGitWidth() {
@@ -114,23 +108,22 @@ function startGitResize(e: MouseEvent) {
 const gitDiffOpened = ref(false)
 function closeGit() {
   state.showGit = false
-  if (state.tab === 'changes' && gitDiffOpened.value) {
-    state.tab = state.gitReturnTab
-    gitDiffOpened.value = false
-  }
+  if (gitDiffOpened.value) restoreAfterGitDiff()
+}
+function restoreAfterGitDiff() {
+  gitDiffOpened.value = false
+  state.tab = state.gitReturnTab
+  if (state.tab === 'changes' && state.pane !== state.gitReturnPane) setPane(state.gitReturnPane)
 }
 function openGitDiff() {
-  gitDiffOpened.value = true
   state.tab = 'changes'
   setPane('changes')
   setShowDiff(true)
-  if (gitOverlay.value) state.showGit = false
+  gitDiffOpened.value = true
+  state.showGit = false
 }
 watch(() => state.showDiff, (open) => {
-  if (!open && gitDiffOpened.value) {
-    gitDiffOpened.value = false
-    state.tab = state.gitReturnTab
-  }
+  if (!open && gitDiffOpened.value) restoreAfterGitDiff()
 })
 watch(() => [state.tab, state.pane], ([tab, pane]) => {
   if (tab !== 'changes' || pane !== 'changes') gitDiffOpened.value = false
@@ -241,8 +234,9 @@ onUnmounted(() => {
       <PaneSwitch />
       <div class="main">
       <MergeBanner v-show="!termMaximized" />
-      <div v-show="!termMaximized" class="body" :class="{ 'git-overlay': gitOverlay }">
-      <div v-if="state.showGit && gitOverlay" class="git-backdrop" @mousedown="closeGit" />
+      <div v-show="!termMaximized" class="body">
+      <div v-if="state.showGit" class="panel-backdrop" @mousedown="closeGit" />
+      <div v-if="state.showDeploys" class="panel-backdrop" @mousedown="state.showDeploys = false" />
       <aside v-if="state.showGit" ref="gitEl" class="git-wrap" :style="{ width: `${gitWidth}px` }">
         <FileList @pick="openGitDiff" />
         <CommitBar @feature="showFeature = true" @pull="doPull()" @publish="showPublish = true" />
@@ -328,14 +322,13 @@ onUnmounted(() => {
 .shell { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
-.deploy-wrap { width: min(400px, 44vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
-.git-wrap { position: relative; max-width: calc(100% - 320px); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+.deploy-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; width: min(430px, calc(100% - 40px)); min-height: 0; border-right: 1px solid var(--border); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out; }
+.git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; max-width: calc(100% - 40px); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out; }
 .git-wrap > :deep(.list) { flex: 1; height: auto; min-height: 0; }
 .git-resizer { position: absolute; top: 0; bottom: 0; right: -4px; z-index: 2; width: 8px; cursor: col-resize; }
 .git-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; right: 3px; width: 1px; background: var(--border); }
 .git-resizer:hover::after, .git-resizer:focus-visible::after { right: 2px; width: 3px; background: var(--accent); }
-.git-backdrop { position: absolute; inset: 0; z-index: 18; background: rgba(0, 0, 0, 0.25); }
-.body.git-overlay .git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; max-width: calc(100% - 40px); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); }
+.panel-backdrop { position: absolute; inset: 0; z-index: 18; background: rgba(0, 0, 0, 0.25); }
 .workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .split { flex: 1; display: flex; min-height: 0; }
 .term-wrap { flex: none; min-height: 0; }
