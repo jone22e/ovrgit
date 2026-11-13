@@ -26,7 +26,6 @@ import * as sshImport from './sshImport'
 import * as agentWatch from './agentWatch'
 import * as agentChat from './agentChat'
 import * as agentHistory from './agentHistory'
-import * as codeMap from './codeMap'
 import * as taskQueue from './queue'
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 import { getUsage } from './usage'
@@ -801,17 +800,6 @@ function registerIpc() {
   ipcMain.handle('queue:stage', (_e, id: string, stage: string) => taskQueue.setStage(String(id), stage === 'reasoning' ? 'reasoning' : 'ready'))
   ipcMain.handle('queue:analyze', (_e, id: string) => taskQueue.reanalyze(String(id)))
   ipcMain.handle('queue:clearFinished', () => taskQueue.clearFinished())
-  // mapa do projeto (aba Mapa)
-  ipcMain.handle('map:get', (_e, root: string) => codeMap.loadMap(String(root)))
-  ipcMain.handle('map:scan', (_e, root: string) => codeMap.scanProject(String(root)))
-  ipcMain.handle('map:running', (_e, root: string) => codeMap.mappingState(String(root)))
-  ipcMain.handle('map:cancel', (_e, root: string) => codeMap.cancelMap(String(root)))
-  ipcMain.handle('map:ai', (_e, root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
-    codeMap.mapWithAi(String(root), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))
-  )
-  ipcMain.handle('map:area', (_e, root: string, areaId: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }) =>
-    codeMap.mapArea(String(root), String(areaId ?? ''), { provider: provider(o?.provider), model: String(o?.model ?? '').slice(0, 80), effort: o?.effort }, (ev) => toMain('map:event', String(root), ev))
-  )
   // só a janela principal diz onde fica a área da conversa
   ipcMain.handle('orchestrator:snapshot', () => agentChat.dockSnapshot())
   ipcMain.on('orchestrator:area', (e, area: WindowBounds | null) => {

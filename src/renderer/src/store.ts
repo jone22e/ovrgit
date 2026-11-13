@@ -38,10 +38,10 @@ export const state = reactive({
   diffLoading: false,
   history: [] as CommitInfo[],
   /** Aba da área principal escolhida na última sessão */
-  tab: (savedTab === 'history' || savedTab === 'agents' || savedTab === 'map' ? savedTab : 'agents') as 'changes' | 'history' | 'agents' | 'map',
+  tab: (savedTab === 'history' || savedTab === 'agents' ? savedTab : 'agents') as 'changes' | 'history' | 'agents',
   /** Alterações do Git em um painel sobre a área principal */
   showGit: savedGit === '1' || (savedGit === null && savedTab === 'changes'),
-  gitReturnTab: (savedTab === 'history' || savedTab === 'map' ? savedTab : 'agents') as 'changes' | 'agents' | 'history' | 'map',
+  gitReturnTab: (savedTab === 'history' ? savedTab : 'agents') as 'changes' | 'agents' | 'history',
   gitReturnPane: (readPref('ovseer.pane') === 'files' ? 'files' : 'changes') as Pane,
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
   agentPick: null as { n: number; at: number } | null,

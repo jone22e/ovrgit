@@ -30,7 +30,7 @@ async function checkUpdate() {
     checkingUpdate.value = false
   }
 }
-function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
+function go(v: 'agents' | 'changes' | 'files' | 'history') {
   if (v === 'changes') {
     if (state.showGit) {
       state.showGit = false
@@ -43,7 +43,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     return
   }
   state.showGit = false
-  if (v === 'history' || v === 'agents' || v === 'map') {
+  if (v === 'history' || v === 'agents') {
     state.tab = v
     return
   }
@@ -65,9 +65,6 @@ function go(v: 'agents' | 'changes' | 'files' | 'history' | 'map') {
     </button>
     <button :class="{ on: current() === 'history' }" title="Histórico: versões salvas e alterações guardadas" @click="go('history')">
       <Icon name="history" :size="18" /><span class="lbl">Histórico</span>
-    </button>
-    <button :class="{ on: current() === 'map' }" title="Mapa: os arquivos do projeto e quem usa quem, num gráfico interativo" @click="go('map')">
-      <Icon name="network" :size="18" /><span class="lbl">Mapa</span>
     </button>
     <button :class="{ on: state.showTasks }" :title="state.showTasks ? 'Fechar tarefas' : 'Tarefas do Ovseer'" @click="setShowTasks(!state.showTasks)">
       <Icon name="listTodo" :size="18" /><span class="lbl">Tarefas</span>

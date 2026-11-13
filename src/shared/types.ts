@@ -1,4 +1,3 @@
-import type { ProjectMap } from './codeGraph'
 import type { ChecklistItem } from './checklist'
 import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
@@ -702,14 +701,6 @@ export interface GridCell {
   title: string
 }
 
-/** Andamento do mapeamento com IA */
-export type MapEvent =
-  | { type: 'status'; text: string }
-  /** Lotes analisados pela IA, do total (o percentual do andamento); `found`: funcionalidades achadas até aqui;
-   * `sample`: as últimas achadas; `stage`: analisando os lotes ou consolidando no fim */
-  | { type: 'progress'; done: number; total: number; text: string; stage: 'chunks' | 'reduce'; found: number; sample?: string[] }
-  | { type: 'done'; ok: boolean; error?: string; map?: ProjectMap }
-
 export interface WindowBounds {
   x: number
   y: number
@@ -1408,16 +1399,6 @@ export interface OvseerApi {
   queueAnalyze(id: string): Promise<QueueTask[]>
   queueClearFinished(): Promise<QueueTask[]>
   onQueueChange(cb: (tasks: QueueTask[]) => void): () => void
-  /** Mapa do projeto (aba Mapa): o gravado, a varredura dos imports, o mapeamento com IA e o andamento dele */
-  mapGet(root: string): Promise<ProjectMap | null>
-  mapScan(root: string): Promise<ProjectMap>
-  mapAi(root: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
-  /** Remapeia só uma área: relê os arquivos dela (e vizinhos) atrás de funcionalidades e ligações novas */
-  mapArea(root: string, areaId: string, o: { provider: CliProvider; model: string; effort?: AgentEffort }): Promise<void>
-  mapCancel(root: string): Promise<void>
-  /** Andamento do mapeamento em curso (null: nenhum) */
-  mapRunning(root: string): Promise<MapEvent | null>
-  onMapEvent(cb: (root: string, ev: MapEvent) => void): () => void
   /** Fecha janelas de agente */
   agentClose(uids: string[]): Promise<void>
   /** Mascote do topo da tela */
