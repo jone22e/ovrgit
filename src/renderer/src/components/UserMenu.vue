@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { api, refreshOvseer, state } from '../store'
+import { api, refreshOvseer, state, toast } from '../store'
 import Icon from './Icon.vue'
 
 /** Foto do usuário logado no Ovseer (ou a engrenagem, sem conta) com o menu de conta e configurações.
@@ -9,6 +9,7 @@ defineProps<{ side?: boolean }>()
 const me = computed(() => (state.ovseer?.connected ? state.ovseer.user ?? null : null))
 const avatarBroken = ref(false)
 const open = ref(false)
+const checkingUpdate = ref(false)
 const root = ref<HTMLElement>()
 const ovseerHome = computed(() => (state.ovseer?.url ?? state.settings?.ovseerUrl ?? '').replace(/\/+$/, ''))
 async function disconnectOvseer() {
@@ -32,6 +33,25 @@ function settings() {
   open.value = false
   state.showSettings = true
 }
+async function checkUpdate() {
+  if (checkingUpdate.value) return
+  open.value = false
+  checkingUpdate.value = true
+  try {
+    const update = await api.updateCheck()
+    state.update = update
+    if (update.status === 'unsupported') toast('Atualizações disponíveis apenas no app instalado.')
+    else if (update.status === 'error') toast(update.error ?? 'Não foi possível verificar atualizações.')
+    else if (update.status === 'available') toast(`Ovseer ${update.version} disponível. Abra Configurações para baixar.`)
+    else if (update.status === 'downloading') toast(`Baixando Ovseer ${update.version ?? ''}…`)
+    else if (update.status === 'ready') toast(`Ovseer ${update.version} pronto para instalar.`)
+    else if (update.status === 'idle') toast('Você está na versão mais recente.')
+  } catch {
+    toast('Não foi possível verificar atualizações.')
+  } finally {
+    checkingUpdate.value = false
+  }
+}
 </script>
 
 <template>
@@ -53,6 +73,9 @@ function settings() {
       <button class="ghost item" title="Lista de temas, com prévia ao vivo (também: Shift Shift e digitar 'tema')" @click="(open = false), (state.quickOpen = 'tema ')"><Icon name="sliders" :size="14" /> Tema…</button>
       <button class="ghost item" @click="(open = false), (state.showServices = true)">
         <Icon name="server" :size="14" /> Serviços
+      </button>
+      <button class="ghost item" :disabled="checkingUpdate || state.update?.status === 'checking' || state.update?.status === 'downloading'" @click="checkUpdate">
+        <Icon name="refresh" :size="14" /> Verificar atualizações
       </button>
       <button v-if="state.ovseer?.connected" class="ghost item" @click="(open = false), api.openExternal(ovseerHome)">
         <Icon name="external" :size="14" /> Abrir Ovseer
