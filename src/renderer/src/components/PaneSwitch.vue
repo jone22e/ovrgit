@@ -19,6 +19,7 @@ function go(v: 'agents' | 'changes' | 'files' | 'history') {
       state.gitReturnTab = state.tab
       state.gitReturnPane = state.pane
       setShowDeploys(false)
+      setShowTasks(false)
       state.showGit = true
     }
     return

@@ -36,7 +36,7 @@ import ServicesDialog from './components/ServicesDialog.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
-  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, refreshDeployOverview, setPane, setShowDiff, setShowTerminal, state
+  analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, refreshDeployOverview, setPane, setShowDiff, setShowTasks, setShowTerminal, state
 } from './store'
 
 const showFeature = ref(false)
@@ -235,6 +235,7 @@ onUnmounted(() => {
       <MergeBanner v-show="!termMaximized" />
       <div v-show="!termMaximized" class="body">
       <div v-if="state.showGit" class="panel-backdrop" @mousedown="closeGit" />
+      <div v-if="state.showTasks" class="panel-backdrop" @mousedown="setShowTasks(false)" />
       <div v-if="state.showDeploys" class="panel-backdrop" @mousedown="state.showDeploys = false" />
       <aside v-if="state.showGit" ref="gitEl" class="git-wrap" :style="{ width: `${gitWidth}px` }">
         <FileList @pick="openGitDiff" />
@@ -319,7 +320,7 @@ onUnmounted(() => {
 /* barra lateral à esquerda e, ao lado, a coluna com todo o resto (faixas, área de trabalho, commit, terminal) */
 .shell { flex: 1; display: flex; min-height: 0; }
 .main { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.tasks-wrap { width: min(360px, 42vw); flex: none; border-right: 1px solid var(--border); min-height: 0; }
+.tasks-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; width: min(360px, calc(100% - 40px)); min-height: 0; border-right: 1px solid var(--border); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out; }
 .deploy-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; width: min(430px, calc(100% - 40px)); min-height: 0; border-right: 1px solid var(--border); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out; }
 .git-wrap { position: absolute; top: 0; bottom: 0; left: 0; z-index: 19; max-width: calc(100% - 40px); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); animation: slide 0.14s ease-out; }
 .git-wrap > :deep(.list) { flex: 1; height: auto; min-height: 0; }

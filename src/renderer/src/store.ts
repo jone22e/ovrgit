@@ -40,7 +40,7 @@ export const state = reactive({
   /** Aba da área principal escolhida na última sessão */
   tab: (savedTab === 'history' || savedTab === 'agents' ? savedTab : 'agents') as 'changes' | 'history' | 'agents',
   /** Alterações do Git em um painel sobre a área principal */
-  showGit: savedGit === '1' || (savedGit === null && savedTab === 'changes'),
+  showGit: (savedGit === '1' || (savedGit === null && savedTab === 'changes')) && readPref('ovseer.tasks') !== '1',
   gitReturnTab: (savedTab === 'history' ? savedTab : 'agents') as 'changes' | 'agents' | 'history',
   gitReturnPane: (readPref('ovseer.pane') === 'files' ? 'files' : 'changes') as Pane,
   /** ⌘N pelo menu: mostrar a conversa do cartão N da aba Agentes (o carimbo faz o mesmo número valer de novo) */
@@ -218,7 +218,10 @@ export function setShowQueue(v: boolean) {
 
 export function setShowTasks(v: boolean) {
   state.showTasks = v
-  if (v) state.showDeploys = false
+  if (v) {
+    state.showDeploys = false
+    state.showGit = false
+  }
   writePref('ovseer.tasks', v ? '1' : '0')
   if (v) loadTasks()
 }
