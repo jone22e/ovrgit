@@ -59,7 +59,7 @@ function capture() {
   busy = true
   thumbnail?.destroy()
   const file = tempFile()
-  chooser = spawn('/usr/sbin/screencapture', ['-i', '-s', '-x', file], { stdio: 'ignore' })
+  chooser = spawn('/usr/sbin/screencapture', ['-i', '-s', file], { stdio: 'ignore' })
   chooser.once('error', (error) => {
     console.error('Não foi possível iniciar a captura:', error)
     busy = false
