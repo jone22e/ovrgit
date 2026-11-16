@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeImage, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -94,7 +94,22 @@ export function startScreenCapture() {
   })
   watcher.stderr?.on('data', (chunk: Buffer) => console.warn('Atalho de captura:', chunk.toString().trim()))
   watcher.on('error', (error) => console.error('Atalho de captura falhou:', error))
-  watcher.on('exit', () => { watcher = null })
+  watcher.on('exit', (code) => {
+    watcher = null
+    if (code !== 2) return
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Atalho de captura indisponível',
+      message: 'O macOS ainda não permite detectar os três toques em Shift.',
+      detail: `Em Ajustes do Sistema > Privacidade e Segurança > Monitoração de Entrada, adicione e permita ${app.isPackaged ? 'o Ovseer' : binary}. Depois reinicie o Ovseer.`,
+      buttons: ['Abrir ajustes', 'Agora não'],
+      defaultId: 0,
+      cancelId: 1
+    }).then(({ response }) => response === 0
+      ? shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent')
+      : undefined
+    ).catch((error) => console.error('Não foi possível mostrar a orientação do atalho:', error))
+  })
 }
 
 export function stopScreenCapture() {
