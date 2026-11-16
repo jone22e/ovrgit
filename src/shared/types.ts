@@ -1281,6 +1281,10 @@ export interface OvseerApi {
   agentKeepFile(uid: string, path: string): Promise<AgentAttachment>
   /** Imagem anexada como data URL, para a miniatura e a visão ampliada (null se não dá para mostrar) */
   agentImage(path: string): Promise<string | null>
+  /** Miniatura temporária da captura: imagem, arrasto do arquivo e fechamento. */
+  onCaptureImage(cb: (dataUrl: string) => void): () => void
+  captureDrag(): void
+  captureClose(): void
   /** Caminho real de um arquivo arrastado para a janela (vazio se não houver) */
   filePath(file: File): string
   /** Histórico de conversas abertas pelo Ovseer (todas, ou só de um projeto) */

@@ -3,6 +3,51 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+// Modo usado pelo app: observa três toques rápidos em Shift mesmo com outro aplicativo em foco.
+// Não intercepta as teclas; o processo principal inicia a captura quando recebe uma linha.
+if CommandLine.arguments.contains("--watch-shift") {
+    guard CGPreflightListenEventAccess() || CGRequestListenEventAccess() else {
+        FileHandle.standardError.write(Data("Conceda Monitoramento de Entrada ao aplicativo mostrado pelo macOS em Ajustes do Sistema > Privacidade e Segurança e reinicie o Ovseer para usar o atalho.\n".utf8))
+        exit(2)
+    }
+    var touches = 0
+    var lastTouch = Date.distantPast
+    var shiftDown = false
+    guard NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown], handler: { event in
+        if event.type == .keyDown {
+            touches = 0
+            return
+        }
+        guard event.keyCode == 56 || event.keyCode == 60 else {
+            if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty { touches = 0 }
+            return
+        }
+        let pressed = event.modifierFlags.contains(.shift)
+        if !pressed {
+            shiftDown = false
+            return
+        }
+        guard !shiftDown else { return }
+        shiftDown = true
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+            touches = 0
+            return
+        }
+        let now = Date()
+        touches = now.timeIntervalSince(lastTouch) <= 0.5 ? touches + 1 : 1
+        lastTouch = now
+        if touches == 3 {
+            FileHandle.standardOutput.write(Data("capture\n".utf8))
+            touches = 0
+        }
+    }) != nil else {
+        FileHandle.standardError.write(Data("Não foi possível observar o teclado.\n".utf8))
+        exit(1)
+    }
+    RunLoop.main.run()
+    exit(0)
+}
+
 // MCP por stdio. O processo fica vivo durante a execução do Codex e guarda os índices
 // dos elementos de acessibilidade da última leitura de cada aplicativo.
 var elements: [String: AXUIElement] = [:]

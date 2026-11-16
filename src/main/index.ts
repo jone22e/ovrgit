@@ -52,6 +52,7 @@ import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
 import * as voice from './voice'
+import { startScreenCapture, stopScreenCapture } from './screenCapture'
 import type { ServicesFile } from '../shared/servicesShare'
 
 let win: BrowserWindow | null = null
@@ -999,6 +1000,7 @@ app.whenReady().then(() => {
   })
   services.setupServices({ icon, background: initialBackground })
   services.startAutostart()
+  startScreenCapture()
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
   agentApi
     .startAgentApi({
@@ -1041,6 +1043,7 @@ function prepareQuit() {
   updater.stopUpdater()
   aws.stopAws()
   agentChat.shutdownAgents()
+  stopScreenCapture()
   killAllTerminals()
   services.stopAllServices()
   agentApi.stopAgentApi()

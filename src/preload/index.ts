@@ -98,6 +98,13 @@ const api: OvseerApi = {
   fileOpen: (p) => ipcRenderer.invoke('files:open', p),
   fileReveal: (p) => ipcRenderer.invoke('files:reveal', p),
   copyImage: (dataUrl) => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
+  onCaptureImage: (cb) => {
+    const h = (_e: unknown, dataUrl: string) => cb(dataUrl)
+    ipcRenderer.on('capture:image', h)
+    return () => ipcRenderer.off('capture:image', h)
+  },
+  captureDrag: () => ipcRenderer.send('capture:drag'),
+  captureClose: () => ipcRenderer.send('capture:close'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   chromeExtensionTokenStatus: () => ipcRenderer.invoke('chrome-extension-token:status'),
   chromeExtensionTokenSet: (token) => ipcRenderer.invoke('chrome-extension-token:set', token),
