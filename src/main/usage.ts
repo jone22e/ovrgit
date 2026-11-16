@@ -1,25 +1,100 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ProviderUsage, UsageInfo } from '../shared/types'
 import { codexUsage } from './agentWatch'
 import { agyStatus } from './auth'
-import { findBinary, runCli } from './cli'
+import { findBinary, needsShell, runCli } from './cli'
 
 /**
  * Consumo das assinaturas. Nada é enviado além do que os próprios CLIs já usam:
  * - Claude: o mesmo endpoint de uso da conta que o Claude Code consulta, com o login já feito
  *   (token no Keychain do macOS ou em ~/.claude/.credentials.json). O token nunca sai daqui.
  *   O token de acesso dura poucas horas e só o CLI o renova; quando vence, pedimos ao CLI que renove.
- * - Codex: percentuais que o próprio CLI grava nos registros das sessões (ver agentWatch).
+ * - Codex: consulta de limites do app-server do CLI; registros das sessões são a reserva se ela falhar.
  * - Antigravity: `agy -p /usage --output-format json`, que não roda o agente nem gasta cota; a conta
  *   conectada vem do token local (ver auth).
  */
 
 const CACHE_MS = 5 * 60_000
 let claudeCache: { at: number; value: ProviderUsage | null } | null = null
+let codexCache: { at: number; value: ProviderUsage | null } | null = null
 let agyCache: { at: number; value: ProviderUsage | null } | null = null
+
+interface CodexRateWindow {
+  usedPercent?: number
+  windowDurationMins?: number | null
+  resetsAt?: number | null
+}
+
+interface CodexRateSnapshot {
+  primary?: CodexRateWindow | null
+  secondary?: CodexRateWindow | null
+  planType?: string | null
+}
+
+/** Resposta de account/rateLimits/read: o limite `codex` é o mesmo exibido no plano do ChatGPT. */
+export function parseCodexRateLimits(result: unknown, at: number): ProviderUsage | null {
+  if (!result || typeof result !== 'object') return null
+  const r = result as { rateLimits?: CodexRateSnapshot; rateLimitsByLimitId?: Record<string, CodexRateSnapshot> | null }
+  const snapshot = r.rateLimitsByLimitId?.codex ?? r.rateLimits
+  if (!snapshot) return null
+  const wins = [snapshot.primary, snapshot.secondary].filter((w): w is CodexRateWindow => !!w && typeof w.usedPercent === 'number')
+  const pick = (test: (minutes: number) => boolean) => {
+    const w = wins.find((x) => test(x.windowDurationMins ?? 0))
+    return w ? { pct: Math.max(0, Math.min(100, w.usedPercent!)), resetsAt: w.resetsAt ? w.resetsAt * 1000 : null } : null
+  }
+  const fiveHour = pick((m) => m > 0 && m <= 600)
+  const week = pick((m) => m >= 7 * 24 * 60 - 60)
+  return fiveHour || week ? { fiveHour, week, plan: snapshot.planType ?? undefined, at } : null
+}
+
+/** Faz só a leitura de limites; não inicia conversa nem consome tokens. */
+async function liveCodexUsage(): Promise<ProviderUsage | null> {
+  const bin = await findBinary('codex')
+  if (!bin) return null
+  return new Promise((resolve, reject) => {
+    const shell = needsShell(bin)
+    const child = spawn(shell ? `"${bin}"` : bin, ['app-server', '--stdio'], { shell, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] })
+    let done = false
+    let buffer = ''
+    const finish = (value: ProviderUsage | null, error?: Error) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      child.kill()
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const timer = setTimeout(() => finish(null, new Error('Consulta do Codex demorou demais.')), 10_000)
+    const send = (message: object) => child.stdin.write(JSON.stringify(message) + '\n')
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      buffer += chunk
+      let end: number
+      while ((end = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, end)
+        buffer = buffer.slice(end + 1)
+        let message: { id?: number; result?: unknown; error?: unknown }
+        try { message = JSON.parse(line) } catch { continue }
+        if (message.id === 1 && message.result) {
+          send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+          send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read', params: { excludeResetCreditDetails: true } })
+        } else if (message.id === 1 && message.error) {
+          finish(null, new Error('Falha ao iniciar consulta de limites do Codex.'))
+        } else if (message.id === 2) {
+          if (message.error) finish(null, new Error('Falha ao consultar limites do Codex.'))
+          else finish(parseCodexRateLimits(message.result, Date.now()))
+        }
+      }
+    })
+    child.on('error', (error) => finish(null, error))
+    child.on('close', () => finish(null, new Error('Codex encerrou antes de responder.')))
+    child.stdin.on('error', () => undefined)
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'ovseer', version: '1' } } })
+  })
+}
 
 interface ClaudeLogin {
   token: string
@@ -159,11 +234,12 @@ async function fetchClaudeUsage(login: ClaudeLogin): Promise<ProviderUsage | 'un
 
 export async function getUsage(force = false): Promise<UsageInfo> {
   const stale = (c: typeof claudeCache) => force || !c || Date.now() - c.at > CACHE_MS
-  const [claude, agy] = await Promise.all([
+  const [claude, codex, agy] = await Promise.all([
     stale(claudeCache) ? claudeUsage().then((value) => (claudeCache = { at: Date.now(), value }).value) : claudeCache!.value,
+    stale(codexCache) ? liveCodexUsage().catch(() => null).then((value) => (codexCache = { at: Date.now(), value }).value) : codexCache!.value,
     stale(agyCache) ? agyUsage().then((value) => (agyCache = { at: Date.now(), value }).value) : agyCache!.value
   ])
-  return { claude, codex: codexUsage(), agy }
+  return { claude, codex: codex ?? codexUsage(), agy }
 }
 
 interface AgyBucket {

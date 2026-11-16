@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { claudePlanLabel, parseAgyUsage } from '../src/main/usage'
+import { claudePlanLabel, parseAgyUsage, parseCodexRateLimits } from '../src/main/usage'
+
+describe('limites atuais do Codex', () => {
+  it('lê o limite semanal da conta retornado pelo app-server', () => {
+    const at = Date.now()
+    const u = parseCodexRateLimits({
+      rateLimits: { primary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: 123 } },
+      rateLimitsByLimitId: { codex: { planType: 'pro', primary: { usedPercent: 78, windowDurationMins: 10080, resetsAt: 1794938584 }, secondary: null } }
+    }, at)
+    expect(u).toEqual({ fiveHour: null, week: { pct: 78, resetsAt: 1794938584000 }, plan: 'pro', at })
+  })
+
+  it('ignora resposta sem janela de uso reconhecida', () => {
+    expect(parseCodexRateLimits({ rateLimits: { primary: null, secondary: null } }, Date.now())).toBeNull()
+  })
+})
 
 describe('claudePlanLabel', () => {
   it('mostra o nome do plano do perfil em vez do tier técnico do token', () => {
