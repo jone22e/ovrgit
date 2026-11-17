@@ -5,6 +5,7 @@ import type { AiProvider, Analysis, ChangeGroup, CommitType, FileChange, Provide
 import { contextHash } from './analysisStore'
 import { findBinary, forgetBinary, needsShell, runCli } from './cli'
 import { heuristicGroups, slugify } from '../shared/parse'
+import { agyModelEffort } from '../shared/models'
 
 const TYPES: CommitType[] = ['feat', 'fix', 'refactor', 'test', 'chore', 'docs', 'style', 'perf']
 
@@ -302,9 +303,10 @@ async function viaAgy(task: Task, settings: Settings, context: string, signal: A
     const schemaFile = path.join(dir, 'schema.json')
     await writeFile(schemaFile, JSON.stringify(task.schema))
     const prompt = userPrompt(task, context, { withSystem: true, withSchema: false })
-    // modo plano: só lê; esforço baixo: é preencher um JSON
-    const args = ['--output-format', 'json', '--mode', 'plan', '--effort', 'low', `--json-schema=${schemaFile}`, `--print=${prompt}`]
+    // modo plano: só lê; esforço baixo quando o modelo não traz um nível próprio
+    const args = ['--output-format', 'json', '--mode', 'plan', `--json-schema=${schemaFile}`, `--print=${prompt}`]
     const model = safeModel(settings.agyModel)
+    if (!agyModelEffort(model)) args.push('--effort', 'low')
     if (model) args.push('--model', model)
     const r = await runCli(bin, args, '', dir, CLI_TIMEOUT, signal)
     let env: { status?: string; response?: string; structured_output?: unknown; error?: string }

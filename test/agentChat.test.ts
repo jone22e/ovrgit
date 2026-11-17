@@ -249,11 +249,13 @@ describe('comando do Codex sem o invólucro do shell', () => {
 })
 
 describe('Antigravity (agy)', () => {
-  it('argumentos: prompt colado ao -p, modo, esforço e retomada', async () => {
+  it('argumentos: modelo com esforço próprio não recebe --effort conflitante', async () => {
     const { agyArgs } = await import('../src/main/agentChat')
-    const a = agyArgs({ model: 'gemini-3.8-flash-high', effort: 'xhigh', mode: 'plan', resume: 'c1', prompt: 'oi' })
-    expect(a).toEqual(['--output-format', 'stream-json', '--print=oi', '--model', 'gemini-3.8-flash-high', '--effort', 'max', '--mode', 'plan', '--conversation', 'c1'])
-    expect(agyArgs({ model: '', effort: 'high', mode: 'full', resume: null, prompt: 'x' })).toContain('--dangerously-skip-permissions')
+    const a = agyArgs({ model: 'gemini-4-hydrogen-medium', effort: 'high', mode: 'plan', resume: 'c1', prompt: 'oi' })
+    expect(a).toEqual(['--output-format', 'stream-json', '--print=oi', '--model', 'gemini-4-hydrogen-medium', '--mode', 'plan', '--conversation', 'c1'])
+    const defaultModel = agyArgs({ model: '', effort: 'xhigh', mode: 'full', resume: null, prompt: 'x' })
+    expect(defaultModel).toContain('--dangerously-skip-permissions')
+    expect(defaultModel).toContain('xhigh')
   })
 
   it('saída stream-json: sessão, ferramenta, texto e fim', async () => {
@@ -278,9 +280,11 @@ describe('Antigravity (agy)', () => {
   })
 
   it('nome legível dos modelos Gemini', async () => {
-    const { modelLabel } = await import('../src/shared/models')
+    const { agyModelEffort, modelLabel } = await import('../src/shared/models')
     expect(modelLabel('agy', 'gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash (High)')
     expect(modelLabel('agy', 'gemini-3.1-pro-low')).toBe('Gemini 3.1 Pro (Low)')
+    expect(agyModelEffort('gemini-4-hydrogen-medium')).toBe('medium')
+    expect(agyModelEffort('gemini-pro-orchestrator-g1-pro')).toBeUndefined()
   })
 })
 

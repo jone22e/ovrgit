@@ -6,6 +6,7 @@ import type { AgentAction, AgentAttachment, AgentChatEvent, BackgroundTask, Agen
 import { findBinary, needsShell, runCli } from './cli'
 import { run as runGit } from './git'
 import { QUESTION_FORMAT } from '../shared/questions'
+import { agyModelEffort } from '../shared/models'
 import { artifactsDir, artifactsRule } from '../shared/artifacts'
 import { ARCH_DISCOVERY, CODEX_DISCOVERY, cleanDesignHtml, DESIGN_RULES, type DesignAction, type DesignWindowState } from '../shared/architect'
 import { designMap, projectMap } from './projectMap'
@@ -631,6 +632,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
     ...opts,
+    effort: opts.provider === 'agy' ? agyModelEffort(opts.model) ?? opts.effort : opts.effort,
     uid,
     project: path.basename(opts.cwd),
     extraDirs: (opts.extraDirs ?? prev?.extraDirs ?? []).filter((d) => d !== opts.cwd && existsSync(d)),
@@ -1382,7 +1384,7 @@ export function codexBrowserAccessNote(env: NodeJS.ProcessEnv, computerUseAvaila
 export function agyArgs(o: AgentSendOptions & { resume: string | null; prompt: string }): string[] {
   const args = ['--output-format', 'stream-json', `--print=${o.prompt}`]
   if (o.model) args.push('--model', o.model)
-  if (o.effort) args.push('--effort', o.effort === 'xhigh' || o.effort === 'ultra' ? 'max' : o.effort === 'minimal' ? 'low' : o.effort)
+  if (o.effort && !agyModelEffort(o.model)) args.push('--effort', o.effort === 'ultra' ? 'max' : o.effort === 'minimal' ? 'low' : o.effort)
   if (isPlanMode(o.mode)) args.push('--mode', 'plan')
   else args.push('--dangerously-skip-permissions')
   if (o.resume) args.push('--conversation', o.resume)
@@ -1964,9 +1966,10 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   // o contexto trazido de outra conversa vai escondido nesta mensagem (a janela o junta): não precisa mais ficar guardado
   w.info.handoff = null
   w.handoffToken = undefined
+  const chosenModel = safeModel(opts.model ?? '')
   const clean: AgentSendOptions & { resume: string | null } = {
-    model: safeModel(opts.model ?? ''),
-    effort: opts.effort,
+    model: chosenModel,
+    effort: provider === 'agy' ? agyModelEffort(chosenModel) ?? opts.effort : opts.effort,
     mode: normalizeMode(opts.mode),
     fast: provider === 'codex' && opts.fast === true,
     resume: w.info.sessionId

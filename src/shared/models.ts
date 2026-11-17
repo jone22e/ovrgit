@@ -72,6 +72,7 @@ export const EFFORTS: Record<CliProvider, { id: AgentEffort; label: string }[]> 
     { id: 'low', label: 'Baixo' },
     { id: 'medium', label: 'Médio' },
     { id: 'high', label: 'Alto' },
+    { id: 'xhigh', label: 'Extra alto' },
     { id: 'max', label: 'Máximo' }
   ],
   claude: [
@@ -104,6 +105,11 @@ export const DEFAULT_EFFORT: Record<CliProvider, AgentEffort> = { claude: 'high'
 /** Modelo inicial de cada provedor (vazio = padrão da conta) */
 export const DEFAULT_MODEL: Record<CliProvider, string> = { claude: 'sonnet', codex: '', agy: '', ollama: 'SparkLLM/Spark-X2.6-4B:latest' }
 
+/** No catálogo do AGY, o nível já faz parte do ID do modelo. */
+export function agyModelEffort(model: string): AgentEffort | undefined {
+  return /-(low|medium|high|xhigh|max)$/.exec(model)?.[1] as AgentEffort | undefined
+}
+
 /** Modos de permissão do agente, do mais cauteloso para o mais livre. */
 export const MODES: { id: AgentMode; label: string; icon: 'clipboard' | 'listChecks' | 'drafting' | 'zap'; hint: string }[] = [
   { id: 'plan', label: 'Plano', icon: 'clipboard', hint: 'Só lê o projeto e propõe um plano. Nada é alterado.' },
@@ -129,7 +135,7 @@ export function modelLabel(provider: CliProvider, id: string, catalog?: ModelInf
   }
   if (provider === 'agy') {
     // "gemini-3.8-flash-high" → "Gemini 3.8 Flash (High)"
-    const g = /^gemini-([\d.]+)-([a-z]+)(?:-(low|medium|high|max))?$/.exec(id)
+    const g = /^gemini-([\d.]+)-([a-z]+)(?:-(low|medium|high|xhigh|max))?$/.exec(id)
     if (g) return `Gemini ${g[1]} ${g[2][0].toUpperCase()}${g[2].slice(1)}${g[3] ? ` (${g[3][0].toUpperCase()}${g[3].slice(1)})` : ''}`
     return id
   }

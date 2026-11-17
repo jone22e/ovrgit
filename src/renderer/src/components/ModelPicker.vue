@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, effortsFor, modelLabel } from '@shared/models'
+import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, agyModelEffort, effortsFor, modelLabel } from '@shared/models'
 import type { AgentEffort, CliProvider, KnownModels, ModelInfo, ProviderStatus } from '@shared/types'
 import { readCodexFast, writeCodexFast } from '../agentPrefs'
 import AgentLogo from './AgentLogo.vue'
@@ -34,7 +34,7 @@ const root = ref<HTMLElement>()
 /** Modo rápido do Codex: uma preferência só, de todas as conversas (outra janela pode ter mudado: relê ao abrir) */
 const fast = ref(readCodexFast())
 const showFast = computed(() => provider.value === 'codex' && !props.noEffort && !props.noFast)
-const showEffort = computed(() => !props.noEffort && (provider.value !== 'ollama' || /^SparkLLM\/Spark-X2\.6-4B(?::|$)/i.test(model.value)))
+const showEffort = computed(() => !props.noEffort && (provider.value !== 'ollama' || /^SparkLLM\/Spark-X2\.6-4B(?::|$)/i.test(model.value)) && (provider.value !== 'agy' || !agyModelEffort(model.value)))
 function toggleFast() {
   fast.value = !fast.value
   writeCodexFast(fast.value)
@@ -79,6 +79,10 @@ const catalog = computed<ModelInfo[]>(() =>
       : [...CLAUDE_ALIASES.map((m) => ({ id: m.id, label: m.label.split(':')[0], description: m.label.split(': ')[1] })), ...CLAUDE_EXACT]
 )
 const selected = computed(() => catalog.value.find((m) => m.id === model.value))
+watch([provider, model], () => {
+  const level = provider.value === 'agy' ? agyModelEffort(model.value) : undefined
+  if (level) effort.value = level
+}, { immediate: true })
 
 // níveis de esforço: os que o modelo escolhido aceita (catálogo), senão os padrões do provedor
 const efforts = computed(() => effortsFor(provider.value, selected.value))

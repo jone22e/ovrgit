@@ -7,7 +7,7 @@ import type { AgentEffort, CliProvider } from '../shared/types'
 import { findBinary, needsShell } from './cli'
 import { knownModels } from './agentWatch'
 import { askOllama, runOllamaTurn } from './ollamaAgent'
-import { DEFAULT_MODEL } from '../shared/models'
+import { DEFAULT_MODEL, agyModelEffort } from '../shared/models'
 
 /**
  * Pergunta rápida a uma IA, sem sessão. Por padrão usa o modelo mais leve e nenhuma ferramenta; o agente raiz
@@ -50,8 +50,9 @@ export async function quickAsk(provider: CliProvider, prompt: string, timeoutMs 
       if (chosen) args.push('-m', chosen)
       args.push('-')
     } else {
-      const agyEffort = effort === 'xhigh' || effort === 'ultra' ? 'max' : effort === 'minimal' ? 'low' : effort ?? 'low'
-      args = ['--output-format', 'json', '--effort', agyEffort, '--mode', 'plan', `--print=${prompt}`]
+      const agyEffort = effort === 'ultra' ? 'max' : effort === 'minimal' ? 'low' : effort ?? 'low'
+      args = ['--output-format', 'json', '--mode', 'plan', `--print=${prompt}`]
+      if (!agyModelEffort(model ?? '')) args.push('--effort', agyEffort)
       if (model) args.push('--model', model)
       if (project) for (const entry of extraDirs) args.push('--add-dir', entry)
     }
