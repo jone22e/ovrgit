@@ -279,6 +279,15 @@ describe('Antigravity (agy)', () => {
     expect(st.done).toBe(true)
   })
 
+  it('resultado estruturado de ferramenta não derruba o parser', async () => {
+    const { parseAgyLine } = await import('../src/main/agentChat')
+    const st = { cwd: '/p', done: false, tools: new Set<number>() }
+    expect(parseAgyLine(j({ event: 'step_update', step_update: { step_index: 1, state: 'DONE', step_type: 'tool', tool_name: 'grep_search', tool_info: { output: { matches: ['a.ts:1'] } } } }), st)).toEqual([
+      { type: 'tool', id: 'agy-1', name: 'grep_search', title: 'Buscou', detail: '' },
+      { type: 'toolResult', id: 'agy-1', ok: true, output: '{"matches":["a.ts:1"]}' }
+    ])
+  })
+
   it('nome legível dos modelos Gemini', async () => {
     const { agyModelEffort, modelLabel } = await import('../src/shared/models')
     expect(modelLabel('agy', 'gemini-3.8-flash-high')).toBe('Gemini 3.8 Flash (High)')

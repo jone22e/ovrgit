@@ -1769,7 +1769,7 @@ interface AgyStep {
   step_type?: string
   text_delta?: string
   tool_name?: string
-  tool_info?: { name?: string; parameters?: Record<string, unknown>; output?: string; error?: string }
+  tool_info?: { name?: string; parameters?: Record<string, unknown>; output?: unknown; error?: unknown }
   duration_seconds?: number
 }
 
@@ -1826,7 +1826,9 @@ export function parseAgyLine(line: string, st: AgyParseState): AgentChatEvent[] 
         out.push({ type: 'tool', id, name, ...describeAgyTool(name, s.tool_info?.parameters ?? {}, st.cwd) })
       }
       if (s.state === 'DONE' || s.state === 'ERROR') {
-        out.push({ type: 'toolResult', id, ok: s.state !== 'ERROR' && !s.tool_info?.error, output: (s.tool_info?.output ?? s.tool_info?.error ?? '').replace(/\r\n/g, '\n').slice(-4000) })
+        const raw = s.tool_info?.output ?? s.tool_info?.error ?? ''
+        const output = typeof raw === 'string' ? raw : (JSON.stringify(raw) ?? '')
+        out.push({ type: 'toolResult', id, ok: s.state !== 'ERROR' && !s.tool_info?.error, output: output.replace(/\r\n/g, '\n').slice(-4000) })
       }
     } else if (/thinking|reasoning|planning/i.test(s.step_type ?? '')) {
       out.push({ type: 'thinking' })
