@@ -16,6 +16,22 @@ export type SimulatorInput =
   | { type: 'home' }
   | { type: 'back' }
 
+export type SimulatorAction =
+  | { type: 'tap'; x: number; y: number }
+  | { type: 'swipe'; x: number; y: number; toX: number; toY: number; durationMs?: number }
+  | { type: 'text'; text: string }
+  | Extract<SimulatorInput, { type: 'key' | 'home' | 'back' }>
+
+export function validSimulatorAction(value: unknown): value is SimulatorAction {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  const point = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 1
+  if (v.type === 'tap') return point(v.x) && point(v.y)
+  if (v.type === 'swipe') return point(v.x) && point(v.y) && point(v.toX) && point(v.toY) && (v.durationMs === undefined || typeof v.durationMs === 'number' && Number.isFinite(v.durationMs) && v.durationMs >= 80 && v.durationMs <= 2000)
+  if (v.type === 'text') return typeof v.text === 'string' && v.text.length > 0 && v.text.length <= 1000 && /^[\x20-\x7e\n\t]+$/.test(v.text)
+  return validSimulatorInput(v) && v.type !== 'touch'
+}
+
 export function parseIosDevices(value: unknown): SimulatorDevice[] {
   const data = value as { devices?: Record<string, { udid: string; name: string; state: string; isAvailable?: boolean }[]>; runtimes?: { identifier: string; name: string }[] }
   const runtimes = new Map(data.runtimes?.map((r) => [r.identifier, r.name]) ?? [])
@@ -56,6 +72,23 @@ const macCodes: Record<string, number> = {
   Tab: 48, Space: 49, Backquote: 50, Backspace: 51, Escape: 53, ArrowLeft: 123, ArrowRight: 124, ArrowDown: 125, ArrowUp: 126
 }
 export const macSimulatorKeyCode = (code: string) => macCodes[code]
+
+/** Digitação básica com o mapeamento físico US do teclado do Simulator. */
+export function simulatorTextKeys(text: string): Extract<SimulatorInput, { type: 'key' }>[] {
+  const punctuation: Record<string, [string, boolean]> = {}
+  for (const [code, normal, shifted] of [
+    ['Minus', '-', '_'], ['Equal', '=', '+'], ['BracketLeft', '[', '{'], ['BracketRight', ']', '}'],
+    ['Semicolon', ';', ':'], ['Quote', "'", '"'], ['Backslash', '\\', '|'], ['Comma', ',', '<'],
+    ['Period', '.', '>'], ['Slash', '/', '?'], ['Backquote', '`', '~']
+  ]) { punctuation[normal] = [code, false]; punctuation[shifted] = [code, true] }
+  for (let n = 0; n < 10; n++) { punctuation[String(n)] = [`Digit${n}`, false]; punctuation[')!@#$%^&*('[n]] = [`Digit${n}`, true] }
+  return [...text].map((key) => {
+    const mapped: [string, boolean] | undefined = /^[a-z]$/i.test(key) ? [`Key${key.toUpperCase()}`, key !== key.toLowerCase()]
+      : key === ' ' ? ['Space', false] : key === '\n' ? ['Enter', false] : key === '\t' ? ['Tab', false] : punctuation[key]
+    if (!mapped) throw new Error('A digitação direta aceita ASCII, tabulação e quebra de linha. Para Unicode, use as ferramentas nativas do projeto.')
+    return { type: 'key', key: key === '\n' ? 'Enter' : key === '\t' ? 'Tab' : key, code: macSimulatorKeyCode(mapped[0]), shift: mapped[1] }
+  })
+}
 
 /** Mesmo limite na largura exibida, no arrasto e no teclado, relativo ao contêiner real. */
 export function simulatorPanelWidth(wanted: number, available: number) {

@@ -2,6 +2,7 @@ import http from 'node:http'
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import type { Service, ServiceState } from '../shared/types'
+import { validSimulatorAction, type SimulatorAction, type SimulatorCatalog, type SimulatorDevice } from '../shared/simulator'
 
 /**
  * API local para os agentes mexerem nos serviços do Ovseer sem passar pela tela: listar, ligar (esperando a porta
@@ -19,6 +20,16 @@ export interface AgentApiBackend {
   output(id: string, lines: number): string[]
   /** Cadastra um serviço novo (entra na lista do menu Serviços) */
   create(s: { name: string; command: string; cwd: string; autostart: boolean }): Service | Promise<Service>
+  simulators?: {
+    list(): Promise<SimulatorCatalog & { connected: string[] }>
+    start(id: string): Promise<SimulatorDevice>
+    stop(id: string): Promise<void>
+    screenshot(id: string): Promise<Buffer>
+    action(id: string, action: SimulatorAction): Promise<void>
+    install(id: string, path: string): Promise<{ installed: boolean; appId?: string }>
+    launch(id: string, appId: string): Promise<{ launched: boolean; appId: string }>
+    openUrl(id: string, url: string): Promise<{ opened: boolean }>
+  }
 }
 
 /** Corpo JSON de um pedido (limitado a 64 KB) */
@@ -74,6 +85,47 @@ export function startAgentApi(backend: AgentApiBackend): Promise<AgentApiInfo> {
       const auth = req.headers.authorization ?? ''
       if (auth !== `Bearer ${token}`) return json(res, 401, { error: 'Token inválido. Use o cabeçalho Authorization: Bearer <token> da nota de serviços.' })
       const parts = url.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p))
+      if (parts[0] === 'simulators') {
+        const sim = backend.simulators
+        if (!sim) return json(res, 503, { error: 'Controle de simuladores indisponível nesta instância.' })
+        if (parts.length === 1) {
+          if (req.method !== 'GET') return json(res, 405, { error: 'Use GET para descobrir os simuladores.' })
+          return json(res, 200, await sim.list())
+        }
+        const id = parts[1], action = parts[2]
+        if (parts.length !== 3 || !id || id.length > 200) return json(res, 404, { error: 'Use /simulators/{id}/{start,stop,screenshot,action,install,launch,open-url}.' })
+        if (action === 'screenshot') {
+          if (req.method !== 'GET') return json(res, 405, { error: 'Use GET para capturar a tela.' })
+          const png = await sim.screenshot(id)
+          if (png.length < 24 || png.readUInt32BE(0) !== 0x89504e47) return json(res, 502, { error: 'O simulador não retornou um PNG válido.' })
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length, 'Cache-Control': 'no-store', 'X-Image-Width': png.readUInt32BE(16), 'X-Image-Height': png.readUInt32BE(20) })
+          res.end(png)
+          return
+        }
+        if (!['start', 'stop', 'action', 'install', 'launch', 'open-url'].includes(action)) return json(res, 404, { error: 'Operação de simulador desconhecida.' })
+        if (req.method !== 'POST') return json(res, 405, { error: 'Use POST para esta operação.' })
+        if (action === 'start') return json(res, 200, await sim.start(id))
+        if (action === 'stop') { await sim.stop(id); return json(res, 200, { stopped: true }) }
+        let body: unknown
+        try { body = JSON.parse(await readBody(req)) } catch { return json(res, 400, { error: 'Envie um objeto JSON válido.' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'Envie um objeto JSON.' })
+        const data = body as Record<string, unknown>
+        if (action === 'action') {
+          if (!validSimulatorAction(body)) return json(res, 400, { error: 'Ação inválida. Coordenadas devem estar entre 0 e 1; text aceita ASCII de até 1000 caracteres.' })
+          await sim.action(id, body)
+          return json(res, 200, { applied: true })
+        }
+        if (action === 'install') {
+          if (typeof data.path !== 'string' || !data.path.trim() || data.path.length > 4096) return json(res, 400, { error: 'Informe path absoluto para o .app ou .apk.' })
+          return json(res, 200, await sim.install(id, data.path))
+        }
+        if (action === 'launch') {
+          if (typeof data.appId !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(data.appId) || data.appId.length > 255) return json(res, 400, { error: 'appId inválido.' })
+          return json(res, 200, await sim.launch(id, data.appId))
+        }
+        if (typeof data.url !== 'string' || !data.url.trim() || data.url.length > 4096) return json(res, 400, { error: 'Informe uma URL válida.' })
+        return json(res, 200, await sim.openUrl(id, data.url))
+      }
       if (parts[0] !== 'services') return json(res, 404, { error: 'Rota desconhecida. Rotas: GET /services, POST /services (cadastrar), GET /services/{nome}, POST /services/{nome}/start?wait=30, POST /services/{nome}/stop, GET /services/{nome}/log?lines=40' })
       const list = backend.services()
       const stateOf = (id: string) => backend.states().find((x) => x.id === id)

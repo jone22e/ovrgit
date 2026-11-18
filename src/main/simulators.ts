@@ -1,14 +1,15 @@
-import { app, ipcMain, type WebContents } from 'electron'
+import { app, ipcMain } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import net from 'node:net'
+import { EventEmitter } from 'node:events'
 import { createInterface } from 'node:readline'
 import * as grpc from '@grpc/grpc-js'
 import { loadSync } from '@grpc/proto-loader'
 import emulatorProto from './proto/emulator.proto?asset'
-import { parseAvds, parseIosDevices, validSimulatorInput, type SimulatorCatalog, type SimulatorDevice, type SimulatorFrame, type SimulatorInput, type SimulatorTouchArea } from '../shared/simulator'
+import { macSimulatorKeyCode, parseAvds, parseIosDevices, simulatorTextKeys, validSimulatorAction, validSimulatorInput, type SimulatorAction, type SimulatorCatalog, type SimulatorDevice, type SimulatorFrame, type SimulatorInput, type SimulatorTouchArea } from '../shared/simulator'
 
 function run(file: string, args: string[], timeout = 15_000): Promise<Buffer> {
   return new Promise((resolve, reject) => execFile(file, args, { timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true, encoding: 'buffer' }, (err, stdout, stderr) => {
@@ -62,8 +63,16 @@ interface AndroidConnection { client: EmulatorRpc; metadata: grpc.Metadata; seri
 const androids = new Map<string, AndroidConnection>()
 const startingAndroids = new Map<string, Promise<AndroidConnection>>()
 const androidLaunches = new Set<ChildProcess>()
+interface SimulatorOwner {
+  id: number
+  isDestroyed(): boolean
+  isCrashed(): boolean
+  send(channel: string, value: unknown): void
+  once(event: 'destroyed', listener: () => void): unknown
+  removeListener(event: 'destroyed', listener: () => void): unknown
+}
 interface Session {
-  owner: WebContents
+  owner: SimulatorOwner
   device: SimulatorDevice
   stopped: boolean
   child?: ChildProcess
@@ -95,12 +104,14 @@ function errorMessage(error: unknown) {
   if (error && typeof error === 'object' && 'code' in error && error.code === grpc.status.UNAUTHENTICATED) return 'O Android recusou a autenticação local. Reconecte o aparelho.'
   return error instanceof Error ? error.message.replace(/Bearer\s+[^\s`]+/g, 'Bearer [oculto]') : String(error)
 }
+const shellArgument = (value: string) => `'${value.replace(/'/g, "'\\''")}'`
 function touchSize(session: Session) {
   if (!session.nativeWidth || !session.nativeHeight) return { width: session.width, height: session.height }
   const [small, large] = [session.nativeWidth, session.nativeHeight].sort((a,b) => a-b)
   return session.width > session.height ? { width: large, height: small } : { width: small, height: large }
 }
 export function disconnectSimulator(ownerId: number) {
+  for (const [id, client] of agentClients) if (client.owner.id === ownerId) { clearTimeout(client.timer); agentClients.delete(id) }
   const session = sessions.get(ownerId)
   if (!session) return
   session.stopped = true
@@ -292,7 +303,7 @@ async function connectAndroid(session: Session) {
     stream.on('end', () => { if (!ended) problem('O Android desconectou. Reconecte o aparelho.') })
   })
 }
-export async function connectSimulator(owner: WebContents, deviceId: string) {
+export async function connectSimulator(owner: SimulatorOwner, deviceId: string) {
   disconnectSimulator(owner.id)
   // Reserva antes de listar: fechar/trocar o painel também cancela a descoberta em andamento.
   const session: Session = { owner, device: { id: deviceId } as SimulatorDevice, stopped: false, width: 0, height: 0, inputQueue: Promise.resolve() }
@@ -340,7 +351,7 @@ export function simulatorInput(ownerId: number, input: unknown): Promise<void> {
       const keys: Record<string, string> = { Enter: 'KEYCODE_ENTER', Backspace: 'KEYCODE_DEL', Escape: 'KEYCODE_BACK', Tab: 'KEYCODE_TAB', ArrowLeft: 'KEYCODE_DPAD_LEFT', ArrowRight: 'KEYCODE_DPAD_RIGHT', ArrowUp: 'KEYCODE_DPAD_UP', ArrowDown: 'KEYCODE_DPAD_DOWN' }
       const key = input.type === 'home' ? 'KEYCODE_HOME' : input.type === 'back' ? 'KEYCODE_BACK' : keys[input.key]
       if (key) await text(session.adb!, ['-s', session.serial!, 'shell', 'input', 'keyevent', key])
-      else if (input.type === 'key' && /^[a-zA-Z0-9 .,_-]$/.test(input.key)) await text(session.adb!, ['-s', session.serial!, 'shell', 'input', 'text', input.key === ' ' ? '%s' : input.key])
+      else if (input.type === 'key' && /^[\x20-\x7e]$/.test(input.key)) await text(session.adb!, ['-s', session.serial!, 'shell', 'input', 'text', shellArgument(input.key === ' ' ? '%s' : input.key)])
     }
   })
   session.inputQueue = next.catch(() => undefined)
@@ -364,6 +375,180 @@ export async function stopSimulator(deviceId: string) {
     if (serial) await text(sdk.adb, ['-s', serial, 'emu', 'kill'])
     androids.get(name)?.client.close()
     androids.delete(name)
+  }
+}
+
+// A API reutiliza o painel aberto. Sem painel, a conexão temporária tem o mesmo controle nativo.
+class AgentSimulatorOwner extends EventEmitter implements SimulatorOwner {
+  constructor(readonly id: number) { super() }
+  isDestroyed() { return false }
+  isCrashed() { return false }
+  send() { /* a API lê a tela original por screenshot, sem enviar frames a um renderer */ }
+}
+let nextAgentOwner = -1
+const agentClients = new Map<string, { owner: AgentSimulatorOwner; timer: ReturnType<typeof setTimeout> }>()
+const agentConnecting = new Map<string, Promise<number>>()
+export function connectedSimulators(): SimulatorDevice[] {
+  return [...new Map([...sessions.values()].filter((s) => !s.stopped && s.width > 0).map((s) => [s.device.id, { ...s.device, running: true }])).values()]
+}
+async function requireDevice(id: string): Promise<SimulatorDevice> {
+  const device = (await simulatorCatalog()).devices.find((d) => d.id === id)
+  if (!device) throw new Error('Aparelho não encontrado. Consulte GET /simulators e use um id retornado.')
+  return device
+}
+async function agentCapture(id: string): Promise<number> {
+  const panel = [...sessions.values()].find((s) => s.device.id === id && !s.stopped && s.owner.id >= 0 && s.width > 0)
+  if (panel) {
+    const previous = agentClients.get(id)
+    if (previous) disconnectSimulator(previous.owner.id)
+    return panel.owner.id
+  }
+  const pending = agentConnecting.get(id)
+  if (pending) return pending
+  const existing = agentClients.get(id)
+  if (existing && sessions.has(existing.owner.id)) {
+    clearTimeout(existing.timer)
+    existing.timer = setTimeout(() => disconnectSimulator(existing.owner.id), 120_000).unref()
+    return existing.owner.id
+  }
+  const connecting = (async () => {
+    const owner = new AgentSimulatorOwner(nextAgentOwner--)
+    await connectSimulator(owner, id)
+    agentClients.set(id, { owner, timer: setTimeout(() => disconnectSimulator(owner.id), 120_000).unref() })
+    return owner.id
+  })()
+  agentConnecting.set(id, connecting)
+  try { return await connecting } finally { agentConnecting.delete(id) }
+}
+async function androidTarget(device: SimulatorDevice) {
+  const sdk = sdkTools()
+  if (!sdk) throw new Error('Android SDK não encontrado.')
+  const name = device.id.slice(8)
+  const serial = androids.get(name)?.serial ?? (await runningAndroids(sdk.adb)).get(name)
+  if (!serial) throw new Error('O aparelho Android não está ligado. Use POST /{id}/start.')
+  return { ...sdk, serial }
+}
+async function readyAndroid(device: SimulatorDevice) {
+  const target = await androidTarget(device)
+  await text(target.adb, ['-s', target.serial, 'wait-for-device'], 90_000)
+  const deadline = Date.now() + 120_000
+  while (Date.now() < deadline) {
+    if ((await text(target.adb, ['-s', target.serial, 'shell', 'getprop', 'sys.boot_completed'])).trim() === '1') return target
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error('O Android ainda não concluiu a inicialização.')
+}
+const appIdentifier = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(value)
+async function agentAction(id: string, action: SimulatorAction) {
+  if (!validSimulatorAction(action)) throw new Error('Ação inválida. Use coordenadas de 0 a 1 e texto ASCII de até 1000 caracteres.')
+  const ownerId = await agentCapture(id)
+  const device = sessions.get(ownerId)!.device
+  if (action.type === 'tap') {
+    await simulatorInput(ownerId, { type: 'touch', phase: 'down', x: action.x, y: action.y })
+    try { await new Promise((resolve) => setTimeout(resolve, 60)) }
+    finally { await simulatorInput(ownerId, { type: 'touch', phase: 'up', x: action.x, y: action.y }) }
+  } else if (action.type === 'swipe') {
+    const duration = action.durationMs ?? 400
+    let x = action.x, y = action.y
+    await simulatorInput(ownerId, { type: 'touch', phase: 'down', x, y })
+    try {
+      for (let n = 1; n <= 12; n++) {
+        await new Promise((resolve) => setTimeout(resolve, duration / 12))
+        x = action.x + (action.toX - action.x) * n / 12
+        y = action.y + (action.toY - action.y) * n / 12
+        await simulatorInput(ownerId, { type: 'touch', phase: 'move', x, y })
+      }
+    } finally { await simulatorInput(ownerId, { type: 'touch', phase: 'up', x, y }) }
+  } else if (action.type === 'text') {
+    for (const key of simulatorTextKeys(action.text)) {
+      await simulatorInput(ownerId, key)
+      if (device.platform === 'ios') await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+  } else {
+    if (action.type === 'back' && device.platform === 'ios') throw new Error('iOS não possui botão Voltar universal. Capture a tela e toque no botão do app.')
+    if (action.type === 'key' && device.platform === 'ios' && action.code === undefined) {
+      const key = action.key.length === 1 ? simulatorTextKeys(action.key)[0] : { ...action, code: macSimulatorKeyCode(action.key) }
+      if (key.code === undefined) throw new Error('Tecla iOS sem código físico reconhecido.')
+      await simulatorInput(ownerId, key)
+    } else await simulatorInput(ownerId, action)
+  }
+}
+const agentActions = new Map<string, Promise<void>>()
+async function queuedAgentAction(id: string, action: SimulatorAction) {
+  const next = (agentActions.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => agentAction(id, action))
+  agentActions.set(id, next)
+  try { await next } finally { if (agentActions.get(id) === next) agentActions.delete(id) }
+}
+
+/** Operações locais para agentes, com o mesmo catálogo e controles usados pelo painel. */
+export const simulatorAgentBackend = {
+  async list() { return { ...await simulatorCatalog(), connected: connectedSimulators().map((d) => d.id) } },
+  async start(id: string) { const ownerId = await agentCapture(id); return { ...sessions.get(ownerId)!.device, running: true } },
+  stop: stopSimulator,
+  action: queuedAgentAction,
+  async screenshot(id: string) {
+    const device = await requireDevice(id)
+    if (!device.running) throw new Error('Aparelho desligado. Use POST /{id}/start.')
+    if (device.platform === 'ios') {
+      // Alguns Xcodes tratam "-" como nome de arquivo, apesar da ajuda anunciar stdout.
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ovseer-simulator-'))
+      try {
+        const file = path.join(dir, 'screen.png')
+        await run('/usr/bin/xcrun', ['simctl', 'io', id.slice(4), 'screenshot', '--type=png', file])
+        return await fs.readFile(file)
+      } finally { await fs.rm(dir, { recursive: true, force: true }) }
+    }
+    const target = await androidTarget(device)
+    return run(target.adb, ['-s', target.serial, 'exec-out', 'screencap', '-p'])
+  },
+  async install(id: string, inputPath: string) {
+    if (!path.isAbsolute(inputPath)) throw new Error('O caminho do app deve ser absoluto.')
+    const artifact = await fs.realpath(inputPath)
+    const device = await requireDevice(id)
+    const stat = await fs.stat(artifact)
+    if (device.platform === 'ios') {
+      if (!artifact.toLowerCase().endsWith('.app') || !stat.isDirectory()) throw new Error('iOS exige um diretório .app compilado para iOS Simulator.')
+      const info = JSON.parse(await text('/usr/bin/plutil', ['-convert', 'json', '-o', '-', path.join(artifact, 'Info.plist')])) as { CFBundleIdentifier?: string; DTPlatformName?: string; CFBundleSupportedPlatforms?: string[] }
+      if (info.DTPlatformName !== 'iphonesimulator' && !info.CFBundleSupportedPlatforms?.includes('iPhoneSimulator')) throw new Error('O .app não é uma compilação para iOS Simulator.')
+      if (!appIdentifier(info.CFBundleIdentifier)) throw new Error('CFBundleIdentifier inválido no Info.plist.')
+      await agentCapture(id)
+      await text('/usr/bin/xcrun', ['simctl', 'install', id.slice(4), artifact], 120_000)
+      return { installed: true, appId: info.CFBundleIdentifier }
+    }
+    if (!artifact.toLowerCase().endsWith('.apk') || !stat.isFile()) throw new Error('Android exige um arquivo .apk.')
+    await agentCapture(id)
+    const target = await readyAndroid(device)
+    await text(target.adb, ['-s', target.serial, 'install', '-r', artifact], 120_000)
+    return { installed: true }
+  },
+  async launch(id: string, appId: string) {
+    if (!appIdentifier(appId)) throw new Error('appId inválido. Use o identificador confirmado no projeto ou na instalação.')
+    await agentCapture(id)
+    const device = await requireDevice(id)
+    if (device.platform === 'ios') await text('/usr/bin/xcrun', ['simctl', 'launch', id.slice(4), appId], 60_000)
+    else {
+      const target = await readyAndroid(device)
+      const component = (await text(target.adb, ['-s', target.serial, 'shell', 'cmd', 'package', 'resolve-activity', '--brief', '-c', 'android.intent.category.LAUNCHER', appId])).split(/\r?\n/).find((s) => /^[\w.]+\/[\w.]+$/.test(s.trim()))?.trim()
+      if (!component) throw new Error('Não foi encontrada uma atividade inicial para este appId.')
+      const result = await text(target.adb, ['-s', target.serial, 'shell', 'am', 'start', '-W', '-n', component], 60_000)
+      if (/Error:|Exception/.test(result)) throw new Error(result)
+    }
+    return { launched: true, appId }
+  },
+  async openUrl(id: string, value: string) {
+    if (typeof value !== 'string' || value.length > 4096) throw new Error('URL inválida.')
+    const url = new URL(value)
+    if (['file:', 'data:', 'javascript:', 'intent:'].includes(url.protocol)) throw new Error('Protocolo de URL não permitido.')
+    await agentCapture(id)
+    const device = await requireDevice(id)
+    if (device.platform === 'ios') await text('/usr/bin/xcrun', ['simctl', 'openurl', id.slice(4), value])
+    else {
+      const target = await readyAndroid(device)
+      const quoted = shellArgument(value)
+      const result = await text(target.adb, ['-s', target.serial, 'shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', quoted])
+      if (/Error:|Exception/.test(result)) throw new Error(result)
+    }
+    return { opened: true }
   }
 }
 export function registerSimulators() {

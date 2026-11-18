@@ -94,12 +94,13 @@ interface AgentWin {
   bgIdleTimer?: ReturnType<typeof setTimeout>
   /** Estado do parser do processo Claude atual, reiniciado a cada mensagem enviada pelo mesmo stdin. */
   claudeState?: ClaudeParseState
+  lastSimulators?: string
 }
 
 const wins = new Map<string, AgentWin>()
-let setup: { icon: string; background: () => string; main: () => BrowserWindow | null } | null = null
+let setup: { icon: string; background: () => string; main: () => BrowserWindow | null; simulatorNote?: () => string } | null = null
 
-export function setupAgentWindows(s: { icon: string; background: () => string; main: () => BrowserWindow | null }) {
+export function setupAgentWindows(s: { icon: string; background: () => string; main: () => BrowserWindow | null; simulatorNote?: () => string }) {
   setup = s
 }
 
@@ -1865,7 +1866,10 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       clearTimeout(w.bgIdleTimer)
       w.info.handoff = null
       w.handoffToken = undefined
-      const { prompt, inlineImages } = composeMessage('claude', text, attachments)
+      const simulators = setup?.simulatorNote?.() ?? ''
+      const changed = simulators !== w.lastSimulators
+      w.lastSimulators = simulators
+      const { prompt, inlineImages } = composeMessage('claude', (changed && simulators ? `${simulators}\n\n` : '') + text, attachments)
       if (w.claudeState) w.claudeState.done = false
       if (!w.turnDone) w.claudeCompletion?.steer()
       w.turnDone = false
@@ -1928,7 +1932,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     const images = inlineImages.filter((i) => i.size <= 10_000_000).flatMap((i) => {
       try { return [readFileSync(i.path).toString('base64')] } catch { return [] }
     })
-    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote()].filter(Boolean).join('\n\n')
+    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote(), setup?.simulatorNote?.()].filter(Boolean).join('\n\n')
     let answer = ''
     const finish = (ev: Extract<AgentChatEvent, { type: 'done' }>) => {
       if (w.ollamaAbort !== controller) return
@@ -1993,6 +1997,10 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const servicesChanged = services !== (w.lastServices ?? '')
   w.lastServices = services
   const servicesBlock = services && provider !== 'claude' && (servicesChanged || !w.info.sessionId) ? `${services}\n\n` : ''
+  const simulators = setup?.simulatorNote?.() ?? ''
+  const simulatorsChanged = simulators !== (w.lastSimulators ?? '')
+  w.lastSimulators = simulators
+  const simulatorBlock = simulators && provider !== 'claude' && (simulatorsChanged || !w.info.sessionId) ? `${simulators}\n\n` : ''
   // espaço de trabalho com vários repositórios: Claude recebe --add-dir e a nota a cada pedido; os outros, a nota
   // no primeiro pedido e quando a lista muda
   const workspace = workspaceNote(w.info)
@@ -2004,7 +2012,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const intro =
     (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : '') + workspaceBlock + servicesBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin, !!chromeMcp) : '')
+      : '') + workspaceBlock + servicesBlock + simulatorBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin, !!chromeMcp) : '')
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
@@ -2025,7 +2033,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const run = clean.mode === 'architect' ? { ...clean, model: provider === 'claude' ? 'haiku' : clean.model, effort: 'low' as AgentEffort } : clean
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services].filter(Boolean).join('\n\n') })
+      ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, instructions: [instructions, artifacts, workspace, services, simulators].filter(Boolean).join('\n\n') })
       : provider === 'codex'
         ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), computerUseBin, chromeMcp })
         : agyArgs({ ...run, prompt })

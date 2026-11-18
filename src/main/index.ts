@@ -1,4 +1,5 @@
-import { registerSimulators, shutdownSimulators } from './simulators'
+import { connectedSimulators, registerSimulators, shutdownSimulators, simulatorAgentBackend } from './simulators'
+import { simulatorAgentNote } from '../shared/simulatorAgentNote'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, session, shell, systemPreferences,
   type MenuItemConstructorOptions, webContents
@@ -988,7 +989,10 @@ app.whenReady().then(() => {
   })
   registerIpc()
   buildMenu()
-  agentChat.setupAgentWindows({ icon, background: initialBackground, main: () => win })
+  agentChat.setupAgentWindows({ icon, background: initialBackground, main: () => win, simulatorNote: () => {
+    const info = agentApi.agentApiInfo()
+    return info ? simulatorAgentNote(info, connectedSimulators()) : ''
+  } })
   taskQueue.setupQueue((tasks) => toMain('queue:changed', tasks))
   buddy.registerBuddyIpc()
   buddy.setupBuddy({
@@ -1007,6 +1011,7 @@ app.whenReady().then(() => {
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
   agentApi
     .startAgentApi({
+      simulators: simulatorAgentBackend,
       services: () => getSettings().services,
       states: services.serviceStates,
       start: services.startService,

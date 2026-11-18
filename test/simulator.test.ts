@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { macSimulatorKeyCode, parseAvds, parseIosDevices, simulatorImageSize, simulatorPanelWidth, simulatorPoint, validSimulatorInput } from '../src/shared/simulator'
+import { macSimulatorKeyCode, parseAvds, parseIosDevices, simulatorImageSize, simulatorPanelWidth, simulatorPoint, simulatorTextKeys, validSimulatorAction, validSimulatorInput } from '../src/shared/simulator'
+import { simulatorAgentNote } from '../src/shared/simulatorAgentNote'
 
 describe('catálogo dos simuladores', () => {
   it('lista apenas aparelhos iOS disponíveis e preserva a identidade e o runtime', () => {
@@ -45,6 +46,23 @@ describe('redimensionamento da coluna do simulador', () => {
   })
 })
 describe('entrada no painel dos simuladores', () => {
+  it('valida gestos completos antes de um agente iniciar uma interação', () => {
+    expect(validSimulatorAction({ type: 'tap', x: 0.5, y: 0.5 })).toBe(true)
+    expect(validSimulatorAction({ type: 'swipe', x: 0.5, y: 0.8, toX: 0.5, toY: 0.2, durationMs: 400 })).toBe(true)
+    expect(validSimulatorAction({ type: 'text', text: 'teste@exemplo.com' })).toBe(true)
+    for (const action of [{ type: 'tap', x: NaN, y: 0 }, { type: 'tap', x: 1.1, y: 0 }, { type: 'swipe', x: 0, y: 0, toX: 1, toY: 1, durationMs: 50 }, { type: 'text', text: 'João' }, { type: 'text', text: 'a'.repeat(1001) }, { type: 'touch', phase: 'down', x: 0, y: 0 }]) expect(validSimulatorAction(action)).toBe(false)
+  })
+  it('digita letras, símbolos e controles com o código físico correto', () => {
+    expect(simulatorTextKeys('Az9@\n\t')).toEqual([
+      { type: 'key', key: 'A', code: 0, shift: true },
+      { type: 'key', key: 'z', code: 6, shift: false },
+      { type: 'key', key: '9', code: 25, shift: false },
+      { type: 'key', key: '@', code: 19, shift: true },
+      { type: 'key', key: 'Enter', code: 36, shift: false },
+      { type: 'key', key: 'Tab', code: 48, shift: false }
+    ])
+    expect(() => simulatorTextKeys('ç')).toThrow('ASCII')
+  })
   it('converte o clique na imagem para a posição proporcional do aparelho', () => {
     expect(simulatorPoint(250, 500, { left: 100, top: 200, width: 300, height: 600 })).toEqual({ x: 0.5, y: 0.5 })
     expect(simulatorPoint(500, 0, { left: 100, top: 200, width: 300, height: 600 })).toEqual({ x: 1, y: 0 })
@@ -72,5 +90,21 @@ describe('entrada no painel dos simuladores', () => {
     expect(macSimulatorKeyCode('KeyB')).toBe(11)
     expect(macSimulatorKeyCode('Backspace')).toBe(51)
     expect(macSimulatorKeyCode('Unidentified')).toBeUndefined()
+  })
+})
+
+describe('instruções de simuladores para os agentes', () => {
+  it('informa o aparelho conectado e como descobrir, controlar, instalar e abrir o app', () => {
+    const note = simulatorAgentNote({ port: 1234, token: 'token-de-teste' }, [{ id: 'ios:ID', platform: 'ios', name: 'iPhone', runtime: 'iOS 26.5', running: true }])
+    expect(note).toContain('<simulator_access>')
+    expect(note).toContain('id=ios:ID')
+    expect(note).toContain('http://127.0.0.1:1234/simulators')
+    for (const operation of ['/start', '/screenshot', '/action', '/install', '/launch', '/open-url']) expect(note).toContain(operation)
+    expect(note).toContain('não compila nem escolhe o projeto')
+    expect(note).toContain('Modo Plano')
+    expect(note).toContain('ASCII')
+  })
+  it('orienta a descoberta mesmo sem um painel aberto', () => {
+    expect(simulatorAgentNote({ port: 1234, token: 'teste' }, [])).toContain('Nenhuma captura conectada')
   })
 })
