@@ -54,6 +54,7 @@ static CGRect frameOf(AXUIElementRef element) {
 @property id homeButton;
 @property CGRect screenRect;
 @property CGRect windowRect;
+@property CGRect captureRect;
 @end
 
 @implementation Simulator
@@ -101,7 +102,12 @@ static CGRect frameOf(AXUIElementRef element) {
         CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, CFSTR("public.png"), 1, NULL);
         if (dest) {
             CGImageDestinationAddImage(dest, cg, NULL);
-            if (CGImageDestinationFinalize(dest)) emit(@{@"type": @"frame", @"image": [@"data:image/png;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]], @"width": @(CGImageGetWidth(cg)), @"height": @(CGImageGetHeight(cg))});
+            if (CGImageDestinationFinalize(dest)) emit(@{@"type": @"frame", @"image": [@"data:image/png;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]], @"width": @(CGImageGetWidth(cg)), @"height": @(CGImageGetHeight(cg)), @"touchArea": @{
+                @"x": @((self.screenRect.origin.x - self.captureRect.origin.x) / self.captureRect.size.width),
+                @"y": @((self.screenRect.origin.y - self.captureRect.origin.y) / self.captureRect.size.height),
+                @"width": @(self.screenRect.size.width / self.captureRect.size.width),
+                @"height": @(self.screenRect.size.height / self.captureRect.size.height)
+            }});
             CFRelease(dest);
         }
         CGImageRelease(cg);
@@ -158,8 +164,15 @@ int main(int argc, const char **argv) { @autoreleasepool {
     AXUIElementRef window = (__bridge AXUIElementRef)matching.firstObject;
     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute, kCFBooleanFalse);
     sim.windowRect = frameOf(window);
+    sim.captureRect = sim.windowRect;
     for (id child in attribute(window, kAXChildrenAttribute)) {
         if ([attribute((__bridge AXUIElementRef)child, kAXRoleAttribute) isEqual:@"AXToolbar"]) {
+            // A captura inclui o corpo inteiro do aparelho; só a barra da janela fica de fora.
+            CGRect toolbar = frameOf((__bridge AXUIElementRef)child);
+            if (!CGRectIsEmpty(toolbar) && CGRectContainsRect(sim.windowRect, toolbar)) {
+                CGFloat top = CGRectGetMaxY(toolbar);
+                sim.captureRect = CGRectMake(sim.windowRect.origin.x, top, sim.windowRect.size.width, CGRectGetMaxY(sim.windowRect) - top);
+            }
             for (id button in attribute((__bridge AXUIElementRef)child, kAXChildrenAttribute)) {
                 if ([attribute((__bridge AXUIElementRef)button, kAXTitleAttribute) isEqual:@"Home"] || [attribute((__bridge AXUIElementRef)button, kAXDescriptionAttribute) isEqual:@"Home"]) sim.homeButton = button;
             }
@@ -170,6 +183,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
         }
     }
     if (CGRectIsEmpty(sim.screenRect)) { fail(@"A tela do aparelho não foi encontrada na janela do Simulator."); return 1; }
+    if (CGRectIsEmpty(sim.captureRect) || !CGRectContainsRect(sim.captureRect, sim.screenRect)) { fail(@"A área do aparelho não foi identificada na janela do Simulator."); return 1; }
     [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:NO completionHandler:^(SCShareableContent *content, NSError *err) {
         if (err) { fail(err.localizedDescription); exit(1); }
         NSMutableArray<SCWindow *> *candidates = [NSMutableArray array];
@@ -179,16 +193,18 @@ int main(int argc, const char **argv) { @autoreleasepool {
         if (candidates.count != 1) { fail(@"A janela do aparelho não está disponível para captura."); exit(1); }
         SCContentFilter *filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:candidates.firstObject];
         SCStreamConfiguration *config = [SCStreamConfiguration new];
-        config.sourceRect = CGRectMake(sim.screenRect.origin.x - sim.windowRect.origin.x, sim.screenRect.origin.y - sim.windowRect.origin.y, sim.screenRect.size.width, sim.screenRect.size.height);
+        config.sourceRect = CGRectMake(sim.captureRect.origin.x - sim.windowRect.origin.x, sim.captureRect.origin.y - sim.windowRect.origin.y, sim.captureRect.size.width, sim.captureRect.size.height);
         // A geometria do AX usa pontos; preserve os pixels da janela em telas Retina.
-        config.width = lround(sim.screenRect.size.width * filter.pointPixelScale);
-        config.height = lround(sim.screenRect.size.height * filter.pointPixelScale);
+        config.width = lround(sim.captureRect.size.width * filter.pointPixelScale);
+        config.height = lround(sim.captureRect.size.height * filter.pointPixelScale);
         config.captureResolution = SCCaptureResolutionBest;
         config.pixelFormat = kCVPixelFormatType_32BGRA;
         config.minimumFrameInterval = CMTimeMake(1, 20);
         config.queueDepth = 3;
         config.scalesToFit = NO;
         config.showsCursor = NO;
+        config.shouldBeOpaque = NO;
+        config.backgroundColor = CGColorGetConstantColor(kCGColorClear);
         if (@available(macOS 14.0, *)) config.ignoreShadowsSingleWindow = YES;
         sim.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:sim];
         NSError *outputError = nil;

@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline'
 import * as grpc from '@grpc/grpc-js'
 import { loadSync } from '@grpc/proto-loader'
 import emulatorProto from './proto/emulator.proto?asset'
-import { parseAvds, parseIosDevices, validSimulatorInput, type SimulatorCatalog, type SimulatorDevice, type SimulatorFrame, type SimulatorInput } from '../shared/simulator'
+import { parseAvds, parseIosDevices, validSimulatorInput, type SimulatorCatalog, type SimulatorDevice, type SimulatorFrame, type SimulatorInput, type SimulatorTouchArea } from '../shared/simulator'
 
 function run(file: string, args: string[], timeout = 15_000): Promise<Buffer> {
   return new Promise((resolve, reject) => execFile(file, args, { timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true, encoding: 'buffer' }, (err, stdout, stderr) => {
@@ -85,10 +85,10 @@ const sessions = new Map<number, Session>()
 function send(session: Session, channel: string, value: unknown) {
   if (!session.stopped && !session.owner.isDestroyed() && !session.owner.isCrashed()) session.owner.send(channel, value)
 }
-function frame(session: Session, image: string, width: number, height: number) {
+function frame(session: Session, image: string, width: number, height: number, touchArea?: SimulatorTouchArea) {
   if (!width || !height || !image) return
   session.width = width; session.height = height
-  send(session, 'simulator:frame', { deviceId: session.device.id, image, width, height } satisfies SimulatorFrame)
+  send(session, 'simulator:frame', { deviceId: session.device.id, image, width, height, ...(touchArea ? { touchArea } : {}) } satisfies SimulatorFrame)
 }
 function errorMessage(error: unknown) {
   // O servidor gRPC pode incluir o token recebido no texto de uma falha de autenticação.
@@ -152,7 +152,7 @@ async function connectIos(session: Session) {
         if (event.type === 'error') problem(String(event.message))
         else if (event.type === 'frame') {
           received = true
-          frame(session, event.image, event.width, event.height)
+          frame(session, event.image, event.width, event.height, event.touchArea)
           if (!settled) { settled = true; clearTimeout(timeout); resolve() }
         }
       } catch { /* saída incompleta não pode derrubar o app */ }

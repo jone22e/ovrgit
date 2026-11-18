@@ -7,7 +7,9 @@ export interface SimulatorDevice {
   running: boolean
 }
 export interface SimulatorCatalog { devices: SimulatorDevice[]; issues: Partial<Record<SimulatorPlatform, string>> }
-export interface SimulatorFrame { deviceId: string; image: string; width: number; height: number }
+/** Área da tela sensível ao toque, em proporções da imagem que também pode incluir a carcaça. */
+export interface SimulatorTouchArea { x: number; y: number; width: number; height: number }
+export interface SimulatorFrame { deviceId: string; image: string; width: number; height: number; touchArea?: SimulatorTouchArea }
 export type SimulatorInput =
   | { type: 'touch'; phase: 'down' | 'move' | 'up'; x: number; y: number }
   | { type: 'key'; key: string; code?: number; shift?: boolean }
@@ -33,10 +35,17 @@ export function validSimulatorInput(value: unknown): value is SimulatorInput {
   if (v.type === 'key') return typeof v.key === 'string' && v.key.length > 0 && v.key.length <= 32 && (v.code === undefined || typeof v.code === 'number' && Number.isInteger(v.code) && v.code >= 0 && v.code < 128) && (v.shift === undefined || typeof v.shift === 'boolean')
   return v.type === 'home' || v.type === 'back'
 }
-/** Coordenadas no elemento da imagem, que preserva a proporção e não contém barras vazias. */
-export function simulatorPoint(x: number, y: number, rect: { left: number; top: number; width: number; height: number }) {
+/** A carcaça não recebe toques; arrastos iniciados na tela podem terminar fora dela. */
+export function simulatorPoint(x: number, y: number, rect: { left: number; top: number; width: number; height: number }, touchArea?: SimulatorTouchArea, clampToScreen = false) {
   if (rect.width <= 0 || rect.height <= 0) return null
-  return { x: Math.max(0, Math.min(1, (x - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (y - rect.top) / rect.height)) }
+  let px = (x - rect.left) / rect.width, py = (y - rect.top) / rect.height
+  if (touchArea) {
+    if (![touchArea.x, touchArea.y, touchArea.width, touchArea.height].every(Number.isFinite) || touchArea.width <= 0 || touchArea.height <= 0) return null
+    px = (px - touchArea.x) / touchArea.width
+    py = (py - touchArea.y) / touchArea.height
+    if (!clampToScreen && (px < 0 || px > 1 || py < 0 || py > 1)) return null
+  }
+  return { x: Math.max(0, Math.min(1, px)), y: Math.max(0, Math.min(1, py)) }
 }
 const macCodes: Record<string, number> = {
   KeyA: 0, KeyS: 1, KeyD: 2, KeyF: 3, KeyH: 4, KeyG: 5, KeyZ: 6, KeyX: 7, KeyC: 8, KeyV: 9, KeyB: 11,

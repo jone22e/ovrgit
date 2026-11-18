@@ -28,6 +28,17 @@ describe('entrada no painel dos simuladores', () => {
     expect(simulatorPoint(500, 0, { left: 100, top: 200, width: 300, height: 600 })).toEqual({ x: 1, y: 0 })
     expect(simulatorPoint(0, 0, { left: 0, top: 0, width: 0, height: 100 })).toBeNull()
   })
+  it('mapeia toques para a tela dentro da moldura original do aparelho', () => {
+    const rect = { left: 100, top: 200, width: 400, height: 800 }
+    const touchArea = { x: 0.1, y: 0.05, width: 0.8, height: 0.9 }
+    const middle = simulatorPoint(300, 600, rect, touchArea)!
+    expect(middle.x).toBeCloseTo(0.5)
+    expect(middle.y).toBeCloseTo(0.5)
+    expect(simulatorPoint(110, 210, rect, touchArea)).toBeNull()
+    expect(simulatorPoint(110, 210, rect, touchArea, true)).toEqual({ x: 0, y: 0 })
+    expect(simulatorPoint(600, 1100, rect, touchArea, true)).toEqual({ x: 1, y: 1 })
+    expect(simulatorPoint(300, 600, rect, { ...touchArea, width: 0 })).toBeNull()
+  })
   it('rejeita coordenadas inválidas e formatos inesperados na fronteira IPC', () => {
     for (const value of [null, {}, { type: 'touch', phase: 'down', x: NaN, y: 0 }, { type: 'touch', phase: 'up', x: Infinity, y: 0 }, { type: 'touch', phase: 'move', x: -1, y: 0 }, { type: 'touch', phase: 'drag', x: 0, y: 0 }, { type: 'key', key: 'a', code: 128 }, { type: 'key', key: 'a', code: 1.5 }, { type: 'key', key: 'a', shift: 'yes' }]) expect(validSimulatorInput(value)).toBe(false)
     expect(validSimulatorInput({ type: 'touch', phase: 'up', x: 1, y: 0 })).toBe(true)

@@ -44,6 +44,15 @@ async function connect(owner: Owner) {
 }
 
 describe('conexão do painel com simuladores', () => {
+  it('preserva a posição da tela dentro da captura do aparelho inteiro', async () => {
+    const owner = new Owner()
+    const pending = connectSimulator(owner as unknown as WebContents, 'ios:ID')
+    await vi.advanceTimersByTimeAsync(1200)
+    const touchArea = { x: 0.06, y: 0.03, width: 0.88, height: 0.95 }
+    child.stdout.write(JSON.stringify({ type: 'frame', image: 'data:image/png;base64,AA==', width: 818, height: 1652, touchArea }) + '\n')
+    await pending
+    expect(owner.send).toHaveBeenCalledWith('simulator:frame', { deviceId: 'ios:ID', image: 'data:image/png;base64,AA==', width: 818, height: 1652, touchArea })
+  })
   it('encaminha a tela apenas para a janela solicitante e para ao desconectar', async () => {
     const owner = new Owner()
     await connect(owner)

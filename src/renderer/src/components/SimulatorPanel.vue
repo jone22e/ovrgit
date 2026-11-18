@@ -77,7 +77,7 @@ function input(event: SimulatorInput) {
   if (!connected.value) return
   void api.simulatorInput(event).catch((e) => { error.value = String((e as Error).message) })
 }
-function point(e: PointerEvent) { return screen.value ? simulatorPoint(e.clientX, e.clientY, screen.value.getBoundingClientRect()) : null }
+function point(e: PointerEvent, clampToScreen = false) { return screen.value ? simulatorPoint(e.clientX, e.clientY, screen.value.getBoundingClientRect(), image.value?.touchArea, clampToScreen) : null }
 function down(e: PointerEvent) {
   if (e.button !== 0 || pointer || !connected.value) return
   const p = point(e)
@@ -88,7 +88,7 @@ function down(e: PointerEvent) {
 }
 function move(e: PointerEvent) {
   if (e.pointerId !== pointer?.id) return
-  const p = point(e)
+  const p = point(e, true)
   if (!p) return
   pointer = { id: e.pointerId, ...p }
   if (performance.now() - lastMove < 30) return
@@ -97,7 +97,7 @@ function move(e: PointerEvent) {
 }
 function up(e: PointerEvent) {
   if (e.pointerId !== pointer?.id) return
-  const p = point(e)
+  const p = point(e, true)
   if (p) pointer = { id: e.pointerId, ...p }
   releasePointer()
 }
@@ -191,7 +191,7 @@ select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; font-size: 12p
 .sim-screen { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 20px; box-shadow: 0 0 0 5px #18181b, 0 0 0 6px #52525b; touch-action: none; user-select: none; outline: none; }
 .sim-screen.zoomed { width: 100%; max-height: none; }
 .sim-screen:focus-visible { box-shadow: 0 0 0 5px #18181b, 0 0 0 7px var(--accent); }
-.sim-screen.native-skin { box-shadow: none; }
+.sim-screen.native-skin { border-radius: 0; box-shadow: none; }
 .sim-screen.native-skin:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .sim-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; height: 100%; padding: 24px; text-align: center; color: var(--muted); }
 .sim-empty strong { font-size: 13px; color: var(--text); font-weight: 500; }
