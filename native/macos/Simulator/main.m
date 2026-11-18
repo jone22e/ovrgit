@@ -3,6 +3,7 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <CoreImage/CoreImage.h>
 #import <ImageIO/ImageIO.h>
+#import <IOSurface/IOSurface.h>
 #import <dlfcn.h>
 
 // SimulatorKit é carregado do Xcode selecionado, sem vincular frameworks privados no app.
@@ -12,6 +13,13 @@
 - (id)defaultDeviceSetWithError:(NSError **)error;
 - (NSArray *)availableDevices;
 - (NSUUID *)UDID;
+- (id)io;
+- (NSArray *)ioPorts;
+- (NSString *)portIdentifier;
+- (id)descriptor;
+- (id)screenProperties;
+- (NSString *)uniqueId;
+- (id)maskedFramebufferSurface;
 - (id)initWithDevice:(id)device error:(NSError **)error;
 - (void)sendWithMessage:(void *)message freeWhenDone:(BOOL)free completionQueue:(dispatch_queue_t)queue completion:(void (^)(NSError *))completion;
 @end
@@ -46,6 +54,7 @@ static CGRect frameOf(AXUIElementRef element) {
 @property SCStream *stream;
 @property CIContext *context;
 @property id hid;
+@property id display;
 @property MouseMessage mouseMessage;
 @property KeyMessage keyMessage;
 @property dispatch_queue_t inputQueue;
@@ -58,6 +67,34 @@ static CGRect frameOf(AXUIElementRef element) {
 @end
 
 @implementation Simulator
+- (CIImage *)imageWithNativeScreen:(CIImage *)windowImage {
+    if (!self.display) return windowImage;
+    @try {
+        id surface = [self.display maskedFramebufferSurface];
+        if (!surface) return windowImage;
+        CIImage *screen = [CIImage imageWithIOSurface:(__bridge IOSurfaceRef)surface];
+        if (!screen || CGRectIsEmpty(screen.extent)) return windowImage;
+        CGFloat nativeAspect = screen.extent.size.width / screen.extent.size.height;
+        CGFloat viewAspect = self.screenRect.size.width / self.screenRect.size.height;
+        // Se a orientação/geometria mudou, preserve a captura da janela em vez de deformar a tela.
+        if (fabs(nativeAspect / viewAspect - 1) > 0.02) return windowImage;
+        CGFloat px = windowImage.extent.size.width / self.captureRect.size.width;
+        CGFloat py = windowImage.extent.size.height / self.captureRect.size.height;
+        if (screen.extent.size.width <= self.screenRect.size.width * px && screen.extent.size.height <= self.screenRect.size.height * py) return windowImage;
+        CGFloat scale = MAX(1, MAX(screen.extent.size.width / (self.screenRect.size.width * px), screen.extent.size.height / (self.screenRect.size.height * py)));
+        CIImage *body = [windowImage imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+        CGFloat targetWidth = self.screenRect.size.width * px * scale;
+        CGFloat targetHeight = self.screenRect.size.height * py * scale;
+        // Preserve os pixels originais da tela: apenas translação em pixels inteiros, sem reamostragem.
+        CGFloat x = round((self.screenRect.origin.x - self.captureRect.origin.x) * px * scale + (targetWidth - screen.extent.size.width) / 2);
+        CGFloat y = round((CGRectGetMaxY(self.captureRect) - CGRectGetMaxY(self.screenRect)) * py * scale + (targetHeight - screen.extent.size.height) / 2);
+        screen = [screen imageByApplyingTransform:CGAffineTransformMakeTranslation(x - screen.extent.origin.x, y - screen.extent.origin.y)];
+        return [[screen imageByCompositingOverImage:body] imageByCroppingToRect:CGRectMake(0, 0, ceil(body.extent.size.width), ceil(body.extent.size.height))];
+    } @catch (NSException *exception) {
+        // A interface do Xcode é opcional; versões incompatíveis continuam com a captura da janela.
+        return windowImage;
+    }
+}
 - (void)sendMessage:(void *)message {
     if (!message) return;
     [self.hid sendWithMessage:message freeWhenDone:YES completionQueue:self.inputQueue completion:^(NSError *error) {
@@ -95,7 +132,7 @@ static CGRect frameOf(AXUIElementRef element) {
     @autoreleasepool {
         CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
         if (!buffer) return;
-        CIImage *image = [CIImage imageWithCVPixelBuffer:buffer];
+        CIImage *image = [self imageWithNativeScreen:[CIImage imageWithCVPixelBuffer:buffer]];
         CGImageRef cg = [self.context createCGImage:image fromRect:image.extent];
         if (!cg) return;
         NSMutableData *data = [NSMutableData data];
@@ -146,6 +183,16 @@ int main(int argc, const char **argv) { @autoreleasepool {
     id device = nil;
     for (id d in [set availableDevices]) if ([[[d UDID] UUIDString] caseInsensitiveCompare:udid] == NSOrderedSame) device = d;
     if (!device) { fail(@"O aparelho selecionado não está disponível no Xcode ativo."); return 1; }
+    @try {
+        for (id port in [[device io] ioPorts]) {
+            if (![[port portIdentifier] isEqual:@"com.apple.framebuffer.display"]) continue;
+            id display = [port descriptor];
+            if ([display respondsToSelector:@selector(screenProperties)] && [display respondsToSelector:@selector(maskedFramebufferSurface)] && [[[display screenProperties] uniqueId] isEqual:@"PurpleMain"]) {
+                sim.display = display;
+                break;
+            }
+        }
+    } @catch (NSException *exception) { /* captura da janela como alternativa */ }
     sim.hid = [[hidClass alloc] initWithDevice:device error:&error];
     if (!sim.hid) { fail(error.localizedDescription ?: @"Não foi possível conectar a entrada do simulador."); return 1; }
     sim.inputQueue = dispatch_queue_create("ovseer.simulator.input", DISPATCH_QUEUE_SERIAL);

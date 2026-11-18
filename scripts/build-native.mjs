@@ -48,7 +48,7 @@ const simulatorSource = join(root, 'native', 'macos', 'Simulator', 'main.m')
 const simulatorOutput = join(out, 'ovseer-simulator')
 const simulatorBuilds = (process.argv.includes('--universal') ? ['arm64', 'x86_64'] : [process.arch === 'arm64' ? 'arm64' : 'x86_64']).map((arch) => {
   const file = `${simulatorOutput}.${arch}.new`
-  run('xcrun', ['clang', '-arch', arch, '-fobjc-arc', '-O2', '-mmacosx-version-min=14.0', '-framework', 'AppKit', '-framework', 'ScreenCaptureKit', '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'CoreMedia', '-framework', 'CoreVideo', simulatorSource, '-o', file], root)
+  run('xcrun', ['clang', '-arch', arch, '-fobjc-arc', '-O2', '-mmacosx-version-min=14.0', '-framework', 'AppKit', '-framework', 'ScreenCaptureKit', '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'CoreMedia', '-framework', 'CoreVideo', '-framework', 'IOSurface', simulatorSource, '-o', file], root)
   return file
 })
 if (simulatorBuilds.length > 1) {
