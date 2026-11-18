@@ -44,7 +44,10 @@ if CommandLine.arguments.contains("--watch-shift") {
         FileHandle.standardError.write(Data("Não foi possível observar o teclado.\n".utf8))
         exit(1)
     }
-    RunLoop.main.run()
+    // NSEvent precisa do loop do AppKit para entregar os eventos ao monitor global.
+    let application = NSApplication.shared
+    application.setActivationPolicy(.prohibited)
+    application.run()
     exit(0)
 }
 
