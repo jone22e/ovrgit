@@ -1,3 +1,4 @@
+import { registerSimulators, shutdownSimulators } from './simulators'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, session, shell, systemPreferences,
   type MenuItemConstructorOptions, webContents
@@ -318,6 +319,7 @@ function openTerminalWindow(id: number) {
 }
 
 function registerIpc() {
+  registerSimulators()
   ipcMain.handle('voice:status', () => voice.voiceStatus())
   ipcMain.handle('voice:install', (_e, token?: string) => voice.installVoice(typeof token === 'string' ? token.slice(0, 500) : undefined))
   ipcMain.handle('voice:test', () => voice.testVoice())
@@ -1045,6 +1047,7 @@ function prepareQuit() {
   aws.stopAws()
   agentChat.shutdownAgents()
   stopScreenCapture()
+  shutdownSimulators()
   killAllTerminals()
   services.stopAllServices()
   agentApi.stopAgentApi()

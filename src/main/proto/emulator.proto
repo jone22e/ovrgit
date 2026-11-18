@@ -1,0 +1,26 @@
+// Copyright (C) The Android Open Source Project
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Subconjunto do protocolo do Android Emulator (Apache 2.0).
+// Fonte: SDK emulator/lib/emulator_controller.proto, campos e números preservados.
+syntax = "proto3";
+package android.emulation.control;
+message Empty {}
+message Touch { int32 x = 1; int32 y = 2; int32 identifier = 3; int32 pressure = 4; }
+message TouchEvent { repeated Touch touches = 1; int32 display = 2; }
+message KeyboardEvent { int32 codeType = 1; int32 eventType = 2; int32 keyCode = 3; string key = 4; string text = 5; }
+message ImageFormat { int32 format = 1; uint32 width = 3; uint32 height = 4; uint32 display = 5; }
+message Image { ImageFormat format = 1; uint32 width = 2; uint32 height = 3; bytes image = 4; uint32 seq = 5; uint64 timestampUs = 6; }
+service EmulatorController {
+  rpc sendTouch(TouchEvent) returns (Empty) {}
+  rpc sendKey(KeyboardEvent) returns (Empty) {}
+  rpc streamScreenshot(ImageFormat) returns (stream Image) {}
+}

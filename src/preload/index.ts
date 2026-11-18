@@ -1,3 +1,4 @@
+import type { SimulatorFrame } from '../shared/simulator'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, QueueTask, ServiceState, Settings, TerminalSpec, UpdateState
@@ -5,6 +6,21 @@ import type {
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
+  simulatorList: () => ipcRenderer.invoke('simulator:list'),
+  simulatorConnect: (id) => ipcRenderer.invoke('simulator:connect', id),
+  simulatorDisconnect: () => ipcRenderer.invoke('simulator:disconnect'),
+  simulatorStop: (id) => ipcRenderer.invoke('simulator:stop', id),
+  simulatorInput: (input) => ipcRenderer.invoke('simulator:input', input),
+  onSimulatorFrame: (cb) => {
+    const h = (_e: unknown, frame: SimulatorFrame) => cb(frame)
+    ipcRenderer.on('simulator:frame', h)
+    return () => ipcRenderer.off('simulator:frame', h)
+  },
+  onSimulatorError: (cb) => {
+    const h = (_e: unknown, error: { deviceId: string; message: string }) => cb(error)
+    ipcRenderer.on('simulator:error', h)
+    return () => ipcRenderer.off('simulator:error', h)
+  },
   voiceStatus: () => ipcRenderer.invoke('voice:status'),
   voiceInstall: (token) => ipcRenderer.invoke('voice:install', token),
   voiceTest: () => ipcRenderer.invoke('voice:test'),

@@ -1,3 +1,4 @@
+import type { SimulatorCatalog, SimulatorFrame, SimulatorInput } from './simulator'
 import type { ChecklistItem } from './checklist'
 import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
@@ -1067,6 +1068,13 @@ export interface ProviderStatus {
 }
 
 export interface OvseerApi {
+  simulatorList(): Promise<SimulatorCatalog>
+  simulatorConnect(deviceId: string): Promise<void>
+  simulatorDisconnect(): Promise<void>
+  simulatorStop(deviceId: string): Promise<void>
+  simulatorInput(input: SimulatorInput): Promise<void>
+  onSimulatorFrame(cb: (frame: SimulatorFrame) => void): () => void
+  onSimulatorError(cb: (error: { deviceId: string; message: string }) => void): () => void
   voiceStatus(): Promise<VoiceStatus>
   voiceInstall(token?: string): Promise<VoiceStatus>
   voiceTest(): Promise<void>

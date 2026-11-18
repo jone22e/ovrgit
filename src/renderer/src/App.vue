@@ -33,12 +33,14 @@ import QuickOpen from './components/QuickOpen.vue'
 import ResultDialog from './components/ResultDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import ServicesDialog from './components/ServicesDialog.vue'
+import SimulatorPanel from './components/SimulatorPanel.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
 import {
   analyze, api, commit, hasPlan, init, narrowQuery, openNewAgent, openProject, pull, push, refresh, refreshDeployOverview, setPane, setShowDiff, setShowTasks, setShowTerminal, state
 } from './store'
 
+const simulatorOpen = ref(false)
 const showFeature = ref(false)
 const showPull = ref(false)
 const showSwitcher = ref(false)
@@ -210,7 +212,7 @@ onUnmounted(() => {
 
 <template>
   <div class="app">
-    <TopBar v-model:switcher="showSwitcher" />
+    <TopBar v-model:switcher="showSwitcher" v-model:simulator="simulatorOpen" />
 
     <div v-if="state.error" class="error-bar">
       <Icon name="alert" />
@@ -225,7 +227,7 @@ onUnmounted(() => {
       <button class="ghost icon small" title="Depois (instala ao fechar o app)" @click="updateDismissed = true"><Icon name="x" :size="14" /></button>
     </div>
 
-    <Welcome v-if="!state.repo" />
+    <div v-if="!state.repo" class="welcome-split"><Welcome /><SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" /></div>
 
     <template v-else>
       <div class="shell">
@@ -284,6 +286,7 @@ onUnmounted(() => {
         </div>
       </template>
       </div>
+      <SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" />
       </div>
     </template>
 
@@ -315,6 +318,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.welcome-split { display: flex; flex: 1; min-height: 0; }
+.welcome-split > :first-child { flex: 1; min-width: 0; }
 .app { display: flex; flex-direction: column; height: 100%; }
 .body { position: relative; flex: 1; display: flex; min-height: 0; }
 /* barra lateral à esquerda e, ao lado, a coluna com todo o resto (faixas, área de trabalho, commit, terminal) */

@@ -42,3 +42,17 @@ for (const [folder, name] of [['Transcribe', 'ovseer-transcribe'], ['ComputerUse
   renameSync(staged, join(out, name))
   console.log(`[build-native] ${name} -> ${join(out, name)}`)
 }
+
+// Captura contínua e entrada do Simulator do Xcode; não depende de frameworks privados para compilar.
+const simulatorSource = join(root, 'native', 'macos', 'Simulator', 'main.m')
+const simulatorOutput = join(out, 'ovseer-simulator')
+const simulatorBuilds = (process.argv.includes('--universal') ? ['arm64', 'x86_64'] : [process.arch === 'arm64' ? 'arm64' : 'x86_64']).map((arch) => {
+  const file = `${simulatorOutput}.${arch}.new`
+  run('xcrun', ['clang', '-arch', arch, '-fobjc-arc', '-O2', '-mmacosx-version-min=14.0', '-framework', 'AppKit', '-framework', 'ScreenCaptureKit', '-framework', 'CoreImage', '-framework', 'ImageIO', '-framework', 'CoreMedia', '-framework', 'CoreVideo', simulatorSource, '-o', file], root)
+  return file
+})
+if (simulatorBuilds.length > 1) {
+  run('lipo', ['-create', ...simulatorBuilds, '-output', `${simulatorOutput}.new`], root)
+  renameSync(`${simulatorOutput}.new`, simulatorOutput)
+} else renameSync(simulatorBuilds[0], simulatorOutput)
+console.log(`[build-native] ovseer-simulator -> ${simulatorOutput}`)

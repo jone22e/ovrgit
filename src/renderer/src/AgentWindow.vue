@@ -23,6 +23,7 @@ import { ARCH_PHASES, archPlanRequest, cleanDesignHtml, designRequest, extractHt
 import AgentLogo from './components/AgentLogo.vue'
 import AskCard from './components/AskCard.vue'
 import FileCard from './components/FileCard.vue'
+import SimulatorPanel from './components/SimulatorPanel.vue'
 import Icon from './components/Icon.vue'
 import Modal from './components/Modal.vue'
 import ModelPicker from './components/ModelPicker.vue'
@@ -36,6 +37,7 @@ import { applyTheme } from './theme'
  * Janela exclusiva de um agente: só a conversa. Cada mensagem roda o CLI (Claude Code ou Codex)
  * continuando a mesma sessão; modelo e esforço podem mudar entre uma mensagem e outra.
  */
+const simulatorOpen = ref(false)
 const api = window.ovseer
 const uid = new URLSearchParams(location.search).get('uid') ?? ''
 
@@ -2122,6 +2124,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
 </script>
 
 <template>
+  <div class="agent-split">
   <div
     class="agent"
     :class="{ docked }"
@@ -2157,6 +2160,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
         </span>
       </div>
       <span class="spacer" />
+      <button type="button" class="ghost icon head-btn" :class="{ on: simulatorOpen }" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" :size="15" /></button>
       <button v-if="voicePlatform" type="button" class="ghost icon head-btn" :class="{ on: voiceActive() }" :title="voiceActive() ? 'Desativar voz deste agente' : 'Ativar voz deste agente'" @click="toggleVoice"><Icon name="volume" :size="15" /></button>
       <button v-if="voicePlatform && voicePendingCount" type="button" class="ghost icon head-btn" title="Interromper e limpar áudios deste agente" @click="stopVoice"><Icon name="stop" :size="13" /></button>
       <div v-if="!docked" ref="gridRoot" class="grid-menu">
@@ -2479,6 +2483,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
         <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole na janela)" :disabled="!info" @click="pickFiles">
           <Icon name="paperclip" :size="15" />
         </button>
+        <button v-if="docked" type="button" class="ghost icon" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" :size="15" /></button>
         <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
         <div ref="modeRoot" class="mode-menu">
           <!-- só o ícone: o nome do modo fica na dica e no menu -->
@@ -2558,12 +2563,15 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
     </Modal>
     <VoiceSetupDialog v-if="voiceSetup" @close="closeVoiceSetup" />
   </div>
+  <SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" />
+  </div>
 </template>
 
 <style scoped>
 /* degradê imperceptível em vez de cor chapada: blocos de cor única e blocos com conteúdo são desenhados por caminhos
    diferentes no Chromium, com cores levemente diferentes no Mac, o que em fundos quase pretos virava faixas (ver styles.css) */
-.agent { display: flex; flex-direction: column; height: 100%; background: var(--bg) linear-gradient(180deg, color-mix(in srgb, var(--bg) 99%, var(--text)), var(--bg)); }
+.agent-split { display: flex; height: 100%; min-width: 0; overflow: hidden; }
+.agent { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; background: var(--bg) linear-gradient(180deg, color-mix(in srgb, var(--bg) 99%, var(--text)), var(--bg)); }
 /* cartão do Modo Arquiteto: da mesma família do cartão do checklist, encostado no campo */
 .archcard { flex: none; margin: 0 16px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--panel); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); overflow: hidden; }
 .ac-head { display: flex; align-items: center; gap: 6px; padding-right: 8px; min-width: 0; }

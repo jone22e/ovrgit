@@ -10,6 +10,7 @@ import ServicesMenu from './ServicesMenu.vue'
 import UsageChip from './UsageChip.vue'
 import UserMenu from './UserMenu.vue'
 
+const simulatorOpen = defineModel<boolean>('simulator', { default: false })
 const switcherOpen = defineModel<boolean>('switcher', { default: false })
 const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 </script>
@@ -41,6 +42,7 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
     <span class="spacer" />
     <UsageChip />
     <ServicesMenu />
+    <button type="button" class="ghost icon" :class="{ on: simulatorOpen }" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" /></button>
 
     <template v-if="state.repo">
       <span class="layout">
