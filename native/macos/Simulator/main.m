@@ -98,10 +98,10 @@ static CGRect frameOf(AXUIElementRef element) {
         CGImageRef cg = [self.context createCGImage:image fromRect:image.extent];
         if (!cg) return;
         NSMutableData *data = [NSMutableData data];
-        CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, CFSTR("public.jpeg"), 1, NULL);
+        CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, CFSTR("public.png"), 1, NULL);
         if (dest) {
-            CGImageDestinationAddImage(dest, cg, (__bridge CFDictionaryRef)@{(__bridge NSString *)kCGImageDestinationLossyCompressionQuality: @0.8});
-            if (CGImageDestinationFinalize(dest)) emit(@{@"type": @"frame", @"image": [@"data:image/jpeg;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]], @"width": @(CGImageGetWidth(cg)), @"height": @(CGImageGetHeight(cg))});
+            CGImageDestinationAddImage(dest, cg, NULL);
+            if (CGImageDestinationFinalize(dest)) emit(@{@"type": @"frame", @"image": [@"data:image/png;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]], @"width": @(CGImageGetWidth(cg)), @"height": @(CGImageGetHeight(cg))});
             CFRelease(dest);
         }
         CGImageRelease(cg);
@@ -180,11 +180,14 @@ int main(int argc, const char **argv) { @autoreleasepool {
         SCContentFilter *filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:candidates.firstObject];
         SCStreamConfiguration *config = [SCStreamConfiguration new];
         config.sourceRect = CGRectMake(sim.screenRect.origin.x - sim.windowRect.origin.x, sim.screenRect.origin.y - sim.windowRect.origin.y, sim.screenRect.size.width, sim.screenRect.size.height);
-        config.width = 720;
-        config.height = lround(720 * sim.screenRect.size.height / sim.screenRect.size.width);
+        // A geometria do AX usa pontos; preserve os pixels da janela em telas Retina.
+        config.width = lround(sim.screenRect.size.width * filter.pointPixelScale);
+        config.height = lround(sim.screenRect.size.height * filter.pointPixelScale);
+        config.captureResolution = SCCaptureResolutionBest;
+        config.pixelFormat = kCVPixelFormatType_32BGRA;
         config.minimumFrameInterval = CMTimeMake(1, 20);
         config.queueDepth = 3;
-        config.scalesToFit = YES;
+        config.scalesToFit = NO;
         config.showsCursor = NO;
         if (@available(macOS 14.0, *)) config.ignoreShadowsSingleWindow = YES;
         sim.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:sim];
