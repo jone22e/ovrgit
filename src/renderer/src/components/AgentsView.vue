@@ -363,27 +363,34 @@ function unfreeze(rect: Box) {
   unfreezeTimer = setTimeout(() => (frozen.value = null), 80)
 }
 let areaRaf = 0
+function updateArea() {
+  const el = dockEl.value
+  if (!el) return api.orchestratorArea(null)
+  const r = el.getBoundingClientRect()
+  if (covered(el, r)) return void freeze()
+  unfreeze({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
+}
 function reportArea() {
   cancelAnimationFrame(areaRaf)
-  areaRaf = requestAnimationFrame(() => {
-    const el = dockEl.value
-    if (!el) return api.orchestratorArea(null)
-    const r = el.getBoundingClientRect()
-    if (covered(el, r)) return void freeze()
-    unfreeze({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
-  })
+  areaRaf = requestAnimationFrame(updateArea)
 }
 let sizeObs: ResizeObserver | undefined
 let domObs: MutationObserver | undefined
-watch(dockEl, (el) => {
+watch([dockEl, bodyEl], ([el, body]) => {
   sizeObs?.disconnect()
   sizeObs = undefined
   if (el) {
-    sizeObs = new ResizeObserver(reportArea)
+    sizeObs = new ResizeObserver(() => {
+      // O simulador pode deslocar a conversa sem mudar a largura dela.
+      // Atualize a vista nativa antes da pintura, sem esperar outra mutação ou RAF.
+      cancelAnimationFrame(areaRaf)
+      updateArea()
+    })
     sizeObs.observe(el)
+    if (body) sizeObs.observe(body)
   }
   reportArea()
-})
+}, { flush: 'post' })
 // a largura da área encaixada vira uma variável CSS da página: os avisos (toast) se mantêm fora dela
 watch(
   () => (state.showDock ? dockWidth.value : 0),
