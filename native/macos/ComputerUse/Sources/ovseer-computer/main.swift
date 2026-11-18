@@ -3,33 +3,52 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
-// Modo usado pelo app: observa três toques rápidos em Shift mesmo com outro aplicativo em foco.
+// Modo usado pelo app: observa três toques rápidos na tecla escolhida mesmo com outro aplicativo em foco.
 // Não intercepta as teclas; o processo principal inicia a captura quando recebe uma linha.
-if CommandLine.arguments.contains("--watch-shift") {
+let captureKeyArgument = CommandLine.arguments.firstIndex(of: "--watch-capture-key")
+if captureKeyArgument != nil || CommandLine.arguments.contains("--watch-shift") {
+    let keys: [String: (codes: Set<UInt16>, flag: NSEvent.ModifierFlags)] = [
+        "shift": ([56, 60], .shift), "control": ([59, 62], .control),
+        "option": ([58, 61], .option), "command": ([55, 54], .command)
+    ]
+    let keyName: String
+    if let index = captureKeyArgument {
+        guard index + 1 < CommandLine.arguments.count else {
+            FileHandle.standardError.write(Data("Informe a tecla do atalho de captura.\n".utf8))
+            exit(1)
+        }
+        keyName = CommandLine.arguments[index + 1]
+    } else {
+        keyName = "shift"
+    }
+    guard let key = keys[keyName] else {
+        FileHandle.standardError.write(Data("Tecla de captura inválida. Use shift, control, option ou command.\n".utf8))
+        exit(1)
+    }
     guard CGPreflightListenEventAccess() || CGRequestListenEventAccess() else {
         FileHandle.standardError.write(Data("Conceda Monitoramento de Entrada ao aplicativo mostrado pelo macOS em Ajustes do Sistema > Privacidade e Segurança e reinicie o Ovseer para usar o atalho.\n".utf8))
         exit(2)
     }
     var touches = 0
     var lastTouch = Date.distantPast
-    var shiftDown = false
+    var keyDown = false
     guard NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown], handler: { event in
         if event.type == .keyDown {
             touches = 0
             return
         }
-        guard event.keyCode == 56 || event.keyCode == 60 else {
-            if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty { touches = 0 }
+        guard key.codes.contains(event.keyCode) else {
+            touches = 0
             return
         }
-        let pressed = event.modifierFlags.contains(.shift)
+        let pressed = event.modifierFlags.contains(key.flag)
         if !pressed {
-            shiftDown = false
+            keyDown = false
             return
         }
-        guard !shiftDown else { return }
-        shiftDown = true
-        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else {
+        guard !keyDown else { return }
+        keyDown = true
+        guard event.modifierFlags.intersection([.shift, .command, .control, .option]).subtracting(key.flag).isEmpty else {
             touches = 0
             return
         }

@@ -291,6 +291,8 @@ export interface RepoGroup {
   dirs: string[]
 }
 
+export type CaptureShortcutKey = 'shift' | 'control' | 'option' | 'command'
+
 export interface Settings {
   /** Id do tema (ver shared/themes.ts) */
   theme: string
@@ -329,6 +331,8 @@ export interface Settings {
   agentGrid: GridSize
   /** Checar e baixar versões novas do app sozinho */
   autoUpdate: boolean
+  /** Tecla pressionada três vezes para capturar a tela no macOS (padrão: Shift) */
+  captureShortcutKey?: CaptureShortcutKey
   /** Serviços em segundo plano (menu do usuário → Serviços) */
   services: Service[]
   /** Perfil do AWS CLI usado em "Entrar na AWS" (vazio: o padrão) */

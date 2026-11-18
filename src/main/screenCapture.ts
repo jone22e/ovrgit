@@ -4,8 +4,14 @@ import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { computerUseBinary } from './computerUse'
+import type { CaptureShortcutKey } from '../shared/types'
+
+const keyNames: Record<CaptureShortcutKey, string> = {
+  shift: 'Shift', control: 'Control', option: 'Option', command: 'Command'
+}
 
 let watcher: ChildProcess | null = null
+let watchedKey: CaptureShortcutKey = 'shift'
 let chooser: ChildProcess | null = null
 let thumbnail: BrowserWindow | null = null
 let captureDir: string | null = null
@@ -73,34 +79,48 @@ function capture() {
   })
 }
 
-/** Três toques em Shift em qualquer app do Mac iniciam uma seleção de tela. */
-export function startScreenCapture() {
+/** Três toques na tecla configurada em qualquer app do Mac iniciam uma seleção de tela. */
+export function startScreenCapture(key: CaptureShortcutKey = 'shift') {
   if (process.platform !== 'darwin') return
   ipcMain.on('capture:close', (event) => {
     if (thumbnail && !thumbnail.isDestroyed() && event.sender === thumbnail.webContents) thumbnail.close()
   })
+  setScreenCaptureShortcut(key)
+}
+
+export function setScreenCaptureShortcut(value: CaptureShortcutKey = 'shift') {
+  if (process.platform !== 'darwin') return
+  const key = Object.hasOwn(keyNames, value) ? value : 'shift'
+  if (watcher && watchedKey === key) return
+  const previous = watcher
+  watcher = null
+  previous?.kill()
   const binary = computerUseBinary()
   if (!binary) {
     console.warn('Atalho de captura indisponível: ajudante nativo não encontrado.')
     return
   }
   let buffer = ''
-  watcher = spawn(binary, ['--watch-shift'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  watcher.stdout?.on('data', (chunk: Buffer) => {
+  const child = spawn(binary, ['--watch-capture-key', key], { stdio: ['ignore', 'pipe', 'pipe'] })
+  watcher = child
+  watchedKey = key
+  child.stdout?.on('data', (chunk: Buffer) => {
+    if (watcher !== child) return
     buffer += chunk.toString()
     const lines = buffer.split('\n')
     buffer = lines.pop() ?? ''
     for (const line of lines) if (line === 'capture') capture()
   })
-  watcher.stderr?.on('data', (chunk: Buffer) => console.warn('Atalho de captura:', chunk.toString().trim()))
-  watcher.on('error', (error) => console.error('Atalho de captura falhou:', error))
-  watcher.on('exit', (code) => {
+  child.stderr?.on('data', (chunk: Buffer) => console.warn('Atalho de captura:', chunk.toString().trim()))
+  child.on('error', (error) => console.error('Atalho de captura falhou:', error))
+  child.on('exit', (code) => {
+    if (watcher !== child) return
     watcher = null
     if (code !== 2) return
     dialog.showMessageBox({
       type: 'info',
       title: 'Atalho de captura indisponível',
-      message: 'O macOS ainda não permite detectar os três toques em Shift.',
+      message: `O macOS ainda não permite detectar os três toques em ${keyNames[key]}.`,
       detail: `Em Ajustes do Sistema > Privacidade e Segurança > Monitoração de Entrada, adicione e permita ${app.isPackaged ? 'o Ovseer' : binary}. Depois reinicie o Ovseer.`,
       buttons: ['Abrir ajustes', 'Agora não'],
       defaultId: 0,

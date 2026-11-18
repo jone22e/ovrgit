@@ -28,6 +28,7 @@ const DEFAULTS: Settings = {
   agentFontSize: 14,
   agentGrid: GRID_DEFAULT,
   autoUpdate: true,
+  captureShortcutKey: 'shift',
   services: [],
   awsProfile: '',
   awsWatch: true,

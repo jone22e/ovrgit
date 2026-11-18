@@ -52,7 +52,7 @@ import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
 import * as voice from './voice'
-import { startScreenCapture, stopScreenCapture } from './screenCapture'
+import { setScreenCaptureShortcut, startScreenCapture, stopScreenCapture } from './screenCapture'
 import type { ServicesFile } from '../shared/servicesShare'
 
 let win: BrowserWindow | null = null
@@ -862,6 +862,7 @@ function registerIpc() {
   ipcMain.handle('chrome-extension-token:set', (_e, token: string) => setChromeExtensionToken(String(token ?? '')))
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)
+    if ('captureShortcutKey' in patch) setScreenCaptureShortcut(next.captureShortcutKey)
     // as outras janelas (chats de agente) acompanham tema e fonte sem precisar reabrir
     for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed() && wc !== e.sender) wc.send('settings:changed', next)
     return next
@@ -1000,7 +1001,7 @@ app.whenReady().then(() => {
   })
   services.setupServices({ icon, background: initialBackground })
   services.startAutostart()
-  startScreenCapture()
+  startScreenCapture(getSettings().captureShortcutKey)
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
   agentApi
     .startAgentApi({

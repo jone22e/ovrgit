@@ -86,6 +86,12 @@ function setTerminalSize(n: number) {
   saveSettings({ terminalFontSize: Math.min(Math.max(n, 9), 28) })
 }
 
+function setCaptureShortcutKey(key: string) {
+  if (key === 'shift' || key === 'control' || key === 'option' || key === 'command') {
+    saveSettings({ captureShortcutKey: key })
+  }
+}
+
 // tema: prévia ao vivo; se sair sem salvar, volta ao tema salvo
 const theme = ref(s.theme)
 let saved = false
@@ -251,6 +257,20 @@ async function save() {
                   </span>
                   <span class="theme-name">{{ t.name }}</span>
                 </button>
+              </div>
+            </div>
+
+            <h2>Atalhos</h2>
+            <div class="block">
+              <div class="field">
+                <label for="capture-shortcut-key">Captura de tela (macOS)</label>
+                <select id="capture-shortcut-key" :value="state.settings?.captureShortcutKey ?? 'shift'" @change="setCaptureShortcutKey(($event.target as HTMLSelectElement).value)">
+                  <option value="shift">Shift ⇧ — 3 toques</option>
+                  <option value="control">Control ⌃ — 3 toques</option>
+                  <option value="option">Option ⌥ — 3 toques</option>
+                  <option value="command">Command ⌘ — 3 toques</option>
+                </select>
+                <p class="faint">Pressione a tecla escolhida três vezes rapidamente para selecionar uma área da tela, mesmo em outro aplicativo. Salva e aplica na hora.</p>
               </div>
             </div>
 
