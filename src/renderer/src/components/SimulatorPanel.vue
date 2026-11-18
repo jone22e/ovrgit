@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { macSimulatorKeyCode, simulatorPoint, type SimulatorCatalog, type SimulatorFrame, type SimulatorInput, type SimulatorPlatform } from '@shared/simulator'
+import { macSimulatorKeyCode, simulatorImageSize, simulatorPanelWidth, simulatorPoint, type SimulatorCatalog, type SimulatorFrame, type SimulatorInput, type SimulatorPlatform } from '@shared/simulator'
 import Icon from './Icon.vue'
 
 const emit = defineEmits<{ close: [] }>()
@@ -16,14 +16,23 @@ const error = ref('')
 const copied = ref(false)
 const screen = ref<HTMLImageElement>()
 const panel = ref<HTMLElement>()
+const viewport = ref<HTMLElement>()
 const zoom = ref(1)
-const width = ref(Math.max(280, Math.min(520, Number(localStorage.getItem('ovseer.simulator.width')) || 400)))
+const width = ref(Math.max(220, Number(localStorage.getItem('ovseer.simulator.width')) || 400))
+const availableWidth = ref(window.innerWidth)
+const viewportSize = ref({ width: 0, height: 0 })
+const shownWidth = computed(() => simulatorPanelWidth(width.value, availableWidth.value))
+const imageSize = computed(() => image.value ? simulatorImageSize(image.value, viewportSize.value, zoom.value) : { width: 0, height: 0 })
+const imageWrapStyle = computed(() => ({ width: `${Math.max(viewportSize.value.width, imageSize.value.width)}px`, height: `${Math.max(viewportSize.value.height, imageSize.value.height)}px` }))
+const imageStyle = computed(() => ({ width: `${imageSize.value.width}px`, height: `${imageSize.value.height}px` }))
 const devices = computed(() => catalog.value.devices.filter((d) => d.platform === platform.value))
 const device = computed(() => devices.value.find((d) => d.id === selected.value))
 let disposed = false
 let request = 0
 let pointer: { id: number; x: number; y: number } | null = null
 let resizeCleanup: (() => void) | undefined
+let sizeObserver: ResizeObserver | undefined
+let sizeRaf = 0
 let lastMove = 0
 let acceptingFrames = false
 const offs = [
@@ -119,22 +128,66 @@ async function copyScreen() {
   try { await api.copyImage(image.value.image); copied.value = true; setTimeout(() => { copied.value = false }, 1500) }
   catch (e) { error.value = String((e as Error).message) }
 }
-function resizeBy(delta: number) { width.value = Math.max(220, Math.min(window.innerWidth - 220, width.value + delta)) }
+function saveWidth() { localStorage.setItem('ovseer.simulator.width', String(shownWidth.value)) }
+function resizeBy(delta: number) {
+  width.value = simulatorPanelWidth(shownWidth.value + delta, availableWidth.value)
+  saveWidth()
+}
 function resize(e: PointerEvent) {
   if (e.button !== 0) return
-  const startX = e.clientX, startWidth = panel.value?.getBoundingClientRect().width ?? width.value
-  const move = (event: PointerEvent) => { width.value = Math.max(240, Math.min(window.innerWidth - 220, startWidth + startX - event.clientX)) }
-  const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); localStorage.setItem('ovseer.simulator.width', String(width.value)); resizeCleanup = undefined }
-  resizeCleanup?.(); resizeCleanup = end
-  window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end)
+  resizeCleanup?.()
+  const handle = e.currentTarget as HTMLElement
+  const startX = e.clientX, startWidth = shownWidth.value
+  const move = (event: PointerEvent) => {
+    if (event.pointerId !== e.pointerId) return
+    if (!event.buttons) return end()
+    width.value = simulatorPanelWidth(startWidth + startX - event.clientX, availableWidth.value)
+  }
+  const end = () => {
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', end)
+    handle.removeEventListener('pointercancel', end)
+    handle.removeEventListener('lostpointercapture', end)
+    window.removeEventListener('blur', end)
+    if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId)
+    saveWidth()
+    resizeCleanup = undefined
+  }
+  resizeCleanup = end
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+  handle.addEventListener('lostpointercapture', end)
+  window.addEventListener('blur', end)
+  handle.setPointerCapture(e.pointerId)
 }
 function close() { emit('close') }
-onMounted(() => { void refresh() })
-onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?.(); offs.forEach((off) => off()); void api.simulatorDisconnect().catch(() => undefined) })
+onMounted(() => {
+  const container = panel.value?.parentElement
+  if (container) availableWidth.value = container.clientWidth
+  let nextWidth = availableWidth.value
+  let nextViewport = viewportSize.value
+  sizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.target === container) nextWidth = entry.contentRect.width
+      if (entry.target === viewport.value) nextViewport = { width: entry.contentRect.width, height: entry.contentRect.height }
+    }
+    // Medir e alterar o layout em quadros separados evita realimentar o ResizeObserver.
+    cancelAnimationFrame(sizeRaf)
+    sizeRaf = requestAnimationFrame(() => {
+      availableWidth.value = nextWidth
+      viewportSize.value = nextViewport
+    })
+  })
+  if (container) sizeObserver.observe(container)
+  if (viewport.value) sizeObserver.observe(viewport.value)
+  void refresh()
+})
+onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?.(); sizeObserver?.disconnect(); cancelAnimationFrame(sizeRaf); offs.forEach((off) => off()); void api.simulatorDisconnect().catch(() => undefined) })
 </script>
 
 <template>
-  <aside ref="panel" class="simulator-panel" :style="{ width: `${width}px` }" aria-label="Simuladores">
+  <aside ref="panel" class="simulator-panel" :style="{ width: `${shownWidth}px` }" aria-label="Simuladores">
     <div class="sim-resizer" role="separator" aria-label="Ajustar largura do simulador" aria-orientation="vertical" tabindex="0" @pointerdown.prevent="resize" @keydown.left.prevent="resizeBy(20)" @keydown.right.prevent="resizeBy(-20)" />
     <header class="sim-head">
       <Icon name="smartphone" :size="16" /><strong>Simuladores</strong><span class="spacer" />
@@ -152,9 +205,9 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
       <button v-if="connected || device?.running" type="button" class="ghost icon small" title="Desligar aparelho" :disabled="busy" @click="stopDevice"><Icon name="power" :size="14" /></button>
     </div>
     <p v-if="error" class="sim-error" role="alert">{{ error }}</p>
-    <div class="sim-viewport" @contextmenu.prevent>
-      <div v-if="image" class="sim-image-wrap" :style="{ width: `${zoom * 100}%`, height: zoom === 1 ? '100%' : 'auto' }">
-        <img ref="screen" :src="image.image" :width="image.width" :height="image.height" class="sim-screen" :class="{ 'native-skin': platform === 'ios', zoomed: zoom > 1 }" :alt="`Tela de ${device?.name ?? 'simulador'}`" tabindex="0" draggable="false" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="releasePointer" @lostpointercapture="releasePointer" @keydown="key" @blur="releasePointer" />
+    <div ref="viewport" class="sim-viewport" @contextmenu.prevent>
+      <div v-if="image" class="sim-image-wrap" :style="imageWrapStyle">
+        <img ref="screen" :src="image.image" :width="image.width" :height="image.height" :style="imageStyle" class="sim-screen" :class="{ 'native-skin': platform === 'ios' }" :alt="`Tela de ${device?.name ?? 'simulador'}`" tabindex="0" draggable="false" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="releasePointer" @lostpointercapture="releasePointer" @keydown="key" @blur="releasePointer" />
       </div>
       <div v-else class="sim-empty">
         <span v-if="busy || loading" class="spinner" /><Icon v-else name="smartphone" :size="36" />
@@ -163,40 +216,45 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
       </div>
     </div>
     <footer class="sim-tools">
+      <span class="sim-tool-group">
       <button v-if="platform === 'android'" type="button" class="ghost icon" title="Voltar" :disabled="!connected" @click="input({ type: 'back' })"><Icon name="undo" :size="16" /></button>
       <button type="button" class="ghost icon" title="Tela inicial do aparelho" :disabled="!connected" @click="input({ type: 'home' })"><Icon name="home" :size="16" /></button>
       <button type="button" class="ghost icon" :title="copied ? 'Captura copiada' : 'Copiar captura da tela'" :disabled="!image" @click="copyScreen"><Icon :name="copied ? 'check' : 'camera'" :size="16" /></button>
-      <span class="spacer" /><button type="button" class="ghost icon" title="Diminuir zoom" :disabled="zoom <= 1" @click="zoom = Math.max(1, zoom - 0.25)"><Icon name="minus" :size="15" /></button>
+      </span>
+      <span class="sim-tool-group">
+      <button type="button" class="ghost icon" title="Diminuir zoom" :disabled="zoom <= 1" @click="zoom = Math.max(1, zoom - 0.25)"><Icon name="minus" :size="15" /></button>
       <button type="button" class="ghost small" title="Ajustar à área disponível" @click="zoom = 1">{{ zoom === 1 ? 'Ajustar' : `${Math.round(zoom * 100)}%` }}</button>
       <button type="button" class="ghost icon" title="Aumentar zoom" :disabled="!image || zoom >= 2.5" @click="zoom = Math.min(2.5, zoom + 0.25)"><Icon name="plus" :size="15" /></button>
+      </span>
     </footer>
     <small v-if="connected" class="sim-hint">Clique na tela para tocar, arrastar ou digitar.</small>
   </aside>
 </template>
 
 <style scoped>
-.simulator-panel { position: relative; flex: none; display: flex; flex-direction: column; min-width: 220px; max-width: 60%; min-height: 0; border-left: 1px solid var(--border); background: var(--panel); color: var(--text); }
+.simulator-panel { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .sim-head { display: flex; gap: 8px; align-items: center; height: 46px; flex: none; padding: 0 12px; border-bottom: 1px solid var(--border); -webkit-app-region: no-drag; }
-.sim-head strong { font-size: 12px; font-weight: 600; }
+.sim-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.sim-head button, .sim-status button { flex: none; }
 .spacer { flex: 1; }
 .sim-selectors { display: flex; gap: 8px; padding: 12px 12px 6px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); min-width: 0; }
 .sim-device { flex: 1; }
 select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .sim-status { display: flex; align-items: center; gap: 8px; padding: 4px 12px 10px; border-bottom: 1px solid var(--border); }
-.sim-status small { flex: 1; font-size: 11px; color: var(--muted); }
+.sim-status small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
 .sim-error { margin: 8px; padding: 8px; background: color-mix(in srgb, var(--del) 10%, transparent); color: var(--del); font-size: 11px; line-height: 1.5; border-radius: 6px; overflow-wrap: anywhere; max-height: 140px; overflow: auto; }
 .sim-viewport { flex: 1; min-height: 0; overflow: auto; padding: 16px; background: var(--bg); }
 .sim-image-wrap { display: flex; align-items: center; justify-content: center; min-height: 0; }
-.sim-screen { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 20px; box-shadow: 0 0 0 5px #18181b, 0 0 0 6px #52525b; touch-action: none; user-select: none; outline: none; }
-.sim-screen.zoomed { width: 100%; max-height: none; }
+.sim-screen { display: block; flex: none; object-fit: contain; border-radius: 20px; box-shadow: 0 0 0 5px #18181b, 0 0 0 6px #52525b; touch-action: none; user-select: none; outline: none; }
 .sim-screen:focus-visible { box-shadow: 0 0 0 5px #18181b, 0 0 0 7px var(--accent); }
 .sim-screen.native-skin { border-radius: 0; box-shadow: none; }
 .sim-screen.native-skin:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .sim-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; height: 100%; padding: 24px; text-align: center; color: var(--muted); }
 .sim-empty strong { font-size: 13px; color: var(--text); font-weight: 500; }
 .sim-empty p { font-size: 12px; line-height: 1.6; margin: 0; }
-.sim-tools { display: flex; align-items: center; gap: 3px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.sim-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.sim-tool-group { display: flex; align-items: center; gap: 3px; }
 .sim-hint { text-align: center; color: var(--faint); font-size: 10px; padding: 0 8px 9px; }
 .sim-resizer { position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; cursor: col-resize; z-index: 2; touch-action: none; }
 .sim-resizer:hover, .sim-resizer:focus-visible { background: var(--accent-soft); }

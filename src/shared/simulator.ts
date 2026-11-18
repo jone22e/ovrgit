@@ -56,3 +56,16 @@ const macCodes: Record<string, number> = {
   Tab: 48, Space: 49, Backquote: 50, Backspace: 51, Escape: 53, ArrowLeft: 123, ArrowRight: 124, ArrowDown: 125, ArrowUp: 126
 }
 export const macSimulatorKeyCode = (code: string) => macCodes[code]
+
+/** Mesmo limite na largura exibida, no arrasto e no teclado, relativo ao contêiner real. */
+export function simulatorPanelWidth(wanted: number, available: number) {
+  const max = Math.max(0, available * 0.6)
+  return Math.min(max, Math.max(Math.min(220, max), wanted))
+}
+
+/** Dimensões do elemento da imagem: sem barras vazias dentro da área que recebe os toques. */
+export function simulatorImageSize(image: { width: number; height: number }, viewport: { width: number; height: number }, zoom = 1) {
+  if (image.width <= 0 || image.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return { width: 0, height: 0 }
+  const scale = Math.min(viewport.width / image.width, viewport.height / image.height) * zoom
+  return { width: image.width * scale, height: image.height * scale }
+}

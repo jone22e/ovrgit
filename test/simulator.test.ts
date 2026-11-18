@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { macSimulatorKeyCode, parseAvds, parseIosDevices, simulatorPoint, validSimulatorInput } from '../src/shared/simulator'
+import { macSimulatorKeyCode, parseAvds, parseIosDevices, simulatorImageSize, simulatorPanelWidth, simulatorPoint, validSimulatorInput } from '../src/shared/simulator'
 
 describe('catálogo dos simuladores', () => {
   it('lista apenas aparelhos iOS disponíveis e preserva a identidade e o runtime', () => {
@@ -20,6 +20,28 @@ describe('catálogo dos simuladores', () => {
       { id: 'android:Medium_Phone', platform: 'android', name: 'Medium_Phone', runtime: 'Android', running: false },
       { id: 'android:Pixel_9', platform: 'android', name: 'Pixel_9', runtime: 'Android', running: false }
     ])
+  })
+})
+describe('redimensionamento da coluna do simulador', () => {
+  it('limita a largura pelo contêiner, inclusive quando ele é menor que a janela', () => {
+    expect(simulatorPanelWidth(900, 600)).toBe(360)
+    expect(simulatorPanelWidth(100, 600)).toBe(220)
+    expect(simulatorPanelWidth(400, 320)).toBe(192)
+    expect(simulatorPanelWidth(360 - 20, 600)).toBe(340)
+    expect(simulatorPanelWidth(400, 0)).toBe(0)
+  })
+  it('encaixa o aparelho inteiro sem mudar a proporção ao estreitar ou alargar a coluna', () => {
+    for (const image of [{ width: 409, height: 826 }, { width: 1080, height: 2400 }]) {
+      for (const viewport of [{ width: 188, height: 660 }, { width: 368, height: 660 }, { width: 688, height: 360 }]) {
+        const size = simulatorImageSize(image, viewport)
+        expect(size.width).toBeLessThanOrEqual(viewport.width)
+        expect(size.height).toBeLessThanOrEqual(viewport.height)
+        expect(size.width / size.height).toBeCloseTo(image.width / image.height)
+        const zoomed = simulatorImageSize(image, viewport, 1.25)
+        expect(zoomed.width).toBeCloseTo(size.width * 1.25)
+        expect(zoomed.height).toBeCloseTo(size.height * 1.25)
+      }
+    }
   })
 })
 describe('entrada no painel dos simuladores', () => {
