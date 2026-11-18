@@ -26,13 +26,16 @@ function showThumbnail(file: string) {
   thumbnail?.destroy()
   const point = screen.getCursorScreenPoint()
   const area = screen.getDisplayNearestPoint(point).workArea
-  const width = 220
-  const height = 176
-  const x = Math.max(area.x, Math.min(point.x + 16, area.x + area.width - width))
-  const y = Math.max(area.y, Math.min(point.y + 16, area.y + area.height - height))
+  const image = nativeImage.createFromPath(file)
+  const size = image.getSize()
+  const scale = Math.min(1, 220 / Math.max(1, size.width), 180 / Math.max(1, size.height))
+  const width = Math.max(1, Math.round(size.width * scale))
+  const height = Math.max(1, Math.round(size.height * scale))
+  const x = area.x + area.width - width - 16
+  const y = area.y + area.height - height - 16
   const win = new BrowserWindow({
     width, height, x, y, frame: false, transparent: true, resizable: false,
-    alwaysOnTop: true, skipTaskbar: true, show: false,
+    hasShadow: false, acceptFirstMouse: true, alwaysOnTop: true, skipTaskbar: true, show: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true, sandbox: true, nodeIntegration: false
@@ -47,7 +50,7 @@ function showThumbnail(file: string) {
   })
   win.webContents.once('did-finish-load', () => {
     if (win.isDestroyed()) return
-    const preview = nativeImage.createFromPath(file).resize({ width: 400 }).toDataURL()
+    const preview = image.resize({ width: width * 2, height: height * 2 }).toDataURL()
     win.webContents.send('capture:image', preview)
     win.showInactive()
   })
