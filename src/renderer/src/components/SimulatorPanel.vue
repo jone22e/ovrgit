@@ -154,7 +154,7 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
     <p v-if="error" class="sim-error" role="alert">{{ error }}</p>
     <div class="sim-viewport" @contextmenu.prevent>
       <div v-if="image" class="sim-image-wrap" :style="{ width: `${zoom * 100}%`, height: zoom === 1 ? '100%' : 'auto' }">
-        <img ref="screen" :src="image.image" :width="image.width" :height="image.height" class="sim-screen" :alt="`Tela de ${device?.name ?? 'simulador'}`" tabindex="0" draggable="false" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="releasePointer" @lostpointercapture="releasePointer" @keydown="key" @blur="releasePointer" />
+        <img ref="screen" :src="image.image" :width="image.width" :height="image.height" class="sim-screen" :class="{ 'native-skin': platform === 'ios' }" :alt="`Tela de ${device?.name ?? 'simulador'}`" tabindex="0" draggable="false" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="releasePointer" @lostpointercapture="releasePointer" @keydown="key" @blur="releasePointer" />
       </div>
       <div v-else class="sim-empty">
         <span v-if="busy || loading" class="spinner" /><Icon v-else name="smartphone" :size="36" />
@@ -190,6 +190,8 @@ select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; font-size: 12p
 .sim-image-wrap { display: flex; align-items: center; justify-content: center; min-height: 0; }
 .sim-screen { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 20px; box-shadow: 0 0 0 5px #18181b, 0 0 0 6px #52525b; touch-action: none; user-select: none; outline: none; }
 .sim-screen:focus-visible { box-shadow: 0 0 0 5px #18181b, 0 0 0 7px var(--accent); }
+.sim-screen.native-skin { box-shadow: none; }
+.sim-screen.native-skin:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .sim-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; height: 100%; padding: 24px; text-align: center; color: var(--muted); }
 .sim-empty strong { font-size: 13px; color: var(--text); font-weight: 500; }
 .sim-empty p { font-size: 12px; line-height: 1.6; margin: 0; }
