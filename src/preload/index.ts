@@ -1,4 +1,4 @@
-import type { SimulatorFrame } from '../shared/simulator'
+import type { SimulatorDebugProgress, SimulatorFrame } from '../shared/simulator'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AgentAction, AgentChatEvent, AgentSession, AgentSnapshot, AgentStatus, AuthEvent, AwsInstallProgress, AwsStatus, OvseerApi, QueueTask, ServiceState, Settings, TerminalSpec, UpdateState
@@ -7,6 +7,13 @@ import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
   simulatorList: () => ipcRenderer.invoke('simulator:list'),
+  simulatorDebugProjects: (root) => ipcRenderer.invoke('simulator:debug-projects', root),
+  simulatorDebugStart: (root, id) => ipcRenderer.invoke('simulator:debug-start', root, id),
+  onSimulatorDebugProgress: (cb) => {
+    const h = (_e: unknown, progress: SimulatorDebugProgress) => cb(progress)
+    ipcRenderer.on('simulator:debug-progress', h)
+    return () => ipcRenderer.off('simulator:debug-progress', h)
+  },
   simulatorConnect: (id) => ipcRenderer.invoke('simulator:connect', id),
   simulatorDisconnect: () => ipcRenderer.invoke('simulator:disconnect'),
   simulatorStop: (id) => ipcRenderer.invoke('simulator:stop', id),

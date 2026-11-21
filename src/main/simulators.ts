@@ -439,6 +439,12 @@ async function readyAndroid(device: SimulatorDevice) {
   throw new Error('O Android ainda não concluiu a inicialização.')
 }
 const appIdentifier = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(value)
+/** O serial Android vem do ADB, nunca do nome do AVD. */
+export async function simulatorDebugTarget(id: string) {
+  const device = await requireDevice(id)
+  await agentCapture(id)
+  return { device, target: device.platform === 'ios' ? device.id.slice(4) : (await readyAndroid(device)).serial }
+}
 async function agentAction(id: string, action: SimulatorAction) {
   if (!validSimulatorAction(action)) throw new Error('Ação inválida. Use coordenadas de 0 a 1 e texto ASCII de até 1000 caracteres.')
   const ownerId = await agentCapture(id)
