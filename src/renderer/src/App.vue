@@ -41,6 +41,10 @@ import {
 } from './store'
 
 const simulatorOpen = ref(false)
+const simulatorRoots = computed(() => {
+  const conversation = state.agentSnaps.find((a) => a.docked)
+  return conversation ? [conversation.cwd, ...(conversation.extraDirs ?? [])] : []
+})
 const showFeature = ref(false)
 const showPull = ref(false)
 const showSwitcher = ref(false)
@@ -227,7 +231,7 @@ onUnmounted(() => {
       <button class="ghost icon small" title="Depois (instala ao fechar o app)" @click="updateDismissed = true"><Icon name="x" :size="14" /></button>
     </div>
 
-    <div v-if="!state.repo" class="welcome-split"><Welcome /><SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" /></div>
+    <div v-if="!state.repo" class="welcome-split"><Welcome /><SimulatorPanel v-if="simulatorOpen" :conversation-roots="simulatorRoots" @close="simulatorOpen = false" /></div>
 
     <template v-else>
       <div class="shell">
@@ -286,7 +290,7 @@ onUnmounted(() => {
         </div>
       </template>
       </div>
-      <SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" />
+      <SimulatorPanel v-if="simulatorOpen" :conversation-roots="simulatorRoots" @close="simulatorOpen = false" />
       </div>
     </template>
 

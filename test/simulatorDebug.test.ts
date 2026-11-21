@@ -60,13 +60,15 @@ beforeEach(async () => {
 afterEach(async () => { vi.unstubAllGlobals(); await fs.rm(root, { recursive: true, force: true }) })
 
 describe('Play de depuração no simulador', () => {
-  it('descobre projetos React Native em recentes e grupos, sem duplicar nem incluir projetos web', async () => {
+  it('busca somente nos repositórios da conversa, sem incluir apps de recentes ou grupos salvos', async () => {
     settings.repoGroups = [{ id: 'grupo', name: 'Grupo', dirs: [root] }]
     const web = path.join(root, 'web')
     await fs.mkdir(web)
     await fs.writeFile(path.join(web, 'package.json'), '{"dependencies":{"vite":"7"}}')
     settings.recentProjects.push(web, '/pasta/inexistente')
-    expect(await simulatorDebugProjects()).toEqual([{ root, name: path.basename(root), kind: 'react-native', platforms: ['ios', 'android'] }])
+    expect(await simulatorDebugProjects([])).toEqual([])
+    expect(await simulatorDebugProjects([web])).toEqual([])
+    expect(await simulatorDebugProjects([root, root])).toEqual([{ root, name: path.basename(root), kind: 'react-native', platforms: ['ios', 'android'] }])
     await fs.writeFile(path.join(root, 'package.json'), '{"dependencies":{"react-native":"0.84","expo":"55"}}')
     expect(await simulatorDebugProject(root)).toMatchObject({ kind: 'expo', platforms: ['ios', 'android'] })
     expect(await simulatorDebugProject('relativo')).toBeNull()

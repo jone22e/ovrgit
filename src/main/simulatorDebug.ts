@@ -63,10 +63,8 @@ export async function discoverSimulatorProjects(input: string): Promise<Simulato
   return found
 }
 
-export async function simulatorDebugProjects(extra: string[] = []): Promise<SimulatorDebugProject[]> {
-  const settings = getSettings()
-  const roots = [...new Set([...extra, ...settings.recentProjects, ...settings.repoGroups.flatMap((g) => g.dirs)])]
-  const projects = (await Promise.all(roots.map(discoverSimulatorProjects))).flat()
+export async function simulatorDebugProjects(roots: string[]): Promise<SimulatorDebugProject[]> {
+  const projects = (await Promise.all([...new Set(roots)].map(discoverSimulatorProjects))).flat()
   return [...new Map(projects.map((p) => [p.root, p])).values()]
 }
 
@@ -167,8 +165,8 @@ export async function startSimulatorDebug(root: string, deviceId: string, notify
 
 export function registerSimulatorDebug() {
   ipcMain.handle('simulator:debug-projects', (_event, roots: unknown) => {
-    if (roots !== undefined && (!Array.isArray(roots) || roots.length > 10 || roots.some((r) => typeof r !== 'string' || r.length > 4096))) throw new Error('Projetos inválidos.')
-    return simulatorDebugProjects(roots as string[] | undefined)
+    if (!Array.isArray(roots) || roots.length > 10 || roots.some((r) => typeof r !== 'string' || r.length > 4096)) throw new Error('Projetos inválidos.')
+    return simulatorDebugProjects(roots as string[])
   })
   ipcMain.handle('simulator:debug-start', (event, root: unknown, id: unknown) => {
     if (typeof root !== 'string' || root.length > 4096 || typeof id !== 'string' || id.length > 200) throw new Error('Projeto ou aparelho inválido.')

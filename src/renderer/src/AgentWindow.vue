@@ -2563,7 +2563,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
     </Modal>
     <VoiceSetupDialog v-if="voiceSetup" @close="closeVoiceSetup" />
   </div>
-  <SimulatorPanel v-if="simulatorOpen" @close="simulatorOpen = false" />
+  <SimulatorPanel v-if="simulatorOpen" :conversation-roots="info ? [info.cwd, ...(info.extraDirs ?? [])] : []" @close="simulatorOpen = false" />
   </div>
 </template>
 

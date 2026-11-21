@@ -1069,7 +1069,7 @@ export interface ProviderStatus {
 
 export interface OvseerApi {
   simulatorList(): Promise<SimulatorCatalog>
-  simulatorDebugProjects(roots?: string[]): Promise<SimulatorDebugProject[]>
+  simulatorDebugProjects(roots: string[]): Promise<SimulatorDebugProject[]>
   simulatorDebugStart(root: string, deviceId: string): Promise<void>
   onSimulatorDebugProgress(cb: (progress: SimulatorDebugProgress) => void): () => void
   simulatorConnect(deviceId: string): Promise<void>

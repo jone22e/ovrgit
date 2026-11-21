@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { macSimulatorKeyCode, simulatorImageSize, simulatorPanelWidth, simulatorPoint, type SimulatorCatalog, type SimulatorDebugProject, type SimulatorFrame, type SimulatorInput, type SimulatorPlatform } from '@shared/simulator'
-import { state } from '../store'
 import Icon from './Icon.vue'
 
+const props = defineProps<{ conversationRoots: string[] }>()
 const emit = defineEmits<{ close: [] }>()
 const api = window.ovseer
 const catalog = ref<SimulatorCatalog>({ devices: [], issues: {} })
@@ -15,13 +15,18 @@ const busy = ref(false)
 const loading = ref(false)
 const error = ref('')
 const debugProjects = ref<SimulatorDebugProject[]>([])
-const debugRoot = ref(localStorage.getItem('ovseer.simulator.project') ?? '')
 const debugBusy = ref(false)
+const activeDebug = ref<{ root: string; deviceId: string } | null>(null)
 const projectsLoading = ref(false)
 const debugMessage = ref('')
 const debugServiceId = ref('')
 const debugDevices = computed(() => debugProjects.value.filter((p) => p.platforms.includes(platform.value)))
-const debugProject = computed(() => debugDevices.value.find((p) => p.root === debugRoot.value))
+const debugProject = computed(() => debugDevices.value.length === 1 ? debugDevices.value[0] : undefined)
+const debugTitle = computed(() => debugBusy.value ? debugMessage.value : projectsLoading.value ? 'Detectando app da conversa…'
+  : !props.conversationRoots.length ? 'Abra uma conversa para iniciar seu app'
+  : debugDevices.value.length > 1 ? 'Mais de um app encontrado nos repositórios desta conversa'
+  : debugProject.value ? `Iniciar ${debugProject.value.name} em modo Debug no aparelho selecionado`
+  : `Nenhum app ${platform.value === 'ios' ? 'iOS' : 'Android'} encontrado nos repositórios desta conversa`)
 const copied = ref(false)
 const screen = ref<HTMLImageElement>()
 const panel = ref<HTMLElement>()
@@ -47,64 +52,50 @@ let lastMove = 0
 let acceptingFrames = false
 const offs = [
   api.onSimulatorDebugProgress((progress) => {
-    if (disposed || progress.root !== debugRoot.value || progress.deviceId !== selected.value) return
+    const job = activeDebug.value
+    if (disposed || !job || progress.root !== job.root || progress.deviceId !== job.deviceId) return
     debugMessage.value = progress.message
     if (progress.serviceId) debugServiceId.value = progress.serviceId
   }),
   api.onSimulatorFrame((frame) => { if (acceptingFrames && frame.deviceId === selected.value && !disposed) { image.value = frame; connected.value = frame.deviceId } }),
   api.onSimulatorError((event) => { if (event.deviceId === selected.value && !disposed) { acceptingFrames = false; error.value = event.message; connected.value = ''; busy.value = false; image.value = null; void api.simulatorDisconnect().catch(() => undefined) } })
 ]
-function projectsInside(root: string) {
-  const prefix = `${root.replace(/[\\/]+$/, '')}/`
-  return debugDevices.value.filter((p) => p.root === root || p.root.startsWith(prefix))
-}
-async function refreshProjects(extra?: string, preferCurrent = false) {
-  if (debugBusy.value) return
+async function refreshProjects() {
   const version = ++projectRequest
+  debugProjects.value = []
+  if (!debugBusy.value) clearDebug()
+  if (!props.conversationRoots.length) { projectsLoading.value = false; return }
   projectsLoading.value = true
   try {
-    const roots = [...new Set([extra, state.repo?.root, debugRoot.value].filter((root): root is string => !!root))]
-    const projects = await api.simulatorDebugProjects(roots)
+    const projects = await api.simulatorDebugProjects(props.conversationRoots)
     if (disposed || version !== projectRequest) return
     debugProjects.value = projects
-    const current = state.repo?.root ? projectsInside(state.repo.root) : []
-    if (preferCurrent && current.length) debugRoot.value = current.length === 1 ? current[0].root : ''
-    else if (!debugDevices.value.some((p) => p.root === debugRoot.value)) debugRoot.value = current.length === 1 ? current[0].root : debugDevices.value.length === 1 ? debugDevices.value[0].root : ''
-  } catch (e) { if (!disposed) error.value = (e as Error).message }
+  } catch (e) { if (!disposed && version === projectRequest) error.value = (e as Error).message }
   finally { if (version === projectRequest) projectsLoading.value = false }
 }
 function clearDebug() { debugMessage.value = ''; debugServiceId.value = '' }
-async function pickDebugProject() {
-  try {
-    const root = await api.pickFolder(debugRoot.value || state.repo?.root || '')
-    if (!root || disposed) return
-    await refreshProjects(root)
-    const inside = projectsInside(root)
-    const project = inside.length === 1 ? inside[0] : undefined
-    if (project) { debugRoot.value = project.root; error.value = '' }
-    else if (inside.length > 1) { debugRoot.value = ''; error.value = ''; debugMessage.value = 'Escolha qual app deste projeto deseja depurar.' }
-    else error.value = `Nenhum app Expo ou React Native com suporte a ${platform.value} encontrado nesta pasta.`
-  } catch (e) { error.value = (e as Error).message }
-}
 async function startDebug() {
   if (debugBusy.value || busy.value || projectsLoading.value || !debugProject.value || !selected.value) return
+  const root = debugProject.value.root, deviceId = selected.value, version = projectRequest
+  activeDebug.value = { root, deviceId }
   debugBusy.value = true; error.value = ''; clearDebug()
   debugMessage.value = 'Preparando a depuração…'
   try {
-    if (connected.value !== selected.value) await connect()
-    if (connected.value !== selected.value || disposed) return
-    await api.simulatorDebugStart(debugRoot.value, selected.value)
+    if (connected.value !== deviceId) await connect()
+    if (connected.value !== deviceId || disposed || version !== projectRequest) return
+    await api.simulatorDebugStart(root, deviceId)
   } catch (e) {
     if (!disposed) { error.value = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); debugMessage.value = 'Falha ao iniciar o app.' }
-  } finally { debugBusy.value = false }
+  } finally {
+    debugBusy.value = false; activeDebug.value = null
+    if (version !== projectRequest) clearDebug()
+  }
 }
 async function openDebugLog() {
   try { await api.serviceOpenWindow(debugServiceId.value) }
   catch (e) { error.value = (e as Error).message }
 }
-watch(debugRoot, (root) => { localStorage.setItem('ovseer.simulator.project', root); clearDebug() }, { flush: 'sync' })
-watch(platform, () => { clearDebug(); void refreshProjects() })
-watch(() => state.repo?.root, () => { void refreshProjects(undefined, true) })
+watch(() => JSON.stringify([props.conversationRoots, platform.value]), () => { void refreshProjects() }, { immediate: true, flush: 'sync' })
 async function refresh() {
   loading.value = true
   try {
@@ -248,7 +239,6 @@ onMounted(() => {
   if (container) sizeObserver.observe(container)
   if (viewport.value) sizeObserver.observe(viewport.value)
   void refresh()
-  void refreshProjects(undefined, true)
 })
 onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?.(); sizeObserver?.disconnect(); cancelAnimationFrame(sizeRaf); offs.forEach((off) => off()); void api.simulatorDisconnect().catch(() => undefined) })
 </script>
@@ -258,6 +248,7 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
     <div class="sim-resizer" role="separator" aria-label="Ajustar largura do simulador" aria-orientation="vertical" tabindex="0" @pointerdown.prevent="resize" @keydown.left.prevent="resizeBy(20)" @keydown.right.prevent="resizeBy(-20)" />
     <header class="sim-head">
       <Icon name="smartphone" :size="16" /><strong>Simuladores</strong><span class="spacer" />
+      <button type="button" class="ghost icon sim-debug-play" :title="debugTitle" :aria-label="debugTitle" :disabled="busy || debugBusy || projectsLoading || !selected || !debugProject || api.platform === 'win32'" @click="startDebug"><span v-if="debugBusy" class="spinner" /><Icon v-else name="play" :size="16" /></button>
       <button type="button" class="ghost icon" title="Atualizar aparelhos e projetos" :disabled="loading || busy || debugBusy || projectsLoading" @click="refresh(); refreshProjects()"><Icon name="refresh" :size="14" /></button>
       <button type="button" class="ghost icon" title="Fechar simuladores" @click="close"><Icon name="x" :size="15" /></button>
     </header>
@@ -265,20 +256,13 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
       <label>Plataforma<select v-model="platform" :disabled="busy || debugBusy" @change="changePlatform"><option value="ios">iOS</option><option value="android">Android</option></select></label>
       <label class="sim-device">Aparelho<select v-model="selected" :disabled="busy || debugBusy || !devices.length" @change="changeDevice"><option v-if="!devices.length" value="">Nenhum aparelho</option><option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} · {{ d.runtime }}{{ d.running ? ' · ligado' : '' }}</option></select></label>
     </div>
-    <div class="sim-debug">
-      <div class="sim-debug-controls">
-        <label class="sim-device">App em depuração<select v-model="debugRoot" :disabled="debugBusy || projectsLoading" :title="debugRoot"><option value="">{{ projectsLoading ? 'Buscando apps…' : 'Selecionar app' }}</option><option v-for="p in debugDevices" :key="p.root" :value="p.root">{{ p.name }} · {{ p.kind === 'expo' ? 'Expo' : 'React Native' }}</option></select></label>
-        <button type="button" class="ghost icon" title="Escolher pasta do app" :disabled="debugBusy || projectsLoading" @click="pickDebugProject"><Icon name="folder" :size="15" /></button>
-        <button type="button" class="primary small sim-debug-play" title="Compilar e iniciar o app em modo Debug no aparelho selecionado" :disabled="busy || debugBusy || projectsLoading || !selected || !debugProject || api.platform === 'win32'" @click="startDebug"><span v-if="debugBusy" class="spinner" /><Icon v-else name="play" :size="14" />{{ debugBusy ? 'Iniciando…' : 'Depurar' }}</button>
-      </div>
-      <div v-if="debugMessage" class="sim-debug-status" role="status"><small>{{ debugMessage }}</small><button v-if="debugServiceId" type="button" class="ghost small" @click="openDebugLog">Ver log</button></div>
-    </div>
     <div class="sim-status">
       <small>{{ busy ? 'Iniciando e conectando…' : connected ? `${device?.runtime} · conectado` : device?.runtime ?? platform.toUpperCase() }}</small>
       <button v-if="connected" type="button" class="ghost small" :disabled="debugBusy" @click="disconnect">Desconectar</button>
       <button v-else type="button" class="primary small" :disabled="busy || debugBusy || !selected" @click="connect">{{ busy ? 'Conectando…' : device?.running ? 'Conectar' : 'Iniciar' }}</button>
       <button v-if="connected || device?.running" type="button" class="ghost icon small" title="Desligar aparelho" :disabled="busy || debugBusy" @click="stopDevice"><Icon name="power" :size="14" /></button>
     </div>
+    <div v-if="debugMessage" class="sim-debug-status" role="status"><small>{{ debugMessage }}</small><button v-if="debugServiceId" type="button" class="ghost small" @click="openDebugLog">Ver log</button></div>
     <p v-if="error" class="sim-error" role="alert">{{ error }}</p>
     <div ref="viewport" class="sim-viewport" @contextmenu.prevent>
       <div v-if="image" class="sim-image-wrap" :style="imageWrapStyle">
@@ -315,12 +299,9 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
 .sim-selectors { display: flex; gap: 8px; padding: 12px 12px 6px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); min-width: 0; }
 .sim-device { flex: 1; }
-.sim-debug { padding: 0 12px 6px; }
-.sim-debug-controls { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px; }
-.sim-debug-controls label { flex-basis: 130px; }
-.sim-debug-play { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.sim-debug-play:not(:disabled) { color: var(--accent); }
 .sim-debug-play .spinner { width: 12px; height: 12px; }
-.sim-debug-status { display: flex; align-items: center; gap: 6px; padding-top: 6px; }
+.sim-debug-status { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
 .sim-debug-status small { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .sim-debug-status button { flex: none; }
 select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
