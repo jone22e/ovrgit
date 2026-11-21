@@ -8,6 +8,7 @@ import type { DesignAction, DesignWindowState } from '../shared/architect'
 const api: OvseerApi = {
   simulatorList: () => ipcRenderer.invoke('simulator:list'),
   simulatorDebugProjects: (root) => ipcRenderer.invoke('simulator:debug-projects', root),
+  simulatorCheckEnvironment: (roots, platform, id) => ipcRenderer.invoke('simulator:check-environment', roots, platform, id),
   simulatorDebugStart: (root, id) => ipcRenderer.invoke('simulator:debug-start', root, id),
   onSimulatorDebugProgress: (cb) => {
     const h = (_e: unknown, progress: SimulatorDebugProgress) => cb(progress)

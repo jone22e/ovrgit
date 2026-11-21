@@ -18,9 +18,11 @@ function run(file: string, args: string[], timeout = 15_000): Promise<Buffer> {
   }))
 }
 async function text(file: string, args: string[], timeout?: number) { return (await run(file, args, timeout)).toString().trim() }
+export function androidSdkRoots(): string[] {
+  return [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT, path.join(os.homedir(), 'Library/Android/sdk'), path.join(os.homedir(), 'Android/Sdk'), process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android/Sdk')].filter((s): s is string => !!s)
+}
 function sdkTools() {
-  const roots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT, path.join(os.homedir(), 'Library/Android/sdk'), path.join(os.homedir(), 'Android/Sdk'), process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android/Sdk')].filter((s): s is string => !!s)
-  for (const root of roots) {
+  for (const root of androidSdkRoots()) {
     const suffix = process.platform === 'win32' ? '.exe' : ''
     const adb = path.join(root, 'platform-tools', `adb${suffix}`), emulator = path.join(root, 'emulator', `emulator${suffix}`)
     if (existsSync(adb) && existsSync(emulator)) return { adb, emulator }

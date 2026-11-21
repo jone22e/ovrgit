@@ -1,5 +1,6 @@
 import { connectedSimulators, registerSimulators, shutdownSimulators, simulatorAgentBackend } from './simulators'
 import { registerSimulatorDebug } from './simulatorDebug'
+import { registerSimulatorEnvironment } from './simulatorEnvironment'
 import { simulatorAgentNote } from '../shared/simulatorAgentNote'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, screen, session, shell, systemPreferences,
@@ -323,6 +324,7 @@ function openTerminalWindow(id: number) {
 function registerIpc() {
   registerSimulators()
   registerSimulatorDebug()
+  registerSimulatorEnvironment()
   ipcMain.handle('voice:status', () => voice.voiceStatus())
   ipcMain.handle('voice:install', (_e, token?: string) => voice.installVoice(typeof token === 'string' ? token.slice(0, 500) : undefined))
   ipcMain.handle('voice:test', () => voice.testVoice())

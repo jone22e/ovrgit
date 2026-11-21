@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { macSimulatorKeyCode, simulatorImageSize, simulatorPanelWidth, simulatorPoint, type SimulatorCatalog, type SimulatorDebugProject, type SimulatorFrame, type SimulatorInput, type SimulatorPlatform } from '@shared/simulator'
+import { macSimulatorKeyCode, simulatorImageSize, simulatorPanelWidth, simulatorPoint, type SimulatorCatalog, type SimulatorDebugProject, type SimulatorEnvironmentReport, type SimulatorFrame, type SimulatorInput, type SimulatorPlatform } from '@shared/simulator'
 import Icon from './Icon.vue'
+import Modal from './Modal.vue'
 
 const props = defineProps<{ conversationRoots: string[] }>()
 const emit = defineEmits<{ close: [] }>()
@@ -20,6 +21,11 @@ const activeDebug = ref<{ root: string; deviceId: string } | null>(null)
 const projectsLoading = ref(false)
 const debugMessage = ref('')
 const debugServiceId = ref('')
+const checkOpen = ref(false)
+const checking = ref(false)
+const checkReport = ref<SimulatorEnvironmentReport | null>(null)
+const checkError = ref('')
+const checkIssues = computed(() => checkReport.value?.checks.filter((c) => c.status !== 'ok').length ?? 0)
 const debugDevices = computed(() => debugProjects.value.filter((p) => p.platforms.includes(platform.value)))
 const debugProject = computed(() => debugDevices.value.length === 1 ? debugDevices.value[0] : undefined)
 const debugTitle = computed(() => debugBusy.value ? debugMessage.value : projectsLoading.value ? 'Detectando app da conversa…'
@@ -44,6 +50,7 @@ const device = computed(() => devices.value.find((d) => d.id === selected.value)
 let disposed = false
 let request = 0
 let projectRequest = 0
+let checkRequest = 0
 let pointer: { id: number; x: number; y: number } | null = null
 let resizeCleanup: (() => void) | undefined
 let sizeObserver: ResizeObserver | undefined
@@ -95,6 +102,18 @@ async function openDebugLog() {
   try { await api.serviceOpenWindow(debugServiceId.value) }
   catch (e) { error.value = (e as Error).message }
 }
+async function checkEnvironment() {
+  const version = ++checkRequest
+  checkOpen.value = true; checking.value = true; checkReport.value = null; checkError.value = ''
+  try {
+    const report = await api.simulatorCheckEnvironment(props.conversationRoots, platform.value, selected.value)
+    if (!disposed && version === checkRequest) checkReport.value = report
+  } catch (e) {
+    if (!disposed && version === checkRequest) checkError.value = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  } finally { if (version === checkRequest) checking.value = false }
+}
+function closeCheck() { checkRequest++; checkOpen.value = false; checking.value = false; checkReport.value = null }
+watch(() => JSON.stringify([props.conversationRoots, platform.value, selected.value]), closeCheck)
 watch(() => JSON.stringify([props.conversationRoots, platform.value]), () => { void refreshProjects() }, { immediate: true, flush: 'sync' })
 async function refresh() {
   loading.value = true
@@ -249,6 +268,7 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
     <header class="sim-head">
       <Icon name="smartphone" :size="16" /><strong>Simuladores</strong><span class="spacer" />
       <button type="button" class="ghost icon sim-debug-play" :title="debugTitle" :aria-label="debugTitle" :disabled="busy || debugBusy || projectsLoading || !selected || !debugProject || api.platform === 'win32'" @click="startDebug"><span v-if="debugBusy" class="spinner" /><Icon v-else name="play" :size="16" /></button>
+      <button type="button" class="ghost icon" title="Verificar ambiente de desenvolvimento" aria-label="Verificar ambiente de desenvolvimento" :aria-pressed="checkOpen" :disabled="checking" @click="checkEnvironment"><Icon name="listChecks" :size="16" /></button>
       <button type="button" class="ghost icon" title="Atualizar aparelhos e projetos" :disabled="loading || busy || debugBusy || projectsLoading" @click="refresh(); refreshProjects()"><Icon name="refresh" :size="14" /></button>
       <button type="button" class="ghost icon" title="Fechar simuladores" @click="close"><Icon name="x" :size="15" /></button>
     </header>
@@ -288,6 +308,21 @@ onUnmounted(() => { releasePointer(); disposed = true; request++; resizeCleanup?
     </footer>
     <small v-if="connected" class="sim-hint">Clique na tela para tocar, arrastar ou digitar.</small>
   </aside>
+  <Modal v-if="checkOpen" :title="`Checagem do ambiente ${platform === 'ios' ? 'iOS' : 'Android'}`" :width="540" @close="closeCheck">
+    <p v-if="checking" class="sim-check-loading" role="status"><span class="spinner" />Verificando ferramentas, projeto e aparelho…</p>
+    <p v-else-if="checkError" class="sim-check-error" role="alert">{{ checkError }}</p>
+    <template v-else-if="checkReport">
+      <p class="sim-check-summary" role="status">{{ checkIssues ? `${checkIssues} ${checkIssues === 1 ? 'item para conferir' : 'itens para conferir'}.` : 'Instalações verificadas.' }}<span v-if="checkReport.project"> {{ checkReport.project }}</span></p>
+      <ul class="sim-check-list">
+        <li v-for="item in checkReport.checks" :key="item.id" :class="item.status">
+          <Icon :name="item.status === 'ok' ? 'check' : item.status === 'missing' ? 'circleX' : 'circleAlert'" :size="16" />
+          <div><strong>{{ item.label }}</strong><span class="sim-check-badge">{{ item.status === 'ok' ? 'OK' : item.status === 'missing' ? 'Falta' : 'Conferir' }}</span><p>{{ item.detail }}</p><p v-if="item.fix" class="sim-check-fix">{{ item.fix }}</p></div>
+        </li>
+      </ul>
+      <small class="sim-check-note">A checagem verifica instalações e arquivos. O Play confirma a compilação e a execução do app.</small>
+    </template>
+    <template #footer><button type="button" class="ghost" :disabled="checking" @click="checkEnvironment">Verificar novamente</button><button type="button" class="primary" @click="closeCheck">Fechar</button></template>
+  </Modal>
 </template>
 
 <style scoped>
@@ -304,6 +339,21 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color:
 .sim-debug-status { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
 .sim-debug-status small { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .sim-debug-status button { flex: none; }
+.sim-check-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.sim-check-summary { margin: 0; font-size: 13px; }
+.sim-check-summary span, .sim-check-note { color: var(--muted); }
+.sim-check-list { list-style: none; padding: 0; margin: 0; }
+.sim-check-list li { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.sim-check-list li > svg { flex: none; margin-top: 2px; }
+.sim-check-list li > div { flex: 1; min-width: 0; }
+.sim-check-list strong { font-size: 12px; color: var(--text); }
+.sim-check-list p { font-size: 12px; line-height: 1.5; margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.sim-check-list .ok { color: var(--add); }
+.sim-check-list .missing, .sim-check-error { color: var(--del); }
+.sim-check-list .warning { color: var(--warn, #d29922); }
+.sim-check-badge { font-size: 10px; margin-left: 8px; }
+.sim-check-list .sim-check-fix { color: var(--text); }
+.sim-check-note { font-size: 11px; line-height: 1.5; }
 select { width: 100%; min-width: 0; height: 30px; padding: 0 6px; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .sim-status { display: flex; align-items: center; gap: 8px; padding: 4px 12px 10px; border-bottom: 1px solid var(--border); }
 .sim-status small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }

@@ -79,7 +79,7 @@ function broadcast() {
  * Shell de login e interativo rodando o comando do serviço. O `-i` importa: o nvm (e muita coisa) só entra no
  * PATH pelo ~/.zshrc, que o zsh lê apenas em shells interativos; só com `-l` o `npm` não era encontrado.
  */
-function shellFor(command: string): { file: string; args: string[] } {
+export function shellFor(command: string): { file: string; args: string[] } {
   if (process.platform === 'win32') {
     const pwsh = path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe')
     return { file: existsSync(pwsh) ? pwsh : 'powershell.exe', args: ['-NoLogo', '-Command', command] }

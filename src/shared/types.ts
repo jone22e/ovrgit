@@ -1,4 +1,4 @@
-import type { SimulatorCatalog, SimulatorDebugProject, SimulatorDebugProgress, SimulatorFrame, SimulatorInput } from './simulator'
+import type { SimulatorCatalog, SimulatorDebugProject, SimulatorDebugProgress, SimulatorEnvironmentReport, SimulatorFrame, SimulatorInput, SimulatorPlatform } from './simulator'
 import type { ChecklistItem } from './checklist'
 import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
@@ -1070,6 +1070,7 @@ export interface ProviderStatus {
 export interface OvseerApi {
   simulatorList(): Promise<SimulatorCatalog>
   simulatorDebugProjects(roots: string[]): Promise<SimulatorDebugProject[]>
+  simulatorCheckEnvironment(roots: string[], platform: SimulatorPlatform, deviceId: string): Promise<SimulatorEnvironmentReport>
   simulatorDebugStart(root: string, deviceId: string): Promise<void>
   onSimulatorDebugProgress(cb: (progress: SimulatorDebugProgress) => void): () => void
   simulatorConnect(deviceId: string): Promise<void>

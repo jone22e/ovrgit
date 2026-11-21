@@ -9,6 +9,8 @@ export interface SimulatorDevice {
 export interface SimulatorCatalog { devices: SimulatorDevice[]; issues: Partial<Record<SimulatorPlatform, string>> }
 export interface SimulatorDebugProject { root: string; name: string; kind: 'react-native' | 'expo'; platforms: SimulatorPlatform[] }
 export interface SimulatorDebugProgress { root: string; deviceId: string; message: string; serviceId?: string }
+export interface SimulatorEnvironmentCheck { id: string; label: string; status: 'ok' | 'missing' | 'warning'; detail: string; fix?: string }
+export interface SimulatorEnvironmentReport { platform: SimulatorPlatform; project?: string; checks: SimulatorEnvironmentCheck[] }
 /** Área da tela sensível ao toque, em proporções da imagem que também pode incluir a carcaça. */
 export interface SimulatorTouchArea { x: number; y: number; width: number; height: number }
 export interface SimulatorFrame { deviceId: string; image: string; width: number; height: number; touchArea?: SimulatorTouchArea }
