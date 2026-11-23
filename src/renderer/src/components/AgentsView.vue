@@ -21,7 +21,7 @@ import RepoIcon from './RepoIcon.vue'
  * sem sair daqui. As ações vão para a janela do agente, que executa.
  */
 const snaps = computed(() => state.agentSnaps)
-const compactList = ref(localStorage.getItem('ovseer.agents.list') === '1')
+const compactList = ref(true)
 function setCompactList(value: boolean) {
   compactList.value = value
   if (value && (filter.value === 'waiting' || filter.value === 'error')) filter.value = 'attention'
@@ -29,7 +29,6 @@ function setCompactList(value: boolean) {
     search.value = ''
     if (filter.value === 'attention') filter.value = 'all'
   }
-  localStorage.setItem('ovseer.agents.list', value ? '1' : '0')
 }
 const byStatus = (s: AgentSnapshot['status']) => snaps.value.filter((a) => a.status === s)
 /** Dentro de cada situação, as conversas fixadas vêm primeiro; o resto segue a ordem dada */
