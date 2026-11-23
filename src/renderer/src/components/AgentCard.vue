@@ -285,6 +285,7 @@ async function saveRename() {
       <span v-else class="list-heading">
         <strong class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
         <Icon v-if="a.pinned" name="pin" :size="12" class="list-pin" title="Conversa fixada" />
+        <span v-if="a.status === 'live' && a.fast" class="fast-badge" title="Modo rápido 1,5x ativo nesta tarefa"><Icon name="zap" :size="11" />1,5x</span>
       </span>
       <small class="list-meta"><span>{{ group?.name ?? a.project }} · {{ a.model }}</span><span v-if="detail" class="list-activity"> · {{ detail }}</span></small>
     </div>
@@ -346,6 +347,7 @@ async function saveRename() {
 
     <div v-if="!compact" class="status">
       <span class="pill" :class="tone"><span class="dot" />{{ statusLabel }}</span>
+      <span v-if="a.status === 'live' && a.fast" class="fast-badge" title="Modo rápido 1,5x ativo nesta tarefa"><Icon name="zap" :size="11" />1,5x</span>
       <span v-if="a.status === 'live'" class="clock mono" :title="`Trabalhando há ${ago(now, a.startedAt ?? a.since)}`">{{ clock }}</span>
       <small v-else-if="since" class="faint">{{ since }}</small>
       <span v-if="fresh" class="new">novo</span>
@@ -490,6 +492,7 @@ async function saveRename() {
 .pill.done { color: var(--add); background: color-mix(in srgb, var(--add) 14%, transparent); }
 .pill.error { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
 .pill.standby { color: var(--hunk); background: color-mix(in srgb, var(--hunk) 14%, transparent); }
+.fast-badge { display: inline-flex; align-items: center; gap: 2px; height: 18px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; white-space: nowrap; flex: none; }
 /* escrevendo para o agente: pílula e borda na cor do tema, e o rascunho no lugar do texto */
 .pill.writing { color: var(--accent); background: var(--accent-soft); }
 .acard.writing:not(.sel) { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }

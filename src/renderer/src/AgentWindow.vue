@@ -49,6 +49,8 @@ interface Turn extends AgentTurn {
   attachments: Shown[]
   /** Mandada pela retomada automática, não por você: não conta como interação sua */
   auto?: boolean
+  /** Modo rápido usado nesta resposta, independentemente de mudanças posteriores na preferência */
+  fast?: boolean
 }
 /** Quando esta tela abriu: a interação inicial de uma conversa ainda sem mensagens */
 const bornAt = Date.now()
@@ -1032,7 +1034,8 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   if (p.mode) setMode(p.mode)
   if (p.auto) clearRetryTimer()
   else resetRetry()
-  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, checklist: checklistItems }
+  const fast = provider.value === 'codex' && readCodexFast()
+  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, fast, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
   // Modo Arquiteto: a primeira vez neste modo abre a descoberta; o estado da conversa fica guardado nela
@@ -1053,7 +1056,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
       uid,
       [carried, p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
       // (na descoberta o processo principal troca para um modelo rápido e esforço baixo só nessa chamada)
-      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast: provider.value === 'codex' && readCodexFast() },
+      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
     if (carried) handoff.value = null
@@ -1853,6 +1856,7 @@ const snapshot = computed<AgentSnapshot | null>(() => {
     effort: effort.value,
     mode: mode.value,
     status: statusKind.value,
+    fast: cur?.fast,
     since: statusSince.value,
     lastUser: lastUser.length > 160 ? `${lastUser.slice(0, 157)}…` : lastUser,
     error: last?.error,

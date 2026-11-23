@@ -785,6 +785,8 @@ export interface AgentSnapshot {
   effort: AgentEffort
   mode: AgentMode
   status: AgentStatus
+  /** Modo rápido do Codex usado na resposta em andamento */
+  fast?: boolean
   /** Desde quando está nessa situação (ms) */
   since: number
   /** Último pedido do usuário (o que estava em andamento, quando falhou) */
