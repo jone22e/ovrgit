@@ -121,14 +121,22 @@ async function openProject(root: string) {
           <p v-if="selectedRow.snapshot.console === 'stopped'" class="note">Abra o projeto para iniciar o console e consultar as releases.</p>
           <p v-if="selectedRow.release && isLiveRelease(selectedRow.release) && !selectedRow.active" class="note">Nenhuma operação ativa registrada neste computador.</p>
           <ol v-if="selectedRow.release" class="steps">
-            <li v-for="step in selectedRow.steps" :key="step.id" :class="step.status">
-              <button class="step" :disabled="!step.phases.length" :aria-expanded="expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}`" @click="toggleStep(selectedRow.root, selectedRow.release.tag, step)">
+            <li v-for="step in selectedRow.steps" :key="step.id" :class="[step.status, { open: expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}` }]">
+              <button class="step" :disabled="!step.phases.length && !step.subs.length" :aria-expanded="expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}`" @click="toggleStep(selectedRow.root, selectedRow.release.tag, step)">
                 <span class="mark"><span v-if="step.status === 'running' && selectedRow.active" class="spinner" /><Icon v-else-if="step.status === 'completed'" name="check" :size="12" /><Icon v-else-if="step.status === 'failed'" name="x" :size="12" /><span v-else-if="step.status === 'skipped'">–</span><span v-else class="pending-dot" /></span>
+                <span class="step-number">{{ step.index }}.</span>
                 <span class="step-title">{{ step.title }}</span>
                 <span class="step-detail ellipsis">{{ step.detail || (step.status === 'completed' ? 'Concluída' : step.status === 'failed' ? 'Falhou' : step.status === 'running' ? 'Em andamento' : step.status === 'skipped' ? 'Pulada' : 'Pendente') }}</span>
               </button>
-              <ul v-if="step.subs.length && (step.status === 'running' || step.status === 'failed')" class="subs"><li v-for="sub in step.subs" :key="sub.id" :class="sub.status">{{ sub.title }} · {{ sub.detail }}</li></ul>
-              <div v-if="expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}`" class="step-log"><p v-if="step.error" class="failed-text">{{ step.error }}</p><p v-if="logLoading" class="faint">Carregando log…</p><pre v-else-if="logText">{{ logText }}</pre><p v-else class="faint">Sem log para esta etapa.</p></div>
+              <ul v-if="step.subs.length && expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}`" class="subs">
+                <li v-for="(sub, i) in step.subs" :key="sub.id" :class="sub.status">
+                  <span class="sub-mark"><span v-if="sub.status === 'running'" class="spinner" /><Icon v-else-if="sub.status === 'completed'" name="check" :size="10" /><Icon v-else-if="sub.status === 'failed'" name="x" :size="10" /></span>
+                  <span class="sub-number">{{ step.index }}.{{ i + 1 }}</span>
+                  <span class="sub-title ellipsis">{{ sub.title }}</span>
+                  <span class="sub-detail mono">{{ sub.detail }}</span>
+                </li>
+              </ul>
+              <div v-if="step.phases.length && expandedStep === `${selectedRow.root}\0${selectedRow.release.tag}\0${step.id}`" class="step-log"><p v-if="step.error" class="failed-text">{{ step.error }}</p><p v-if="logLoading" class="faint">Carregando log…</p><pre v-else-if="logText" class="mono">{{ logText }}</pre><p v-else class="faint">Sem log para esta etapa.</p></div>
             </li>
           </ol>
           <p v-if="selectedRow.failed && selectedRow.failure" class="failure">{{ selectedRow.failure.detail }}</p>
@@ -147,9 +155,78 @@ async function openProject(root: string) {
 .filters { display: flex; margin: 10px 12px 0; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); gap: 2px; }.filters button { flex: 1; border: 0; border-radius: 5px; padding: 6px 4px; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }.filters button.on { background: var(--hover); color: var(--text); }.filters b { font-weight: 600; color: inherit; }
 .scroll { min-height: 0; overflow: auto; padding: 12px; }.empty { margin: 18px 4px; font-size: 12px; }.panel-error { margin: 8px 12px; color: var(--del); font-size: 11px; overflow-wrap: anywhere; }
 .current-card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }.current-card.running { border-color: color-mix(in srgb, var(--accent) 25%, var(--border)); }.current-card.failed { border-color: color-mix(in srgb, var(--del) 25%, var(--border)); }
-.project-head { display: flex; align-items: center; gap: 9px; padding: 13px 12px 8px; }.avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; flex: none; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; }.avatar.mini { width: 25px; height: 25px; font-size: 11px; }.project-info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }.project-info strong { font-size: 12px; }.project-info .mono { font-size: 10px; color: var(--muted); }.badge { padding: 4px 7px; border-radius: 20px; color: var(--muted); background: var(--hover); font-size: 10px; font-weight: 600; white-space: nowrap; }.badge.running { background: var(--accent-soft); color: var(--accent); }.badge.failed { background: color-mix(in srgb, var(--del) 14%, transparent); color: var(--del); }.badge.done { background: color-mix(in srgb, #39b86d 14%, transparent); color: #39b86d; }
-.metadata { display: flex; flex-wrap: wrap; gap: 5px 11px; align-items: center; padding: 0 12px 11px 49px; font-size: 10px; color: var(--muted); }.metadata .duration { margin-left: auto; color: var(--text); }.progress-block { padding: 10px 12px 12px; border-top: 1px solid var(--border); }.progress-label { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; }.progress-label strong { font-weight: 600; }.progress-label span { flex: none; color: var(--muted); }.progress-track { display: flex; gap: 3px; margin-top: 8px; }.progress-track span { height: 3px; flex: 1; border-radius: 3px; background: var(--border); }.progress-track .completed { background: #39b86d; }.progress-track .running { background: var(--accent); }.progress-track .failed { background: var(--del); }
-.note { margin: 0 12px 10px; font-size: 10px; color: var(--muted); }.steps { list-style: none; padding: 4px 8px; margin: 0; border-top: 1px solid var(--border); }.steps > li { border-radius: 6px; }.steps > li.running { background: var(--accent-soft); }.steps > li.failed { background: color-mix(in srgb, var(--del) 9%, transparent); }.step { width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 5px; border: 0; background: transparent; text-align: left; color: var(--text); font-size: 11px; }.step:not(:disabled) { cursor: pointer; }.step:not(:disabled):hover { background: var(--hover); border-radius: 6px; }.mark { width: 17px; height: 17px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--border); }.completed .mark { background: color-mix(in srgb, #39b86d 20%, transparent); border-color: transparent; color: #39b86d; }.running .mark { color: var(--accent); border-color: var(--accent); }.failed .mark { background: var(--del); border-color: var(--del); color: #fff; }.pending-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: .5; }.step-title { flex: 1; min-width: 0; }.step-detail { color: var(--muted); text-align: right; font-size: 10px; max-width: 38%; }.failed .step-detail { color: var(--del); }.running .step-detail { color: var(--accent); }.subs { margin: 0 0 6px 31px; padding: 0; list-style: none; color: var(--muted); font-size: 10px; }.subs li { padding: 2px 0; }.subs .failed { color: var(--del); }.step-log { padding: 2px 7px 8px 31px; font-size: 10px; }.step-log p { margin: 3px 0; overflow-wrap: anywhere; }.step-log pre { max-height: 160px; overflow: auto; margin: 5px 0; padding: 7px; border-radius: 5px; background: var(--panel); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.4 var(--mono); user-select: text; }.failed-text { color: var(--del); }
+.project-head { display: flex; align-items: center; gap: 10px; padding: 14px 12px 8px; }
+.avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; flex: none; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; }
+.avatar.mini { width: 27px; height: 27px; font-size: 11px; }
+.project-info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.project-info strong { font-size: 13px; }
+.project-info .mono { font-size: 10.5px; color: var(--muted); }
+.badge { padding: 4px 7px; border-radius: 20px; color: var(--muted); background: var(--hover); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.badge.running { background: var(--accent-soft); color: var(--accent); }
+.badge.failed { background: color-mix(in srgb, var(--del) 14%, transparent); color: var(--del); }
+.badge.done { background: color-mix(in srgb, #39b86d 14%, transparent); color: #39b86d; }
+.metadata { display: flex; flex-wrap: wrap; gap: 5px 11px; align-items: center; padding: 0 12px 12px 52px; font-size: 11px; color: var(--muted); }
+.metadata .duration { margin-left: auto; color: var(--text); }
+.progress-block { margin: 0 12px 10px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-2); }
+.current-card.running .progress-block { border-color: color-mix(in srgb, var(--accent) 25%, var(--border)); }
+.progress-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; }
+.progress-label strong { min-width: 0; font-size: 12px; font-weight: 650; }
+.progress-label span { flex: none; color: var(--muted); }
+.progress-track { display: flex; gap: 3px; margin-top: 10px; }
+.progress-track span { height: 4px; flex: 1; border-radius: 3px; background: var(--border); }
+.progress-track .completed { background: #39b86d; }
+.progress-track .running { background: var(--accent); }
+.progress-track .failed { background: var(--del); }
+.note { margin: 0 12px 10px; font-size: 11px; color: var(--muted); }
+.steps { list-style: none; padding: 8px 10px 10px; margin: 0; border-top: 1px solid var(--border); }
+.steps > li { position: relative; }
+.steps > li::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+.steps > li:first-child::before { top: 17px; }
+.steps > li:last-child::before { bottom: calc(100% - 17px); }
+.step { position: relative; display: grid; grid-template-columns: 20px 22px minmax(0, 1fr) minmax(0, 34%); align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 0 8px 0 6px; border: 0; border-radius: 7px; background: transparent; text-align: left; color: var(--text); }
+.step:not(:disabled) { cursor: pointer; }
+.step:not(:disabled):hover { background: var(--hover); }
+.steps > li.running > .step { background: var(--accent-soft); }
+.steps > li.failed > .step { background: color-mix(in srgb, var(--del) 9%, transparent); }
+.mark { position: relative; z-index: 1; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--border); background: var(--bg); }
+.completed .mark { background: var(--add); border-color: var(--add); color: #fff; }
+.running .mark { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.failed .mark { background: var(--del); border-color: var(--del); color: #fff; }
+.pending-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: .5; }
+.step-number { color: var(--muted); text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+.step-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.pending .step-title { color: var(--muted); font-weight: 500; }
+.step-detail { min-width: 0; color: var(--muted); text-align: right; font-size: 10.5px; }
+.failed .step-detail { color: var(--del); }
+.running .step-detail { color: var(--accent); }
+.subs { margin: 0 8px 6px 16px; padding: 0 0 0 25px; border-left: 2px solid var(--border); list-style: none; }
+.subs li { position: relative; display: flex; align-items: center; gap: 7px; min-height: 24px; padding-right: 4px; font-size: 11px; }
+.subs li::before { content: ''; position: absolute; left: -25px; top: 50%; width: 19px; height: 2px; background: var(--border); }
+.sub-mark { display: grid; place-items: center; width: 15px; height: 15px; border: 1px solid var(--border); border-radius: 50%; flex: none; color: var(--muted); background: var(--bg); }
+.subs li.completed .sub-mark { color: #fff; border-color: var(--add); background: var(--add); }
+.subs li.failed .sub-mark { color: #fff; border-color: var(--del); background: var(--del); }
+.subs li.running .sub-mark { color: var(--accent); border-color: var(--accent); }
+.sub-mark .spinner { width: 8px; height: 8px; border-width: 2px; }
+.sub-number { min-width: 25px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sub-title { min-width: 0; flex: 1; }
+.sub-detail { color: var(--muted); white-space: nowrap; font-size: 10px; }
+.step-log { margin: 3px 8px 8px 42px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); font-size: 10px; }
+.step-log p { margin: 3px 0; overflow-wrap: anywhere; }
+.step-log pre { max-height: 160px; overflow: auto; margin: 5px 0; padding: 7px; border-radius: 5px; background: var(--panel); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.4 var(--mono); user-select: text; }
+.failed-text { color: var(--del); }
 .failure { margin: 4px 12px 10px; padding: 8px; border-radius: 6px; background: color-mix(in srgb, var(--del) 9%, transparent); color: var(--text); font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }.actions { display: flex; padding: 10px 12px 12px; border-top: 1px solid var(--border); }.actions button { flex: 1; justify-content: center; }
-.recent { margin-top: 18px; }.recent h3 { margin: 0 2px 7px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; }.recent-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }.recent-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-bottom: 1px solid var(--border); background: var(--bg); color: var(--text); text-align: left; cursor: pointer; }.recent-row:last-child { border-bottom: 0; }.recent-row:hover { background: var(--hover); }.recent-info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }.recent-info strong { font-size: 11px; }.recent-info small { color: var(--muted); font-size: 9px; }.recent-status { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--muted); font-size: 10px; }.recent-status.running { color: var(--accent); }.recent-status.failed { color: var(--del); }.recent-status.done { color: #39b86d; }.recent-status small { color: var(--muted); font-size: 9px; }
+.recent { margin-top: 18px; }
+.recent h3 { margin: 0 2px 8px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; }
+.recent-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.recent-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px; border: 0; border-bottom: 1px solid var(--border); background: var(--bg); color: var(--text); text-align: left; cursor: pointer; }
+.recent-row:last-child { border-bottom: 0; }
+.recent-row:hover { background: var(--hover); }
+.recent-info { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.recent-info strong { font-size: 12px; }
+.recent-info small { color: var(--muted); font-size: 10px; }
+.recent-status { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.recent-status.running { color: var(--accent); }
+.recent-status.failed { color: var(--del); }
+.recent-status.done { color: #39b86d; }
+.recent-status small { color: var(--muted); font-size: 10px; }
 </style>

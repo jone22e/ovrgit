@@ -525,7 +525,7 @@ watch(repoRoot, () => void loadManifest())
                 <span class="detail faint ellipsis">{{ s.detail }}</span>
                 <span class="time mono faint">{{ stepTime(s) }}</span>
               </button>
-              <ul v-if="s.subs.length && (expanded === s.id || s.status === 'running')" class="subs">
+              <ul v-if="s.subs.length && expanded === s.id" class="subs">
                 <li v-for="(sub, i) in s.subs" :key="sub.id" :class="sub.status">
                   <span class="mark">
                     <span v-if="sub.status === 'running'" class="spinner" />
