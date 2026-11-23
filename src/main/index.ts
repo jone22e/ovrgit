@@ -492,7 +492,7 @@ function registerIpc() {
   ipcMain.handle('ai:analyze', async (_e, force?: boolean, tasks?: TaskHint[]) => {
     const r = requireRoot()
     const st = await g.status(r)
-    const context = taskContext(tasks) + (await g.aiContext(r, st.files))
+    const context = taskContext(tasks) + agentHistory.conversationContext(r, st.files) + (await g.aiContext(r, st.files))
     const saved = loadAnalysis(r)
     const { hash, ...result } = await analyze(getSettings(), st.files, context, { cached: saved, force })
     if (result.source === 'ai') saveAnalysis(r, result, hash)
@@ -504,14 +504,14 @@ function registerIpc() {
     const wanted = new Set(paths)
     const files = (await g.status(r)).files.filter((f) => wanted.has(f.path))
     if (!files.length) throw new Error('Selecione ao menos um arquivo.')
-    return commitMessage(getSettings(), await g.aiContext(r, files, 10000))
+    return commitMessage(getSettings(), agentHistory.conversationContext(r, files) + (await g.aiContext(r, files, 10000)))
   })
   ipcMain.handle('analysis:get', async () => {
     const r = root
     const saved = r ? loadAnalysis(r) : null
     if (!r || !saved || !saved.analysis.groups.length) return null
     const st = await g.status(r)
-    const stale = analysisHash(getSettings(), await g.aiContext(r, st.files)) !== saved.hash
+    const stale = analysisHash(getSettings(), agentHistory.conversationContext(r, st.files) + (await g.aiContext(r, st.files))) !== saved.hash
     return { analysis: saved.analysis, stale }
   })
   ipcMain.handle('analysis:clear', () => {

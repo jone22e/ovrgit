@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentHistoryItem, AgentStatus, AgentTurn, AgentWindowInfo, DaySummary, WindowBounds } from '../shared/types'
+import type { AgentHistoryItem, AgentStatus, AgentTurn, AgentWindowInfo, DaySummary, FileChange, WindowBounds } from '../shared/types'
 import { checksOf, DEPLOY_CMD, testCount } from '../shared/agentChecks'
 
 /**
@@ -160,6 +160,57 @@ export function loadTranscript(sessionId: string): AgentTurn[] | null {
   } catch {
     return null
   }
+}
+
+/** Pedidos de conversas que efetivamente citaram arquivos da seleção atual. */
+export function conversationContext(root: string, files: FileChange[]): string {
+  if (!files.length) return ''
+  const absolute = (cwd: string, file: string) => {
+    const full = path.resolve(cwd, file)
+    try { return realpathSync.native(full) } catch { return full }
+  }
+  const key = (file: string) => process.platform === 'win32' ? file.toLowerCase() : file
+  const selected = new Map<string, string>()
+  for (const file of files) {
+    selected.set(key(absolute(root, file.path)), file.path)
+    if (file.origPath) selected.set(key(absolute(root, file.origPath)), file.path)
+  }
+
+  const matches: { files: string[]; requests: string[]; at: number }[] = []
+  for (const item of load()) {
+    const turns = loadTranscript(item.sessionId)
+    if (!turns?.length) continue
+    const touched = new Set<string>()
+    let lastMatch = -1
+    for (let i = 0; i < turns.length; i++) {
+      for (const block of turns[i].blocks ?? []) {
+        if (block.kind !== 'files') continue
+        for (const file of block.paths) {
+          const selectedFile = selected.get(key(absolute(item.cwd, file)))
+          if (!selectedFile) continue
+          touched.add(selectedFile)
+          lastMatch = i
+        }
+      }
+    }
+    if (lastMatch < 0) continue
+    const requests = turns.slice(0, lastMatch + 1)
+      .filter((turn) => !turn.silent && turn.user?.trim())
+      .slice(-3)
+      .map((turn) => turn.user.replace(/\s+/g, ' ').trim())
+    if (requests.length) matches.push({ files: [...touched], requests, at: turns[lastMatch].startedAt ?? item.updatedAt })
+  }
+  matches.sort((a, b) => b.files.length - a.files.length || b.at - a.at)
+
+  const parts = ['Pedidos em conversas do Ovseer que citaram arquivos selecionados (contexto da intenção; confirme no diff o que foi implementado):']
+  for (const match of matches.slice(0, 4)) {
+    const names = match.files.slice(0, 3).join(', ') + (match.files.length > 3 ? ` e mais ${match.files.length - 3}` : '')
+    const requests = match.requests.map((request) => `- Pedido: ${request.slice(0, 700)}${request.length > 700 ? '…' : ''}`)
+    const block = `Arquivos em comum: ${names}\n${requests.join('\n')}`
+    if (parts.join('\n\n').length + block.length > 6000) break
+    parts.push(block)
+  }
+  return parts.length > 1 ? `${parts.join('\n\n')}\n\n` : ''
 }
 
 export function forget(sessionId: string) {
