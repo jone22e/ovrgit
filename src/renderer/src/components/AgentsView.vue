@@ -106,6 +106,13 @@ function markSeen(a: AgentSnapshot) {
   state.agentSeen = new Set([...state.agentSeen, seenKey(a)].slice(-500))
   try { localStorage.setItem('ovseer.agentSeen', JSON.stringify([...state.agentSeen])) } catch { /* continua nesta sessão */ }
 }
+function markUnread(a: AgentSnapshot) {
+  if (a.status !== 'done') return
+  const seen = new Set(state.agentSeen)
+  seen.delete(seenKey(a))
+  state.agentSeen = seen
+  try { localStorage.setItem('ovseer.agentSeen', JSON.stringify([...seen])) } catch { /* continua nesta sessão */ }
+}
 /** Etiquetas do resultado: arquivos, testes, typecheck, build e deploy vistos nos comandos do agente */
 function chips(a: AgentSnapshot): { text: string; tone: '' | 'ok' | 'bad' | 'warn' }[] {
   const out: { text: string; tone: '' | 'ok' | 'bad' | 'warn' }[] = []
@@ -487,14 +494,14 @@ function pick(a: AgentSnapshot) {
         ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
           <h3>{{ section.label }} · {{ section.agents.length }}</h3>
           <div class="list-rows">
-            <AgentCard v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" />
+            <AgentCard v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
           </div>
         </section>
         <p v-if="snaps.length && !order.length" class="list-no-match">Nenhum agente corresponde à busca.</p>
       </template>
       <section v-else-if="order.length" class="orch-list">
         <div class="list">
-          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" />
+          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
         </div>
       </section>
 

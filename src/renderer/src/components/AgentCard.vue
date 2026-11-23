@@ -35,7 +35,7 @@ const props = defineProps<{
   stalled?: boolean
   compact?: boolean
 }>()
-const emit = defineEmits<{ pick: []; act: [action: AgentAction] }>()
+const emit = defineEmits<{ pick: []; act: [action: AgentAction]; unread: [] }>()
 const group = computed(() => groupOf(state.settings?.repoGroups ?? [], props.a.cwd, props.a.extraDirs))
 const repoIcon = computed(() => state.settings?.repoIcons?.[props.a.cwd] ?? null)
 const workspaceIcon = computed(() => group.value ? group.value.icon ?? null : repoIcon.value)
@@ -139,7 +139,7 @@ function onClick(e: MouseEvent) {
   emit('pick')
 }
 
-// ---------- menu do botão direito: mostrar, renomear, fixar, nova conversa, arquivar ----------
+// ---------- menu do botão direito: mostrar, renomear, fixar, marcar como não lida, nova conversa, arquivar ----------
 const menu = ref<{ left: number; top: number } | null>(null)
 const menuEl = ref<HTMLElement>()
 function onMenu(e: MouseEvent) {
@@ -191,6 +191,10 @@ function pickFromMenu() {
 function pinFromMenu() {
   closeMenu()
   emit('act', { type: 'pin' })
+}
+function markUnreadFromMenu() {
+  closeMenu()
+  emit('unread')
 }
 function openIconPicker() {
   closeMenu()
@@ -278,7 +282,10 @@ async function saveRename() {
     <span v-if="compact" class="list-avatar" :class="{ running: tone === 'live' }" :title="`${group?.name ?? a.project} · ${statusLabel}`"><RepoIcon :icon="workspaceIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="34" /><i :class="tone" /></span>
     <div v-if="compact" class="list-copy">
       <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
-      <strong v-else class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
+      <span v-else class="list-heading">
+        <strong class="list-title" :title="shownTitle">{{ shownTitle }}</strong>
+        <Icon v-if="a.pinned" name="pin" :size="12" class="list-pin" title="Conversa fixada" />
+      </span>
       <small class="list-meta"><span>{{ group?.name ?? a.project }} · {{ a.model }}</span><span v-if="detail" class="list-activity"> · {{ detail }}</span></small>
     </div>
     <span v-if="compact && a.files?.count" class="stats mono list-stats" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'} · +${a.files.add} −${a.files.del} linhas`">
@@ -388,6 +395,7 @@ async function saveRename() {
         <button type="button" class="item" @click="startRename"><Icon name="pencil" :size="14" /><span class="nm">Renomear…</span></button>
         <button type="button" class="item" @click="openIconPicker"><Icon name="grid" :size="14" /><span class="nm">{{ group ? 'Ícone do grupo…' : 'Ícone do repositório…' }}</span></button>
         <button v-if="a.canPin" type="button" class="item" @click="pinFromMenu"><Icon name="pin" :size="14" /><span class="nm">{{ a.pinned ? 'Soltar a conversa' : 'Fixar a conversa (fica na lista ao fechar)' }}</span></button>
+        <button v-if="a.status === 'done' && !fresh" type="button" class="item" @click="markUnreadFromMenu"><Icon name="eyeOff" :size="14" /><span class="nm">Marcar como não lida</span></button>
         <button type="button" class="item" @click="newChat"><Icon name="compose" :size="14" /><span class="nm">Nova conversa com este agente</span></button>
         <div class="sep" />
         <button type="button" class="item" @click="closeFromMenu"><Icon name="archive" :size="14" /><span class="nm">{{ a.status === 'live' ? 'Arquivar (interrompe o agente)' : 'Arquivar a conversa' }}</span></button>
@@ -552,7 +560,9 @@ async function saveRename() {
 .list-avatar i.done { background: var(--add); }
 .list-avatar i.error { background: var(--del); }
 .list-copy { grid-column: 2; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.list-heading { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .list-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.list-pin { color: color-mix(in srgb, var(--accent) 65%, var(--faint)); }
 .list-meta { display: flex; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .list-meta > span:first-child { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
 .list-activity { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
