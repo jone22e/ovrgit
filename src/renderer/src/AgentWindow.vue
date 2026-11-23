@@ -2487,7 +2487,6 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
         <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole na janela)" :disabled="!info" @click="pickFiles">
           <Icon name="paperclip" :size="15" />
         </button>
-        <button v-if="docked" type="button" class="ghost icon" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" :size="15" /></button>
         <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
         <div ref="modeRoot" class="mode-menu">
           <!-- só o ícone: o nome do modo fica na dica e no menu -->
