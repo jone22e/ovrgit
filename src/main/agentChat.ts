@@ -28,6 +28,7 @@ import { askOllama, runOllamaTurn } from './ollamaAgent'
 import { listModels } from './ai'
 import { computerUseBinary } from './computerUse'
 import { chromeExtensionMcp } from './chromeExtension'
+import { PersistentMcp, type PersistentMcpEndpoint } from './persistentMcp'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -95,6 +96,8 @@ interface AgentWin {
   /** Estado do parser do processo Claude atual, reiniciado a cada mensagem enviada pelo mesmo stdin. */
   claudeState?: ClaudeParseState
   lastSimulators?: string
+  /** Conexão Chrome desta conversa: sobrevive ao CLI de cada mensagem. */
+  chromeMcp?: PersistentMcp
 }
 
 const wins = new Map<string, AgentWin>()
@@ -482,6 +485,7 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
     w?.ollamaAbort?.abort()
     if (w?.designChild) terminate(w.designChild, 'codex')
     w?.designAbort?.abort()
+    void w?.chromeMcp?.close()
     closeDesignWindow(uid)
     wins.delete(uid)
     broadcastWindows()
@@ -1339,7 +1343,7 @@ export function normalizeMode(m: unknown): AgentMode {
   return m === 'plan' || m === 'checklist' || m === 'architect' ? m : 'full'
 }
 
-export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; computerUseBin?: string | null; chromeMcp?: ReturnType<typeof chromeExtensionMcp> }): string[] {
+export function codexArgs(o: AgentSendOptions & { resume: string | null; images?: string[]; computerUseBin?: string | null; chromeMcp?: PersistentMcpEndpoint | null }): string[] {
   const args = ['exec']
   if (o.resume) args.push('resume')
   args.push('--json', '--skip-git-repo-check')
@@ -1353,10 +1357,7 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
     args.push('-c', 'mcp_servers.ovseer_computer_use.args=[]')
   }
   if (o.chromeMcp) {
-    args.push('-c', `mcp_servers.ovseer_chrome.command=${JSON.stringify(o.chromeMcp.command)}`)
-    args.push('-c', `mcp_servers.ovseer_chrome.args=${JSON.stringify(o.chromeMcp.args)}`)
-    args.push('-c', 'mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
-    if (o.chromeMcp.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN) args.push('-c', 'mcp_servers.ovseer_chrome.env_vars=["PLAYWRIGHT_MCP_EXTENSION_TOKEN"]')
+    args.push('-c', `mcp_servers.ovseer_chrome.url=${JSON.stringify(o.chromeMcp.url)}`)
   }
   // sempre sem sandbox: o sandbox do Codex bloqueia rede (túneis locais, APIs), e nos modos Plano o que impede
   // alterações é a instrução de só planejar
@@ -1371,7 +1372,7 @@ export function codexBrowserAccessNote(env: NodeJS.ProcessEnv, computerUseAvaila
   if (computerUseAvailable || chromeExtensionAvailable) {
     return '<computer_access>' +
       (computerUseAvailable ? 'O Ovseer disponibiliza a ferramenta MCP ovseer_computer_use para ler a tela e controlar aplicativos, mouse e teclado neste Mac, após as permissões do macOS. Leia o estado do aplicativo antes de usar um índice de elemento.' : '') +
-      (chromeExtensionAvailable ? ' Para controlar abas e páginas do Chrome, use ovseer_chrome, que requer a extensão Playwright MCP instalada no Chrome.' : '') +
+      (chromeExtensionAvailable ? ' Para controlar abas e páginas do Chrome, use ovseer_chrome, que requer a extensão Playwright MCP instalada no Chrome. A conexão é mantida entre mensagens desta conversa; quando o acesso estiver autorizado, liste as abas com browser_tabs e selecione uma existente antes de criar outra.' : '') +
       ' Para usar um navegador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>\n\n'
   }
   if (env.BROWSER_USE_ACCESS_PIPE_PATH && env.BROWSER_USE_ACCESS_VERIFYING_IDENTITY && env.BROWSER_USE_ACCESS_EXECUTOR_ID) return ''
@@ -1984,7 +1985,12 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.effort = clean.effort
   w.info.mode = clean.mode
   const computerUseBin = provider === 'codex' ? computerUseBinary() : null
-  const chromeMcp = provider === 'codex' ? chromeExtensionMcp() : null
+  const chromeServer = provider === 'codex' ? chromeExtensionMcp() : null
+  if (chromeServer && !w.chromeMcp) w.chromeMcp = new PersistentMcp({ ...chromeServer, cwd: w.info.cwd })
+  const chromeSession = w.chromeMcp
+  const chromeMcp = chromeServer ? await chromeSession!.ready : null
+  // A janela pode ter fechado ou iniciado outra conversa enquanto a porta local era aberta.
+  if (wins.get(uid) !== w || w.closing || quitting || w.chromeMcp !== chromeSession) return
   lastAgent = { provider: w.info.provider, model: w.info.model, effort: w.info.effort, mode: w.info.mode, cwd: w.info.cwd }
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
@@ -2039,12 +2045,11 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
         : agyArgs({ ...run, prompt })
   const input = provider === 'claude' ? claudeInputMessage(prompt, inlineImages) : provider === 'agy' ? '' : prompt
   const shellMode = needsShell(bin)
-  const chromeToken = chromeMcp?.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN
   const child = spawn(shellMode ? `"${bin}"` : bin, args, {
     cwd: w.info.cwd,
     shell: shellMode,
     windowsHide: true,
-    env: { ...process.env, ...(chromeToken ? { PLAYWRIGHT_MCP_EXTENSION_TOKEN: chromeToken } : {}), NO_COLOR: '1' }
+    env: { ...process.env, NO_COLOR: '1' }
   })
   w.child = child
   w.turnDone = false
@@ -2666,6 +2671,8 @@ export async function newChat(uid: string) {
     terminate(w.child, w.info.provider)
     await w.exited
   }
+  void w.chromeMcp?.close()
+  w.chromeMcp = undefined
   // a conversa anterior fica ao alcance de "voltar" enquanto a nova não recebe a primeira mensagem
   w.info.previousSessionId = w.info.sessionId
   w.info.sessionId = null
@@ -2827,6 +2834,7 @@ export function shutdownAgents() {
     if (w.child) terminate(w.child, w.info.provider)
     w.ollamaAbort?.abort()
     w.designAbort?.abort()
+    void w.chromeMcp?.close()
   }
 }
 

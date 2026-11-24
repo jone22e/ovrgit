@@ -53,17 +53,14 @@ describe('argumentos dos CLIs', () => {
     expect(args).toContain('mcp_servers.ovseer_computer_use.args=[]')
   })
 
-  it('codex: registra o Chrome pela extensão no MCP', () => {
+  it('codex: reconecta ao MCP Chrome mantido pelo Ovseer, inclusive ao retomar a conversa', () => {
     const args = codexArgs({ model: '', mode: 'full', resume: null, chromeMcp: {
-      command: '/Applications/Ovseer.app/Contents/MacOS/Ovseer',
-      args: ['/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js', '--extension', '--ignore-roots'],
-      env: { ELECTRON_RUN_AS_NODE: '1', PLAYWRIGHT_MCP_EXTENSION_TOKEN: 'test-token' }
+      url: 'http://127.0.0.1:12345/mcp/conversa'
     } })
-    expect(args).toContain('mcp_servers.ovseer_chrome.command="/Applications/Ovseer.app/Contents/MacOS/Ovseer"')
-    expect(args).toContain('mcp_servers.ovseer_chrome.args=["/Applications/Ovseer.app/Contents/Resources/app.asar/node_modules/@playwright/mcp/cli.js","--extension","--ignore-roots"]')
-    expect(args).toContain('mcp_servers.ovseer_chrome.env.ELECTRON_RUN_AS_NODE="1"')
-    expect(args).toContain('mcp_servers.ovseer_chrome.env_vars=["PLAYWRIGHT_MCP_EXTENSION_TOKEN"]')
-    expect(args.join(' ')).not.toContain('test-token')
+    expect(args).toContain('mcp_servers.ovseer_chrome.url="http://127.0.0.1:12345/mcp/conversa"')
+    const resumed = codexArgs({ model: '', mode: 'full', resume: 'thread-1', chromeMcp: { url: 'http://127.0.0.1:12345/mcp/conversa' } })
+    expect(resumed).toContain('mcp_servers.ovseer_chrome.url="http://127.0.0.1:12345/mcp/conversa"')
+    expect(args.join(' ')).not.toContain('PLAYWRIGHT_MCP_EXTENSION_TOKEN')
   })
 })
 
