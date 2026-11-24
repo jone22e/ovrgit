@@ -58,8 +58,21 @@ describe('parseSnapshot', () => {
       { provider: 'codex', model: 'm', effort: 'high', mode: 'full', cwd: '/ok/d', hidden: true }
     ])
   })
-  it('limita a 24 agentes', () => {
-    const many = Array.from({ length: 30 }, (_, i) => ({ provider: 'codex', model: '', effort: 'high', mode: 'full', cwd: `/ok/${i}` }))
-    expect(parseSnapshot(snap(many), exists)).toHaveLength(24)
+  it('restaura todas as conversas, inclusive a selecionada depois da posição 24', () => {
+    const many = Array.from({ length: 100 }, (_, i) => ({ provider: 'codex', model: '', effort: 'high', mode: 'full', cwd: `/ok/${i}`, sessionId: `thread-${i.toString().padStart(4, '0')}`, ...(i === 99 ? { docked: true } : {}) }))
+    expect(parseSnapshot(snap(many), exists)).toEqual(many)
+  })
+  it('preserva os horários da lista ao salvar e ler, inclusive sem sessão', () => {
+    const order = { status: 'idle' as const, since: 100, interactedAt: 90 }
+    const agent = toOpenAgent(info({ cwd: '/ok/a', sessionId: null }), { docked: false, hidden: false, order })
+    expect(parseSnapshot(snap([agent]), exists)[0].order).toEqual(order)
+    expect(parseSnapshot(snap([{ ...agent, order: { status: 'waiting', since: 200, lastTurnId: 'turn-1', interactedAt: 110 } }]), exists)[0].order)
+      .toEqual({ status: 'waiting', since: 200, lastTurnId: 'turn-1', interactedAt: 110 })
+  })
+  it('descarta horários inválidos sem descartar a conversa', () => {
+    const agent = toOpenAgent(info({ cwd: '/ok/a' }), { docked: false, hidden: false })
+    for (const order of [{ status: 'invalid', since: 100 }, { status: 'done', since: -1 }, { status: 'done', since: '100' }]) {
+      expect(parseSnapshot(snap([{ ...agent, order }]), exists)).toEqual([agent])
+    }
   })
 })

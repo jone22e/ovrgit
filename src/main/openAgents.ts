@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path'
 import type { AgentChatOpen, AgentEffort, AgentMode, AgentWindowInfo, CliProvider } from '../shared/types'
 import { DEFAULT_EFFORT, EFFORTS } from '../shared/models'
+import type { AgentOrderState } from './agentOrder'
 
 /**
  * Agentes abertos: um retrato gravado em disco a cada mudança (e congelado quando o app começa a fechar), para
@@ -25,16 +26,18 @@ export interface OpenAgent {
   docked?: boolean
   /** Estava em janela própria ("Abrir em janela") */
   floating?: boolean
+  /** Horários da lista: reabrir uma tela não é uma interação nem uma mudança de situação. */
+  order?: AgentOrderState
 }
 
-const MAX_AGENTS = 24
 const SESSION_ID = /^[\w-]{8,80}$/
 const PROVIDERS = new Set<CliProvider>(['claude', 'codex', 'agy', 'ollama'])
+const STATUSES = new Set(['idle', 'live', 'waiting', 'done', 'error'])
 
 const file = () => path.join(app.getPath('userData'), 'open-agents.json')
 
 /** O retrato de um agente aberto, a partir do que o processo principal sabe dele */
-export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden: boolean; floating?: boolean }): OpenAgent {
+export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden: boolean; floating?: boolean; order?: AgentOrderState }): OpenAgent {
   const a: OpenAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   if (info.extraDirs?.length) a.extraDirs = info.extraDirs
   if (info.sessionId) a.sessionId = info.sessionId
@@ -42,6 +45,7 @@ export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden:
   if (o.hidden) a.hidden = true
   if (o.docked) a.docked = true
   if (o.floating) a.floating = true
+  if (o.order) a.order = o.order
   return a
 }
 
@@ -88,8 +92,12 @@ export function parseSnapshot(raw: string, exists: (p: string) => boolean = exis
     if (x.hidden === true) a.hidden = true
     if (x.docked === true && !out.some((o) => o.docked)) a.docked = true
     if (x.floating === true) a.floating = true
+    if (x.order && STATUSES.has(x.order.status) && Number.isSafeInteger(x.order.since) && x.order.since > 0) {
+      a.order = { status: x.order.status, since: x.order.since }
+      if (typeof x.order.lastTurnId === 'string') a.order.lastTurnId = x.order.lastTurnId
+      if (typeof x.order.interactedAt === 'number' && Number.isSafeInteger(x.order.interactedAt) && x.order.interactedAt > 0) a.order.interactedAt = x.order.interactedAt
+    }
     out.push(a)
-    if (out.length >= MAX_AGENTS) break
   }
   return out
 }
@@ -109,7 +117,9 @@ export function writeOpenAgents(agents: OpenAgent[]) {
     const tmp = `${file()}.tmp`
     writeFileSync(tmp, JSON.stringify({ savedAt: Date.now(), agents }, null, 2))
     renameSync(tmp, file())
+    return true
   } catch (e) {
     console.error('Agentes abertos: não consegui gravar o retrato:', (e as Error).message)
+    return false
   }
 }

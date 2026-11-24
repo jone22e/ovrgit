@@ -1830,7 +1830,7 @@ function firstLine(t: Turn | undefined): string {
   return summaryOf(texts[texts.length - 1] ?? '')
 }
 const snapshot = computed<AgentSnapshot | null>(() => {
-  if (!info.value) return null
+  if (!info.value || !ready.value) return null
   const last = turns[turns.length - 1] as Turn | undefined
   const lastUser = [...turns].reverse().find((t) => !t.silent && t.user.trim())?.user.trim() ?? ''
   let files: AgentSnapshot['files']

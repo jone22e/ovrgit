@@ -2,10 +2,24 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { snapshotOrder } from '../src/main/agentOrder'
 
 const userData = mkdtempSync(path.join(tmpdir(), 'ovseer-agent-order-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
 afterAll(() => rmSync(userData, { recursive: true, force: true }))
+
+describe('horários da lista ao reabrir', () => {
+  it.each(['waiting', 'error', 'done', 'idle'] as const)('preserva a posição de uma conversa %s sem usar o horário de carregamento', (status) => {
+    const previous = { lastTurnId: status === 'idle' ? undefined : 't1', status, since: 100, interactedAt: 90 }
+    expect(snapshotOrder({ ...previous, since: 1000, interactedAt: 990 }, previous)).toEqual(previous)
+  })
+  it('uma mudança real de situação ou uma nova resposta usa o novo horário', () => {
+    const previous = { lastTurnId: 't1', status: 'waiting' as const, since: 100, interactedAt: 90 }
+    expect(snapshotOrder({ ...previous, status: 'done', since: 200 }, previous)).toEqual({ ...previous, status: 'done', since: 200 })
+    const next = { ...previous, lastTurnId: 't2', status: 'live' as const, since: 300, interactedAt: 300 }
+    expect(snapshotOrder(next, previous)).toEqual(next)
+  })
+})
 
 describe('ordem dos agentes concluídos', () => {
   it('preserva a posição ao reabrir e move só uma nova resposta para o topo', async () => {

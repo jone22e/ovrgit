@@ -15,8 +15,8 @@ import { getSettings } from './settings'
 import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
 import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryIcon, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
-import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents } from './openAgents'
-import { completedOrder } from './agentOrder'
+import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents, type OpenAgent } from './openAgents'
+import { completedOrder, snapshotOrder, type AgentOrderState } from './agentOrder'
 import { quickAsk } from './quickAi'
 import { sessionContext } from './agentWatch'
 import { agentApiInfo } from './agentApi'
@@ -65,6 +65,7 @@ interface AgentWin {
   lastMode?: AgentMode
   /** Resumo publicado pela janela para o gerenciador de agentes */
   snap?: AgentSnapshot
+  order?: AgentOrderState
   /** Último aviso de serviços em execução enviado (Codex/Antigravity só recebem de novo quando muda) */
   lastServices?: string
   /** Última nota de espaço de trabalho enviada (Codex e Antigravity só recebem de novo quando muda) */
@@ -630,7 +631,7 @@ export async function openAgentLikeLast(focused: BrowserWindow | null, projectRo
 }
 
 /** Abre a janela do agente. A primeira mensagem (se houver) é enviada pela própria janela ao carregar. */
-export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowInfo> {
+export async function openAgentWindow(opts: AgentChatOpen, order?: AgentOrderState): Promise<AgentWindowInfo> {
   // conversa reaberta nunca volta no modo Plano (só começa nele quando escolhido no diálogo)
   if (opts.resumeId && isPlanMode(opts.mode)) opts = { ...opts, mode: 'full' }
   const uid = crypto.randomUUID()
@@ -661,7 +662,7 @@ export async function openAgentWindow(opts: AgentChatOpen): Promise<AgentWindowI
   // desaceleração que o sistema aplica a janelas invisíveis, porque é ela que fala com o agente
   if (opts.hidden) win.webContents.setBackgroundThrottling(false)
   // escondida já nasce em segundo plano: fechar pelo X, depois de mostrada, só a esconde de novo
-  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded, floating: !!opts.floating })
+  wins.set(uid, { info, win, child: null, turnDone: true, exited: null, background: !!opts.hidden, docked: embedded, floating: !!opts.floating, order })
   lastAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
   // em espera (ou "quieto"): no orquestrador nasce embutido sem tomar a área; fora dele, aparece sem roubar o foco
   wireHost(uid, win, opts.hidden ? 'none' : opts.quiet ? (embedded ? 'none' : 'showInactive') : embedded ? 'dock' : 'show')
@@ -883,7 +884,8 @@ export function reportSnapshot(uid: string, snap: AgentSnapshot) {
   const w = wins.get(uid)
   if (!w || !snap || typeof snap !== 'object') return
   const was = w.snap
-  w.snap = { ...snap, uid, doneOrder: completedOrder(w.info.sessionId, snap.lastTurnId, snap.status) }
+  w.order = snapshotOrder(snap, w.order)
+  w.snap = { ...snap, ...w.order, uid, doneOrder: completedOrder(w.info.sessionId, snap.lastTurnId, snap.status) }
   broadcastSnapshots()
   for (const fn of snapshotListeners) fn()
   // passou a esperar por você: notificação com as opções como botões e um campo de resposta
@@ -2685,6 +2687,7 @@ export async function newChat(uid: string) {
   // a conversa anterior fica ao alcance de "voltar" enquanto a nova não recebe a primeira mensagem
   w.info.previousSessionId = w.info.sessionId
   w.info.sessionId = null
+  w.order = undefined
   w.ollamaTurns = undefined
   w.info.resumeId = undefined
   w.info.firstMessage = undefined
@@ -2854,16 +2857,18 @@ let openAgentsFrozen = false
 let openAgentsTimer: ReturnType<typeof setTimeout> | null = null
 /** Último retrato gravado: os resumos chegam o tempo todo durante uma resposta, e o arquivo só muda quando ele muda */
 let openAgentsLast = ''
+/** Uma falha de abertura não pode apagar a conversa do próximo retrato. */
+const unrestoredAgents: OpenAgent[] = []
 function saveOpenAgents() {
   if (openAgentsFrozen) return
   if (openAgentsTimer) clearTimeout(openAgentsTimer)
   openAgentsTimer = null
   const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing)
-  const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible(), floating: !!w.floating }))
+  const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible(), floating: !!w.floating, order: w.order }))
+  agents.push(...unrestoredAgents)
   const json = JSON.stringify(agents)
   if (json === openAgentsLast) return
-  openAgentsLast = json
-  writeOpenAgents(agents)
+  if (writeOpenAgents(agents)) openAgentsLast = json
 }
 /** Várias mudanças seguidas (abrir, carregar, encaixar) viram uma gravação só */
 function scheduleOpenAgentsSave() {
@@ -2886,17 +2891,21 @@ export async function restoreOpenAgents(): Promise<number> {
       if (first) first.docked = true
     }
     for (const a of saved) {
+      if (quitting) break
       try {
         const req = reopenRequest(a)
-        await openAgentWindow({ ...req, mode: normalizeMode(req.mode) })
+        await openAgentWindow({ ...req, mode: normalizeMode(req.mode) }, a.order)
         n++
       } catch (e) {
+        unrestoredAgents.push(a)
         console.error('Não consegui reabrir um agente:', (e as Error).message)
       }
     }
   } finally {
-    openAgentsFrozen = false
-    saveOpenAgents()
+    if (!quitting) {
+      openAgentsFrozen = false
+      saveOpenAgents()
+    }
   }
   return n
 }

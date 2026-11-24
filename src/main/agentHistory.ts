@@ -67,9 +67,11 @@ export function sortHistory(items: AgentHistoryItem[]): AgentHistoryItem[] {
 export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status?: AgentStatus) {
   if (!info.sessionId || !turns.length) return
   const clean = turns.map((t) => ({ ...t, blocks: t.blocks.map((b) => (b.kind === 'tool' ? { ...b, open: false } : b)) }))
-  writeJson(transcriptFile(info.sessionId), { sessionId: info.sessionId, turns: clean })
   const items = load()
   const i = items.findIndex((x) => x.sessionId === info.sessionId)
+  // A tela publica a transcrição também ao restaurá-la. Isso não é atividade nova no histórico.
+  const unchanged = i >= 0 && JSON.stringify(loadTranscript(info.sessionId)) === JSON.stringify(clean)
+  if (!unchanged) writeJson(transcriptFile(info.sessionId), { sessionId: info.sessionId, turns: clean })
   const now = Date.now()
   const item: AgentHistoryItem = {
     sessionId: info.sessionId,
@@ -87,7 +89,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status
     status: status ?? items[i]?.status,
     bounds: items[i]?.bounds,
     createdAt: items[i]?.createdAt ?? now,
-    updatedAt: now,
+    updatedAt: unchanged ? items[i].updatedAt : now,
     turns: turns.length
   }
   if (i >= 0) items[i] = item

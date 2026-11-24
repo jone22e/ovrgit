@@ -1,7 +1,20 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { AgentStatus } from '../shared/types'
+import type { AgentSnapshot, AgentStatus } from '../shared/types'
+
+/** Dados usados para ordenar os cartões, inclusive os que ainda não têm sessão. */
+export type AgentOrderState = Pick<AgentSnapshot, 'lastTurnId' | 'status' | 'since' | 'interactedAt'>
+
+export function snapshotOrder(snap: AgentOrderState, previous?: AgentOrderState): AgentOrderState {
+  const sameTurn = previous && previous.lastTurnId === snap.lastTurnId
+  return {
+    lastTurnId: snap.lastTurnId,
+    status: snap.status,
+    since: sameTurn && previous.status === snap.status ? previous.since : snap.since,
+    interactedAt: sameTurn ? previous.interactedAt ?? snap.interactedAt : snap.interactedAt
+  }
+}
 
 /** Ordem dos concluídos, por sessão e última resposta. Sobrevive à reabertura das janelas. */
 interface Entry { turnId: string; rank: number }
