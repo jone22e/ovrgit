@@ -282,10 +282,18 @@ const docked = computed(() => snaps.value.find((a) => a.docked) ?? null)
 const bodyEl = ref<HTMLElement>()
 const managerEl = ref<HTMLElement>()
 const managerWidth = ref(Number(localStorage.getItem('ovseer.manager.width')) || 360)
+const agentsEl = ref<HTMLElement>()
 const dockEl = ref<HTMLElement>()
-const dockWidth = ref(Number(localStorage.getItem('ovseer.dock') ?? 620))
+const dockWidth = ref(0)
+const savedDockRatio = Number(localStorage.getItem('ovseer.dock.ratio'))
+const dockRatio = ref(Number.isFinite(savedDockRatio) && savedDockRatio > 0 && savedDockRatio < 1 ? savedDockRatio : 0.5)
+// As duas colunas dividem o espaço restante em proporção, inclusive com a fila aberta.
+const bodyColumns = computed(() => {
+  const queue = state.showQueue ? `clamp(280px, ${managerWidth.value}px, calc(100% - ${state.showDock ? 702 : 321}px)) 1px ` : ''
+  return queue + (state.showDock ? `minmax(0, ${1 - dockRatio.value}fr) 1px minmax(0, ${dockRatio.value}fr)` : 'minmax(0, 1fr)')
+})
 function clampManagerWidth(width: number) {
-  const available = (bodyEl.value?.clientWidth ?? window.innerWidth) - (state.showDock ? dockWidth.value : 0) - 320
+  const available = (bodyEl.value?.clientWidth ?? window.innerWidth) - (state.showDock ? 702 : 321)
   return Math.min(Math.max(width, 280), Math.max(280, available))
 }
 function resizeManagerBy(delta: number) {
@@ -308,14 +316,18 @@ function startManagerResize(e: MouseEvent) {
 }
 function startDockResize(e: MouseEvent) {
   const startX = e.clientX
-  const start = dockWidth.value
+  const start = dockEl.value?.parentElement?.getBoundingClientRect().width ?? 0
+  const available = start + (agentsEl.value?.getBoundingClientRect().width ?? 0)
+  if (!available) return
   const move = (ev: MouseEvent) => {
-    dockWidth.value = Math.min(Math.max(start - (ev.clientX - startX), 380), window.innerWidth - 320)
+    const min = Math.min(380, available / 2)
+    const max = Math.max(min, available - 320)
+    dockRatio.value = Math.min(Math.max(start - (ev.clientX - startX), min), max) / available
   }
   const up = () => {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
-    localStorage.setItem('ovseer.dock', String(dockWidth.value))
+    localStorage.setItem('ovseer.dock.ratio', String(dockRatio.value))
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
@@ -387,6 +399,7 @@ watch([dockEl, bodyEl], ([el, body]) => {
   sizeObs = undefined
   if (el) {
     sizeObs = new ResizeObserver(() => {
+      dockWidth.value = el.parentElement?.getBoundingClientRect().width ?? 0
       // O simulador pode deslocar a conversa sem mudar a largura dela.
       // Atualize a vista nativa antes da pintura, sem esperar outra mutação ou RAF.
       cancelAnimationFrame(areaRaf)
@@ -444,13 +457,13 @@ function pick(a: AgentSnapshot) {
       </div>
     </div>
 
-    <div ref="bodyEl" class="body">
+    <div ref="bodyEl" class="body" :style="{ gridTemplateColumns: bodyColumns }">
     <!-- a fila de tarefas é uma coluna própria, antes dos cartões -->
-    <aside v-show="state.showQueue" ref="managerEl" class="queue-col" :style="{ width: `${managerWidth}px`, maxWidth: `calc(100% - ${state.showDock ? dockWidth : 0}px - 320px)` }">
+    <aside v-show="state.showQueue" ref="managerEl" class="queue-col">
       <QueuePanel />
     </aside>
     <div v-show="state.showQueue" class="queue-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionar gerenciador de agentes" tabindex="0" @mousedown.prevent="startManagerResize" @keydown.left.prevent="resizeManagerBy(-20)" @keydown.right.prevent="resizeManagerBy(20)" />
-    <div class="scroll" :class="{ 'list-mode': compactList }">
+    <div ref="agentsEl" class="scroll" :class="{ 'list-mode': compactList }">
       <header v-if="compactList" class="list-head">
         <strong>{{ snaps.length }} {{ snaps.length === 1 ? 'agente' : 'agentes' }}</strong>
         <div class="list-filters" role="group" aria-label="Filtrar agentes">
@@ -535,7 +548,7 @@ function pick(a: AgentSnapshot) {
          Escondida (botão do painel na barra do topo), os cartões ocupam a largura toda -->
     <template v-if="state.showDock">
       <div class="dock-resizer" @mousedown.prevent="startDockResize" />
-      <div class="dock" :style="{ width: `${dockWidth}px` }">
+      <div class="dock">
         <!-- a janela presa cobre exatamente esta área -->
         <div ref="dockEl" class="dock-area">
           <!-- a foto da conversa, enquanto algo cobre a área (a vista fica escondida por baixo do que cobre) -->
@@ -566,7 +579,7 @@ function pick(a: AgentSnapshot) {
 
 <style scoped>
 .agents { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--panel); }
-.body { flex: 1; display: flex; min-height: 0; min-width: 0; }
+.body { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; }
 .queue-col { flex: none; min-width: 280px; overflow: visible; background: var(--panel); }
 .toolbar { gap: 10px; }
 .orch-btn { height: 26px; padding: 0 8px; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -625,7 +638,7 @@ function pick(a: AgentSnapshot) {
 @container (max-width: 680px) { .orch .pinned-compact .item.closed { gap: 8px; } }
 @container (max-width: 460px) { .orch .pinned-compact .item.closed > .when { display: none; } }
 .toolbar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header); padding: 0 12px; border-bottom: 1px solid var(--border); }
-.scroll { flex: 1; overflow: auto; padding: 0 16px 24px; }
+.scroll { min-width: 0; overflow: auto; padding: 0 16px 24px; }
 .scroll.list-mode { padding: 0 0 24px; container-type: inline-size; }
 .list-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 18px; min-height: 58px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .scroll.list-mode :deep(.acard) { scroll-margin-top: 58px; }
