@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentChatEvent } from '../src/shared/types'
-import { claudeArgs, claudeContextRequest, claudeWindowFor, codexArgs, codexBrowserAccessNote, dockedBounds, parseClaudeLine, parseCodexLine, sourceLinkPath, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
+import { claudeArgs, claudeComputerAccessNote, claudeContextRequest, claudeWindowFor, codexArgs, codexBrowserAccessNote, dockedBounds, parseClaudeLine, parseCodexLine, sourceLinkPath, type ClaudeParseState, type CodexParseState } from '../src/main/agentChat'
 import { QUESTION_FORMAT, formatAnswers, splitQuestions } from '../src/shared/questions'
 import { modelLabel } from '../src/shared/models'
 
@@ -17,6 +17,15 @@ describe('argumentos dos CLIs', () => {
     expect(full).toContain('--dangerously-skip-permissions')
     expect(full).not.toContain('--model')
     expect(full.slice(-2)).toEqual(['--resume', 'abc-123'])
+  })
+
+  it('claude: Claude in Chrome e controle do computador', () => {
+    const a = claudeArgs({ model: '', effort: 'high', mode: 'full', resume: null, chrome: true, computerUseBin: '/x/ovseer-computer' })
+    expect(a).toContain('--chrome')
+    const cfg = JSON.parse(a[a.indexOf('--mcp-config') + 1])
+    expect(cfg).toEqual({ mcpServers: { ovseer_computer_use: { command: '/x/ovseer-computer', args: [] } } })
+    expect(claudeComputerAccessNote(true)).toContain('ovseer_computer_use')
+    expect(claudeComputerAccessNote(false)).toBe('')
   })
 
   it('codex: exec e exec resume com o pedido pelo stdin', () => {
