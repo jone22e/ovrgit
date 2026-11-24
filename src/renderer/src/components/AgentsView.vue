@@ -7,6 +7,7 @@ import { api, ask, loadProjectIcon, openNewAgent, projectIcons, saveSettings, se
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { ago as agoSince } from '../ago'
+import { dockCovered, useDockVisibility } from '../dockVisibility'
 import AgentCard from './AgentCard.vue'
 import QueuePanel from './QueuePanel.vue'
 import AskCard from './AskCard.vue'
@@ -332,60 +333,13 @@ function startDockResize(e: MouseEvent) {
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
 }
-type Box = { x: number; y: number; width: number; height: number }
-/**
- * Algo por cima da área (diálogo, menu aberto, balão): a janela presa, que fica sempre por cima da página,
- * cobriria isso. Amostra pontos da área e vê se o elemento no topo de cada um pertence a ela.
- */
-function covered(el: HTMLElement, r: DOMRect): boolean {
-  if (document.querySelector('.backdrop, .overlay-backdrop')) return true
-  const step = 56
-  for (let y = r.top + 6; y < r.bottom; y += step) {
-    for (let x = r.left + 8; x < r.right; x += step) {
-      const top = document.elementFromPoint(Math.min(x, r.right - 4), Math.min(y, r.bottom - 4))
-      if (top && !el.contains(top)) return true
-    }
-  }
-  return false
-}
-/*
- * Coberta, a conversa não some nem se recorta: o processo principal tira uma foto da vista, a foto entra no quadro
- * no mesmo lugar, e só então a vista se esconde. O menu ou diálogo aparece por cima da foto, onde sempre apareceu.
- * Descoberta, a vista volta e a foto sai um instante depois, para não piscar.
- */
-const frozen = ref<string | null>(null)
-let wantFrozen = false
-let freezing = false
-let unfreezeTimer: ReturnType<typeof setTimeout> | undefined
-async function freeze() {
-  wantFrozen = true
-  clearTimeout(unfreezeTimer)
-  if (frozen.value || freezing) return
-  freezing = true
-  try {
-    const snap = await api.dockSnapshot().catch(() => null)
-    // o que cobria já saiu enquanto a foto era tirada: fica tudo como está
-    if (!wantFrozen) return
-    frozen.value = snap
-    await nextTick()
-    await new Promise((r) => requestAnimationFrame(() => r(undefined)))
-    if (wantFrozen) api.orchestratorArea(null)
-  } finally {
-    freezing = false
-  }
-}
-function unfreeze(rect: Box) {
-  wantFrozen = false
-  api.orchestratorArea(rect)
-  clearTimeout(unfreezeTimer)
-  unfreezeTimer = setTimeout(() => (frozen.value = null), 80)
-}
+const { frozen, freeze, unfreeze, dispose: disposeDock } = useDockVisibility(api)
 let areaRaf = 0
 function updateArea() {
   const el = dockEl.value
   if (!el) return api.orchestratorArea(null)
   const r = el.getBoundingClientRect()
-  if (covered(el, r)) return void freeze()
+  if (dockCovered(el, r)) return void freeze()
   unfreeze({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) })
 }
 function reportArea() {
@@ -420,7 +374,7 @@ onMounted(() => {
   window.addEventListener('resize', reportArea)
   // diálogos abrem e fecham, barras aparecem: a área muda de lugar ou precisa sumir
   domObs = new MutationObserver(reportArea)
-  domObs.observe(document.body, { childList: true, subtree: true })
+  domObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
 })
 onUnmounted(() => {
   document.documentElement.style.removeProperty('--dock-w')
@@ -428,7 +382,7 @@ onUnmounted(() => {
   domObs?.disconnect()
   sizeObs?.disconnect()
   cancelAnimationFrame(areaRaf)
-  api.orchestratorArea(null)
+  disposeDock()
 })
 /** Número do atalho do cartão (⌘1–9), pela posição na lista */
 function numberOf(a: AgentSnapshot): number | null {
