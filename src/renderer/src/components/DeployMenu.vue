@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DeployLock, DeployManifest, DeployPlanResult, DeploySnapshot, DeployStepView } from '@shared/deploy'
 import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseFailure, releaseStatusLabel } from '@shared/deploy'
 import { api, state, toast } from '../store'
+import DeployActivity from './DeployActivity.vue'
 import Icon from './Icon.vue'
 
 /**
@@ -65,6 +66,7 @@ const historyOpen = ref(false)
 const now = ref(Date.now())
 
 const repoRoot = computed(() => state.repo?.root ?? '')
+const activeDeploy = computed(() => state.deployOverview.find(({ root, snapshot }) => root === repoRoot.value && snapshot.operation))
 /** Adaptador de script: sem console, sem trava compartilhada, sem retomada */
 const isScript = computed(() => manifest.value?.kind === 'script')
 /** Alvos do deploy (uma loja, um ambiente…): escolhidos a cada novo deploy, sem lembrar o anterior */
@@ -362,7 +364,9 @@ watch(repoRoot, () => void loadManifest())
 
 <template>
   <div v-if="manifest || manifestError" ref="root" class="deploy-menu">
+    <DeployActivity v-if="activeDeploy" :deploy="activeDeploy" dropdown :open="open" @click="toggle" />
     <button
+      v-else
       class="badge accent deploy"
       :class="{ on: open, broken: !!manifestError }"
       :title="manifestError || `${manifest?.name}: deploy deste projeto pelo Ovseer`"

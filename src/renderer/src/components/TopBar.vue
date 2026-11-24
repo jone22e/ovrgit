@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import logo from '../assets/logo.png'
-import { openNewAgent, setShowDiff, setShowDock, setShowTerminal, state } from '../store'
+import { openNewAgent, setShowDeploys, setShowDiff, setShowDock, setShowTerminal, state } from '../store'
 import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
@@ -14,6 +15,7 @@ import UserMenu from './UserMenu.vue'
 const simulatorOpen = defineModel<boolean>('simulator', { default: false })
 const switcherOpen = defineModel<boolean>('switcher', { default: false })
 const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
+const otherDeploys = computed(() => state.deployOverview.filter(({ root, snapshot }) => snapshot.operation && root !== state.repo?.root))
 </script>
 
 <template>
@@ -41,7 +43,9 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
     </template>
 
     <span class="spacer" />
-    <DeployActivity />
+    <div v-if="otherDeploys.length" class="deploy-activity" aria-label="Deploys de outros projetos em execução">
+      <DeployActivity v-for="deploy in otherDeploys" :key="deploy.root" :deploy="deploy" @click="setShowDeploys(true)" />
+    </div>
     <UsageChip />
     <ServicesMenu />
     <button type="button" class="ghost icon" :class="{ on: simulatorOpen }" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" /></button>
@@ -100,6 +104,8 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
 button { -webkit-app-region: no-drag; }
 .logo { width: 24px; height: 24px; margin-right: 2px; }
 .spacer { flex: 1; min-width: 4px; }
+.deploy-activity { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: min(50vw, 800px); overflow-x: auto; scrollbar-width: none; -webkit-app-region: no-drag; }
+.deploy-activity::-webkit-scrollbar { display: none; }
 .task-btns { display: flex; gap: 2px; margin-right: 4px; -webkit-app-region: no-drag; }
 .task-btns button { position: relative; }
 .layout { display: flex; gap: 2px; -webkit-app-region: no-drag; }
