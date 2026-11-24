@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, releaseFailure, stripAnsi,
-  type DeployManifest, type DeployRelease
+  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, releaseFailure, remoteReleaseResult, stripAnsi,
+  type DeployLock, type DeployManifest, type DeployRelease
 } from '../src/shared/deploy'
 
 const manifest = (): DeployManifest => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', start: 'make deploy-console', port: 3098 }))
@@ -130,6 +130,34 @@ describe('etapas numeradas', () => {
     const r = release({ tests: { status: 'failed', error: 'testes falharam' } }, 'failed')
     expect(releaseFailure(r, buildDeploySteps(manifest(), r))).toEqual({ title: 'Testes', detail: 'testes falharam' })
   })
+  it('retomada recusada mostra o erro novo mesmo com falha antiga nas etapas', () => {
+    const r = release({ deploy_systems: { status: 'failed', error: 'migration antiga', failed_at: '2026-11-24T14:28:00Z' } }, 'failed')
+    r.last_attempt = {
+      operation: 'resume', status: 'failed', phase: 'orquestracao_local', host: 'mac-jone', user: 'jone', started_at: '2026-11-24T14:33:00Z',
+      error: 'deploy em andamento em outro lugar: maciel em DESKTOP-PJSQTQT'
+    }
+    expect(releaseFailure(r, buildDeploySteps(manifest(), r))).toEqual({
+      title: 'Retomada neste computador', detail: r.last_attempt.error
+    })
+    expect(r.phases.deploy_systems.error).toBe('migration antiga')
+    r.last_attempt.phase = 'deploy_systems'
+    r.failure_detail = 'nova falha detalhada na fase'
+    expect(releaseFailure(r, buildDeploySteps(manifest(), r))?.detail).toBe('nova falha detalhada na fase')
+  })
+  it('mostra o resultado mais recente do outro computador sem reescrever fases locais', () => {
+    const r = release({ deploy_systems: { status: 'failed', failed_at: '2026-11-24T14:28:00Z' } }, 'failed')
+    const lock: DeployLock = {
+      status: 'free', stale: false, location: '', checked_at: '', local_host: 'mac-jone',
+      lock: { tag: r.tag, host: 'DESKTOP-PJSQTQT', user: 'maciel', status: 'released', released_at: '2026-11-24T14:35:00Z', result: { status: 'critical_passed' } }
+    }
+    expect(remoteReleaseResult(lock, r)).toMatch(/Gate crítico aprovado em DESKTOP-PJSQTQT \(maciel\)/)
+    expect(r.phases.deploy_systems.status).toBe('failed')
+    expect(remoteReleaseResult({ ...lock, status: 'active' }, r)).toBeNull()
+    expect(remoteReleaseResult({ ...lock, local_host: 'DESKTOP-PJSQTQT' }, r)).toBeNull()
+    expect(remoteReleaseResult(lock, { ...r, tag: 'outra-release' })).toBeNull()
+    expect(remoteReleaseResult({ ...lock, lock: { ...lock.lock, released_at: '2026-11-24T14:27:00Z' } }, r)).toBeNull()
+    expect(remoteReleaseResult({ ...lock, lock: { ...lock.lock, result: { status: 'released_manually' } } }, r)).toBeNull()
+  })
 })
 
 describe('textos', () => {
@@ -141,8 +169,8 @@ describe('textos', () => {
   it('linha da trava diz quem, onde e há quanto tempo', () => {
     const now = Date.parse('2026-11-04T12:18:35Z')
     const line = lockLine({ status: 'active', stale: false, location: 's3://b/k', checked_at: '', lock: { tag: 'aws-2026.11.04.02', operation: 'deploy', host: 'mac-ana', user: 'ana', acquired_at: '2026-11-04T11:58:35Z' } }, now)
-    expect(line).toBe('Deploy de aws-2026.11.04.02 em andamento no computador mac-ana (ana) há 20:00')
-    expect(lockLine({ status: 'free', stale: false, location: '', checked_at: '', lock: null })).toMatch(/Nenhum deploy/)
-    expect(lockLine({ status: 'active', stale: true, location: '', checked_at: '', lock: { operation: 'resume', tag: 't', host: 'h', user: 'u' } })).toMatch(/^Retomada de t .*possivelmente abandonado$/)
+    expect(line).toBe('Trava de deploy de aws-2026.11.04.02 registrada no computador mac-ana (ana) há 20:00')
+    expect(lockLine({ status: 'free', stale: false, location: '', checked_at: '', lock: null })).toMatch(/Nenhuma trava de deploy ativa/)
+    expect(lockLine({ status: 'active', stale: true, location: '', checked_at: '', lock: { operation: 'resume', tag: 't', host: 'h', user: 'u' } })).toMatch(/^Trava de retomada de t .*possivelmente abandonada$/)
   })
 })

@@ -150,6 +150,16 @@ export interface DeployRelease {
   typesense_first?: boolean
   failure_phase?: string
   failure_detail?: string
+  last_attempt?: {
+    operation: string
+    status: 'running' | 'completed' | 'failed'
+    host: string
+    user: string
+    started_at: string
+    finished_at?: string
+    error?: string
+    phase?: string
+  } | null
   phases: Record<string, DeployPhase>
 }
 
@@ -170,6 +180,8 @@ export interface DeployLockHolder {
   pid?: number
   acquired_at?: string
   status?: string
+  released_at?: string
+  result?: { status?: string }
 }
 
 export interface DeployLock {
@@ -178,6 +190,7 @@ export interface DeployLock {
   location: string
   lock: DeployLockHolder | null
   checked_at: string
+  local_host?: string
 }
 
 export interface DeployPlanResult {
@@ -311,6 +324,9 @@ export function buildDeploySteps(manifest: DeployManifest, release: DeployReleas
 
 /** Falha da release, inclusive quando aconteceu fora das etapas declaradas no manifesto. */
 export function releaseFailure(release: DeployRelease | null, steps: DeployStepView[]): { title: string; detail: string } | null {
+  if (release?.last_attempt?.status === 'failed' && release.last_attempt.phase === 'orquestracao_local') {
+    return { title: 'Retomada neste computador', detail: release.last_attempt.error || 'A tentativa falhou sem um motivo registrado.' }
+  }
   if (release?.status !== 'failed') return null
   const phase = release.failure_phase || Object.entries(release.phases).find(([, p]) => p.status === 'failed')?.[0]
   const step = phase ? steps.find((s) => s.phases.includes(phase)) : steps.find((s) => s.status === 'failed')
@@ -351,10 +367,22 @@ export function formatDuration(ms: number): string {
 
 /** Linha da trava: quem está com ela e desde quando, em hora local */
 export function lockLine(lock: DeployLock, now = Date.now()): string {
-  if (lock.status !== 'active' || !lock.lock) return 'Nenhum deploy em andamento em outro computador.'
+  if (lock.status !== 'active' || !lock.lock) return 'Nenhuma trava de deploy ativa.'
   const l = lock.lock
   const since = l.acquired_at ? Date.parse(l.acquired_at) : NaN
   const ago = Number.isFinite(since) ? ` há ${formatDuration(now - since)}` : ''
   const op = l.operation === 'resume' ? 'Retomada' : l.operation === 'rollback' ? 'Rollback' : 'Deploy'
-  return `${op} de ${l.tag ?? '?'} em andamento no computador ${l.host ?? '?'} (${l.user ?? '?'})${ago}${lock.stale ? ' · possivelmente abandonado' : ''}`
+  return `Trava de ${op.toLowerCase()} de ${l.tag ?? '?'} registrada no computador ${l.host ?? '?'} (${l.user ?? '?'})${ago}${lock.stale ? ' · possivelmente abandonada' : ''}`
+}
+
+/** Resultado do outro computador não substitui as fases e os logs locais. */
+export function remoteReleaseResult(lock: DeployLock | null, release: DeployRelease | null): string | null {
+  const holder = lock?.lock
+  if (!holder || !release || holder.tag !== release.tag || !lock?.local_host || holder.host === lock.local_host || !holder.host) return null
+  const resultStatus = holder.result?.status
+  const releasedAt = holder.released_at
+  if (lock.status !== 'free' || holder.status !== 'released' || !resultStatus || !releasedAt || !['completed', 'critical_passed', 'failed'].includes(resultStatus)) return null
+  const localEnd = Math.max(Date.parse(release.created_at ?? '') || 0, ...Object.values(release.phases).map((p) => Date.parse(p.completed_at ?? p.failed_at ?? '') || 0))
+  if (!(Date.parse(releasedAt) > localEnd)) return null
+  return `${releaseStatusLabel(resultStatus)} em ${holder.host} (${holder.user ?? '?'}) · ${new Date(releasedAt).toLocaleString('pt-BR')}. As etapas e os logs abaixo são do histórico deste computador.`
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { shell, webContents } from 'electron'
 import type { Service } from '../shared/types'
 import {
@@ -162,7 +163,8 @@ export async function overview(): Promise<DeployOverviewEntry[]> {
 export async function lock(root: string): Promise<DeployLock> {
   const m = manifestOf(root)
   if (m.kind === 'script') return script.lock()
-  return (await request<{ lock: DeployLock }>(originOf(m), '/api/lock', {}, 20_000)).lock
+  const result = (await request<{ lock: DeployLock }>(originOf(m), '/api/lock', {}, 20_000)).lock
+  return { ...result, local_host: os.hostname() }
 }
 
 export async function log(root: string, tag: string, phase: string): Promise<string> {

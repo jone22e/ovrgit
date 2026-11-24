@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DeployLock, DeployManifest, DeployPlanResult, DeploySnapshot, DeployStepView } from '@shared/deploy'
-import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseFailure, releaseStatusLabel } from '@shared/deploy'
+import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseFailure, releaseStatusLabel, remoteReleaseResult } from '@shared/deploy'
 import { api, state, toast } from '../store'
 import DeployActivity from './DeployActivity.vue'
 import Icon from './Icon.vue'
@@ -77,12 +77,15 @@ const lockSupported = computed(() => snap.value?.lockSupported !== false)
 const current = computed(() => snap.value?.current ?? null)
 const steps = computed(() => (manifest.value ? buildDeploySteps(manifest.value, current.value) : []))
 const failure = computed(() => releaseFailure(current.value, steps.value))
+const attemptRejected = computed(() => current.value?.last_attempt?.status === 'failed' && current.value.last_attempt.phase === 'orquestracao_local')
 const runningStep = computed(() => steps.value.find((s) => s.status === 'running'))
 const operation = computed(() => snap.value?.operation ?? null)
 const executing = computed(() => !!operation.value)
 const live = computed(() => !!operation.value || isLiveRelease(current.value))
-/** Trava de outro lugar: a deste computador aparece junto com a operação ativa do console */
-const lockedElsewhere = computed(() => lock.value?.status === 'active' && !operation.value)
+/** Uma trava sem operação neste console pode ser remota ou ter sido abandonada localmente. */
+const lockedWithoutOperation = computed(() => lock.value?.status === 'active' && !operation.value)
+const remoteResult = computed(() => remoteReleaseResult(lock.value, current.value))
+const remoteSucceeded = computed(() => !!remoteResult.value && ['completed', 'critical_passed'].includes(lock.value?.lock?.result?.status ?? ''))
 /**
  * Ponto do botão, pela etapa: azul pulsando quando algo está rodando (plano, deploy, console subindo);
  * vermelho pulsando quando espera um clique seu (plano pronto para aprovar, release falhada para retomar);
@@ -93,7 +96,8 @@ const dot = computed(() => {
   if (snap.value.console === 'starting' || busy.value === 'plan' || busy.value === 'run' || executing.value) return 'live'
   if (snap.value.console !== 'ready') return 'off'
   if (planning.value && plan.value) return 'wait'
-  if (lockedElsewhere.value) return 'locked'
+  if (lockedWithoutOperation.value) return 'locked'
+  if (remoteSucceeded.value) return 'ok'
   if (current.value?.status === 'failed') return 'failed'
   if (isSuccessfulRelease(current.value)) return 'ok'
   if (isLiveRelease(current.value)) return 'unknown'
@@ -294,7 +298,7 @@ async function resumeDeploy() {
     await api.deployResume(repoRoot.value, c.tag, codeArg())
     authCode.value = ''
     confirmResume.value = false
-    toast(`Retomando ${c.tag}…`)
+    toast(`Solicitação de retomada de ${c.tag} enviada. Aguarde o resultado no painel.`)
     await refresh()
   } catch (e) {
     toast(cleanErr(e))
@@ -375,9 +379,11 @@ watch(repoRoot, () => void loadManifest())
       <Icon name="cloudUp" :size="13" />
       <span>{{ manifest?.name ?? 'Deploy' }}</span>
       <span v-if="executing" class="deploy-word">Em execução</span>
-      <span v-else-if="current?.status === 'failed'" class="deploy-word failed">Falhou</span>
+      <span v-else-if="lockedWithoutOperation" class="deploy-word unknown">Trava ativa</span>
+      <span v-else-if="remoteResult" class="deploy-word">Resultado remoto</span>
+      <span v-else-if="current?.status === 'failed'" class="deploy-word failed">Falhou aqui</span>
       <span v-else-if="isLiveRelease(current)" class="deploy-word unknown">Sem operação local</span>
-      <span v-if="dot === 'ok'" class="done" title="Última release concluída"><Icon name="check" :size="12" /></span>
+      <span v-if="dot === 'ok'" class="done" :title="remoteSucceeded ? 'Resultado registrado em outro computador' : 'Última release concluída'"><Icon name="check" :size="12" /></span>
       <span v-else-if="dot" class="dot" :class="dot" />
       <Icon name="chevron" :size="11" class="chev" />
     </button>
@@ -406,7 +412,8 @@ watch(repoRoot, () => void loadManifest())
             <Icon name="alert" :size="14" />
             <span class="txt">Não consegui consultar a trava compartilhada: {{ lockError }}</span>
           </div>
-          <div v-else-if="lockSupported && lockedElsewhere && lock" class="lockbar" :class="{ stale: lock.stale }">
+
+          <div v-else-if="lockSupported && lockedWithoutOperation && lock" class="lockbar" :class="{ stale: lock.stale }">
             <Icon name="lock" :size="14" />
             <span class="txt">{{ lockLine(lock, now) }}</span>
             <template v-if="lock.stale">
@@ -418,6 +425,9 @@ watch(repoRoot, () => void loadManifest())
               </template>
             </template>
           </div>
+
+          <p v-if="lockedWithoutOperation" class="msg faint">A trava não confirma que o processo continua executando. As etapas abaixo são do histórico deste computador.</p>
+          <p v-else-if="remoteResult" class="msg faint">{{ remoteResult }}</p>
 
           <div v-if="planning" class="newdeploy">
             <h5><Icon name="cloudUp" :size="15" /> Novo deploy</h5>
@@ -487,7 +497,7 @@ watch(repoRoot, () => void loadManifest())
             <div class="tagline">
               <span class="tag mono">{{ current.tag }}</span>
               <span v-if="current.target" class="status target">{{ targetTitle(current.target) }}</span>
-              <span class="status" :class="operation ? 'running' : current.status">{{ operation ? 'Em execução' : releaseStatusLabel(current.status) }}</span>
+              <span class="status" :class="operation ? 'running' : current.status">{{ operation ? 'Em execução aqui' : (remoteResult || lockedWithoutOperation) ? `Histórico local: ${releaseStatusLabel(current.status).toLowerCase()}` : releaseStatusLabel(current.status) }}</span>
             </div>
             <div class="meta faint">
               commit <span class="mono">{{ (current.commit ?? '').slice(0, 8) }}</span>
@@ -503,14 +513,16 @@ watch(repoRoot, () => void loadManifest())
             <Icon v-else :name="isSuccessfulRelease(current) ? 'check' : 'alert'" :size="17" />
             <div>
               <strong v-if="operation">Deploy em execução</strong>
-              <strong v-else-if="current.status === 'failed'">Falhou em {{ failure?.title }}</strong>
+              <strong v-else-if="attemptRejected">{{ failure?.title }} falhou</strong>
+              <strong v-else-if="current.status === 'failed'">Última falha local: {{ failure?.title }}</strong>
               <strong v-else-if="isLiveRelease(current)">Release marcada como em andamento</strong>
               <strong v-else-if="isSuccessfulRelease(current)">Deploy concluído</strong>
               <strong v-else>{{ releaseStatusLabel(current.status) }}</strong>
               <p v-if="operation">{{ runningStep ? `Etapa atual: ${runningStep.title}.` : `Operação ${operation.name} ativa no console.` }}</p>
-              <p v-else-if="current.status === 'failed'">Parado · nenhuma operação em execução.</p>
+              <p v-else-if="attemptRejected && current.last_attempt">Tentativa de {{ date(current.last_attempt.finished_at) }} · {{ current.last_attempt.host }} ({{ current.last_attempt.user }}).</p>
+              <p v-else-if="current.status === 'failed'">Nenhuma operação ativa neste computador.</p>
               <p v-else-if="isLiveRelease(current)">Nenhuma operação ativa registrada neste computador.</p>
-              <p v-else>Nenhuma operação em execução.</p>
+              <p v-else>Nenhuma operação ativa neste computador.</p>
               <pre v-if="current.status === 'failed' && !operation" class="failure-detail">{{ failure?.detail }}</pre>
             </div>
           </div>
@@ -562,11 +574,11 @@ watch(repoRoot, () => void loadManifest())
               <button v-else-if="operation.cancellable" class="small danger" :disabled="busy === 'cancel'" @click="cancelDeploy">Confirmar cancelamento</button>
             </template>
             <template v-else>
-              <button class="small primary" :disabled="lockedElsewhere || busy !== ''" :title="lockedElsewhere ? 'Outro computador está com a trava' : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
+              <button class="small primary" :disabled="lockedWithoutOperation || busy !== ''" :title="lockedWithoutOperation && lock ? lockLine(lock, now) : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>
-              <template v-if="!isScript && current?.status === 'failed'">
-                <button v-if="!confirmResume" class="ghost small" :disabled="lockedElsewhere || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="totp ? (confirmResume = true, authCode = '') : openDeploySettings()">
+              <template v-if="!isScript && current?.status === 'failed' && !remoteSucceeded">
+                <button v-if="!confirmResume" class="ghost small" :disabled="lockedWithoutOperation || busy !== ''" :title="`Retoma ${current.tag} de onde parou`" @click="totp ? (confirmResume = true, authCode = '') : openDeploySettings()">
                   <Icon name="forward" :size="13" /> Retomar
                 </button>
                 <template v-else>

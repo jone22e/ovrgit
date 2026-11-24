@@ -16,7 +16,7 @@ vi.mock('../src/main/deployScript', () => ({
   })
 }))
 
-const { overview } = await import('../src/main/deploy')
+const { overview, snapshot, lock } = await import('../src/main/deploy')
 const base = mkdtempSync(path.join(tmpdir(), 'ovseer-deploy-overview-'))
 const makeProject = (name: string) => {
   const root = path.join(base, name)
@@ -27,6 +27,29 @@ const makeProject = (name: string) => {
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 
 describe('visão global dos deploys', () => {
+  it('snapshot preserva a recusa persistida da retomada recebida do console', async () => {
+    const root = makeProject('console')
+    writeFileSync(path.join(root, '.ovseer', 'deploy.json'), JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', start: 'make deploy-console', port: 3098 }))
+    const current = {
+      tag: 'aws-2026.11.24.08', status: 'failed', phases: { deploy_systems: { status: 'failed', error: 'migration antiga' } },
+      last_attempt: { operation: 'resume', status: 'failed', phase: 'orquestracao_local', error: 'trava de maciel em DESKTOP-PJSQTQT' }
+    }
+    const fetchMock = vi.fn(async (url: string) => ({ ok: true, json: async () => url.endsWith('/api/bootstrap')
+      ? { token: 'local-test', active_operation: null, expected_test_total: 0, releases: [current] }
+      : url.endsWith('/api/lock')
+        ? { lock: { status: 'free', lock: null } }
+        : { release: current } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const result = await snapshot(root)
+      expect(result.operation).toBeNull()
+      expect(result.current?.last_attempt?.error).toBe('trava de maciel em DESKTOP-PJSQTQT')
+      expect(result.current?.phases.deploy_systems.error).toBe('migration antiga')
+      expect((await lock(root)).local_host).toBeTruthy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
   it('mantém deploy ativo visível após trocar de projeto', async () => {
     const old = makeProject('anterior')
     const current = makeProject('atual')
