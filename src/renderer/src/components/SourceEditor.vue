@@ -15,8 +15,8 @@ import FileIcon from './FileIcon.vue'
 import Icon from './Icon.vue'
 
 /**
- * Editor no estilo do JetBrains: abas dos arquivos abertos, realce de sintaxe, guias de indentação,
- * margem direita, barra inferior com o caminho, linha:coluna, fim de linha, codificação e indentação.
+ * Editor com abas, caminho acima do código e barra inferior no estilo do VS Code.
+ * Realce de sintaxe, guias de indentação, minimapa e informações do cursor e do arquivo.
  * Salva sozinho (logo depois de parar de digitar, ao sair do editor e ao trocar de aba).
  * Cada aba guarda o próprio desfazer, cursor e rolagem.
  * Markdown e SVG têm prévia (só código, dividido ou só prévia); imagens abrem direto na prévia.
@@ -44,6 +44,7 @@ const cache = new Map<string, Tab>()
 // ---------- .env: valores ocultos por padrão ----------
 const ENV_FILE = /(^|\/)\.env(\.[^/]*)?$/
 const isEnv = computed(() => ENV_FILE.test(path.value ?? ''))
+const envIgnored = ref<boolean>()
 /** Arquivos .env em que o usuário pediu para ver os valores (volta a ocultar ao reabrir o app) */
 const revealed = reactive(new Set<string>())
 const valuesShown = computed(() => !!path.value && revealed.has(path.value))
@@ -241,6 +242,7 @@ const legacy = async (load: () => Promise<unknown>): Promise<Extension> => Strea
 function languageOf(p: string): { name: string; load: () => Promise<Extension> } {
   const file = p.slice(p.lastIndexOf('/') + 1).toLowerCase()
   const ext = file.includes('.') ? file.slice(file.lastIndexOf('.') + 1) : ''
+  if (ENV_FILE.test(p)) return { name: 'Dotenv', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/shell')).shell) }
   if (file === 'dockerfile' || file.endsWith('.dockerfile')) return { name: 'Dockerfile', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/dockerfile')).dockerFile) }
   if (file === 'makefile') return { name: 'Makefile', load: () => legacy(async () => (await import('@codemirror/legacy-modes/mode/shell')).shell) }
   switch (ext) {
@@ -309,30 +311,27 @@ function detectIndent(text: string): string {
   return two > 0 || !spaced ? '  ' : '    '
 }
 
-// ---------- aparência (JetBrains: IntelliJ Light / Dark) ----------
+// ---------- aparência do editor ----------
 const c = (light: string, dark: string) => `light-dark(${light}, ${dark})`
 const chrome = EditorView.theme({
-  '&': { height: '100%', fontSize: '13px', backgroundColor: 'var(--panel)', color: c('#080808', '#bcbec4') },
+  '&': { height: '100%', fontSize: '13px', backgroundColor: 'var(--bg)', color: c('#333333', '#d4d4d4') },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
-    fontFamily: "'JetBrains Mono Variable', 'JetBrains Mono', var(--mono)", fontSize: '13px', lineHeight: '1.7',
-    // como na IDE: traço um pouco mais cheio que o regular e ligaduras desligadas (padrão da IDE)
-    fontWeight: '450', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0, "calt" 0'
+    fontFamily: 'var(--mono)', fontSize: '13px', lineHeight: '1.55',
+    fontWeight: '400', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0, "calt" 0'
   },
   '.cm-content': {
-    caretColor: c('#000', '#ced0d6'), paddingBottom: '40vh',
-    // margem direita em 120 colunas, como no JetBrains
-    backgroundImage: `linear-gradient(to right, transparent calc(6px + 120ch), ${c('#e9eaee', '#393b40')} calc(6px + 120ch), ${c('#e9eaee', '#393b40')} calc(7px + 120ch), transparent calc(7px + 120ch))`
+    caretColor: 'var(--text)', paddingTop: '4px', paddingBottom: '40vh'
   },
-  '.cm-line': { paddingLeft: '6px' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: c('#000', '#ced0d6'), borderLeftWidth: '2px' },
-  '.cm-gutters': { backgroundColor: 'var(--panel)', color: c('#aeb3c2', '#4b5059'), border: 'none', paddingLeft: '8px' },
-  '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 6px', minWidth: '32px' },
-  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: c('#767a8a', '#a1a3ab') },
-  '.cm-activeLine': { backgroundColor: c('#f5f8fe', '#26282e') },
+  '.cm-line': { paddingLeft: '8px' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)', borderLeftWidth: '2px' },
+  '.cm-gutters': { backgroundColor: 'var(--bg)', color: 'var(--faint)', border: 'none', paddingLeft: '10px' },
+  '.cm-lineNumbers .cm-gutterElement': { padding: '0 12px 0 6px', minWidth: '36px' },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text)' },
+  '.cm-activeLine': { backgroundColor: 'transparent', boxShadow: 'inset 0 0 0 1px var(--border)' },
   '.cm-foldGutter .cm-gutterElement': { color: c('#aeb3c2', '#6f737a'), padding: '0 4px' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection': {
-    backgroundColor: `${c('#a6d2ff', '#214283')} !important`
+    backgroundColor: `${c('#add6ff', '#264f78')} !important`
   },
   '.cm-selectionMatch': { backgroundColor: c('#edebfc', '#3b3d41') },
   '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: c('#93d9d9', '#43454a'), outline: 'none' },
@@ -350,21 +349,20 @@ const chrome = EditorView.theme({
   '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: c('#d5e1ff', '#2e436e'), color: 'var(--text)' }
 })
 const syntax = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier, t.bool, t.null, t.self], color: c('#0033b3', '#cf8e6d') },
-  { tag: [t.string, t.special(t.string), t.inserted, t.character], color: c('#067d17', '#6aab73') },
-  { tag: [t.regexp, t.escape], color: c('#0037a6', '#cf8e6d') },
-  { tag: [t.number, t.unit], color: c('#1750eb', '#2aacb8') },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: c('#8c8c8c', '#7a7e85') },
-  { tag: t.docComment, color: c('#8c8c8c', '#5f826b'), fontStyle: 'italic' },
-  { tag: [t.function(t.definition(t.variableName)), t.function(t.definition(t.propertyName))], color: c('#00627a', '#56a8f5') },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: c('#00627a', '#57aaf7') },
-  { tag: [t.propertyName, t.special(t.propertyName)], color: c('#871094', '#c77dbb') },
-  { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: c('#871094', '#c77dbb'), fontStyle: 'italic' },
-  { tag: [t.meta, t.annotation, t.macroName], color: c('#9e880d', '#b3ae60') },
-  { tag: [t.typeName, t.className, t.namespace], color: c('#000000', '#bcbec4') },
-  { tag: [t.tagName, t.angleBracket], color: c('#0033b3', '#d5b778') },
-  { tag: t.attributeName, color: c('#174ad4', '#bababa') },
-  { tag: [t.heading], color: c('#0033b3', '#cf8e6d'), fontWeight: '700' },
+  { tag: [t.keyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier, t.bool, t.null, t.self], color: c('#0000ff', '#569cd6') },
+  { tag: t.controlKeyword, color: c('#af00db', '#c586c0') },
+  { tag: [t.string, t.special(t.string), t.inserted, t.character], color: c('#a31515', '#ce9178') },
+  { tag: [t.regexp, t.escape], color: c('#811f3f', '#d16969') },
+  { tag: [t.number, t.unit], color: c('#098658', '#b5cea8') },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: c('#008000', '#6a9955') },
+  { tag: [t.function(t.definition(t.variableName)), t.function(t.definition(t.propertyName)), t.function(t.variableName), t.function(t.propertyName)], color: c('#795e26', '#dcdcaa') },
+  { tag: [t.variableName, t.propertyName, t.special(t.propertyName)], color: c('#001080', '#9cdcfe') },
+  { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: c('#0070c1', '#4fc1ff') },
+  { tag: [t.meta, t.annotation, t.macroName], color: c('#795e26', '#dcdcaa') },
+  { tag: [t.typeName, t.className, t.namespace], color: c('#267f99', '#4ec9b0') },
+  { tag: [t.tagName, t.angleBracket], color: c('#800000', '#569cd6') },
+  { tag: t.attributeName, color: c('#e50000', '#9cdcfe') },
+  { tag: [t.heading], color: c('#0000ff', '#569cd6'), fontWeight: '700' },
   { tag: [t.link, t.url], color: c('#287bde', '#548af7'), textDecoration: 'underline' },
   { tag: t.emphasis, fontStyle: 'italic' },
   { tag: t.strong, fontWeight: '700' },
@@ -374,7 +372,7 @@ const guides = indentationMarkers({
   highlightActiveBlock: true,
   markerType: 'codeOnly',
   // o plugin escolhe entre `light` e `dark` por uma marcação de tema escuro que este editor não usa:
-  // as duas recebem a cor que segue o color-scheme do app (tons discretos do JetBrains)
+  // as duas recebem a cor que segue o color-scheme do app
   colors: {
     light: c('#ebecf0', '#313438'), dark: c('#ebecf0', '#313438'),
     activeLight: c('#c9ccd6', '#4b4e54'), activeDark: c('#c9ccd6', '#4b4e54')
@@ -505,6 +503,7 @@ async function show(p: string | null, prev?: string | null) {
       if (my === seq) loading.value = false
     }
   }
+  envIgnored.value = tab.ignored
   await nextTick()
   if (my !== seq || !host.value) return
   // o painel pode ter sido recriado (fechado e aberto de novo): o editor vai junto
@@ -518,7 +517,7 @@ async function show(p: string | null, prev?: string | null) {
     view.value.scrollDOM.addEventListener('scroll', syncScroll, { passive: true })
   }
   updatePreview(tab.state.sliceDoc(), true)
-  info.value = { eol: tab.eol === '\r\n' ? 'CRLF' : 'LF', indent: tab.indent === '\t' ? 'Tab' : `${tab.indent.length} espaços`, lang: tab.lang }
+  info.value = { eol: tab.eol === '\r\n' ? 'CRLF' : 'LF', indent: tab.indent === '\t' ? 'Tab: 4' : `Espaços: ${tab.indent.length}`, lang: tab.lang }
   updateCursor(tab.state)
   const top = tab.scroll
   requestAnimationFrame(() => view.value && (view.value.scrollDOM.scrollTop = top))
@@ -549,7 +548,10 @@ async function syncFromDisk() {
   } catch {
     return
   }
-  if (p !== path.value || f.content === null || f.content === tab.saved) return
+  if (p !== path.value) return
+  tab.ignored = f.ignored
+  envIgnored.value = f.ignored
+  if (f.content === null || f.content === tab.saved) return
   if (p in state.sourceDrafts) {
     // editando e o arquivo mudou por fora: não sobrescreve nada, pergunta
     if (f.content !== state.sourceDrafts[p]) state.sourceConflicts[p] = true
@@ -599,6 +601,7 @@ async function keepMine() {
 
 // ---------- abas ----------
 const nameOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+const changeMark: Record<string, string> = { added: 'A', untracked: 'U', modified: 'M', deleted: 'D', renamed: 'R', conflict: '!', typechange: 'T' }
 /** Nomes repetidos entre as abas ganham a pasta, como no JetBrains */
 const tabs = computed(() => {
   const count = new Map<string, number>()
@@ -636,14 +639,6 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 <template>
   <div class="editor">
     <div class="tabs-bar">
-      <button
-        class="ghost icon tree-btn"
-        :class="{ on: narrowQuery.matches ? state.listOverlay : !state.hideTree }"
-        :title="state.hideTree ? 'Mostrar a coluna de arquivos' : 'Ocultar a coluna de arquivos'"
-        @click="narrowQuery.matches ? toggleListOverlay() : setHideTree(!state.hideTree)"
-      >
-        <Icon name="panelLeft" :size="14" />
-      </button>
       <div ref="tabsEl" class="tabs" @wheel.passive="onTabsWheel">
         <div
           v-for="t in tabs"
@@ -658,6 +653,8 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
           <FileIcon :path="t.path" :size="15" />
           <span class="tname" :class="t.change">{{ t.name }}</span>
           <span v-if="t.hint" class="hint">{{ t.hint }}</span>
+          <span v-if="t.change" class="tab-change" :class="t.change">{{ changeMark[t.change] }}</span>
+          <span v-if="t.path in state.sourceDrafts" class="tab-dirty" title="Alterações não salvas" />
           <span v-if="state.sourceConflicts[t.path]" class="warn" title="Mudou no disco enquanto você editava">!</span>
           <button class="ghost x" title="Fechar (clique do meio também fecha)" @click.stop="closeSource(t.path)"><Icon name="x" :size="11" /></button>
         </div>
@@ -667,8 +664,25 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
           <Icon :name="l.icon" :size="13" />
         </button>
       </div>
+      <button
+        class="ghost icon tree-btn"
+        :class="{ on: narrowQuery.matches ? state.listOverlay : !state.hideTree }"
+        :title="state.hideTree ? 'Mostrar o explorador' : 'Ocultar o explorador'"
+        @click="narrowQuery.matches ? toggleListOverlay() : setHideTree(!state.hideTree)"
+      >
+        <Icon name="panelLeft" :size="14" />
+      </button>
       <button class="ghost icon small close-pane" title="Fechar o painel" @click="setShowDiff(false)"><Icon name="x" :size="14" /></button>
     </div>
+
+    <nav v-if="path" class="crumbs" aria-label="Caminho do arquivo">
+      <span class="crumb root">{{ project }}</span>
+      <template v-for="c in crumbs" :key="c.path">
+        <Icon name="chevron" :size="10" class="sep" />
+        <button v-if="!c.file" class="crumb" :title="`Mostrar ${c.path} na árvore`" @click="revealSource(c.path, true)">{{ c.name }}</button>
+        <span v-else class="crumb file"><FileIcon :path="c.path" :size="13" /> {{ c.name }}</span>
+      </template>
+    </nav>
 
     <div v-if="conflict" class="conflict">
       <Icon name="alert" :size="14" />
@@ -679,10 +693,9 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 
     <!-- .env: aviso sobre o git e o botão que mostra/oculta os valores -->
     <div v-if="isEnv && path && !loading && !reason" class="env-bar">
-      <Icon name="lock" :size="13" />
-      <span v-if="cache.get(path)?.ignored" class="env-tag ok">ignorado pelo git</span>
-      <span v-else class="env-tag warn" title="Este arquivo pode ir para o servidor num commit. Se ele tem segredos, coloque-o no .gitignore.">não está no .gitignore</span>
-      <span class="env-note faint">{{ valuesShown ? 'Valores visíveis. Oculte para proteger a tela.' : 'Os valores estão ocultos. Mostre-os para ver ou editar.' }}</span>
+      <Icon :name="envIgnored ? 'lock' : 'alert'" :size="14" />
+      <span class="env-note"><strong v-if="envIgnored">Arquivo ignorado pelo Git.</strong><template v-else><strong>{{ nameOf(path) }} não está no .gitignore.</strong> Ele pode ir para o repositório no próximo commit.</template> {{ valuesShown ? 'Valores visíveis.' : 'Os valores estão ocultos.' }}</span>
+      <button v-if="!envIgnored && state.sourceList.includes('.gitignore')" class="small primary" @click="openSource('.gitignore', true)">Abrir .gitignore</button>
       <button class="small" @click="toggleValues">{{ valuesShown ? 'Ocultar valores' : 'Mostrar valores' }}</button>
     </div>
 
@@ -698,26 +711,21 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
       </div>
     </div>
 
-    <footer v-if="path" class="status">
-      <nav class="crumbs">
-        <span class="crumb root">{{ project }}</span>
-        <template v-for="c in crumbs" :key="c.path">
-          <Icon name="chevron" :size="10" class="sep" />
-          <button v-if="!c.file" class="crumb" :title="`Mostrar ${c.path} na árvore`" @click="revealSource(c.path, true)">{{ c.name }}</button>
-          <span v-else class="crumb file"><FileIcon :path="c.path" :size="13" /> {{ c.name }}</span>
-        </template>
-      </nav>
+    <footer class="status">
+      <span v-if="state.repo" class="branch-info" title="Branch atual"><Icon name="branch" :size="12" />{{ state.repo.branch ?? 'HEAD' }}</span>
+      <span v-if="state.repo && (state.repo.ahead || state.repo.behind)" class="sync-info" title="Commits para receber e enviar">{{ state.repo.behind }}<Icon name="down" :size="11" />{{ state.repo.ahead }}<Icon name="up" :size="11" /></span>
+      <span class="status-spacer" />
       <span v-if="saving" class="st faint">Salvando…</span>
       <template v-if="kind === 'image' && image">
         <span v-if="image.w" class="st" title="Dimensões">{{ image.w }} × {{ image.h }}</span>
         <span class="st" title="Tamanho do arquivo">{{ fmtBytes(image.bytes) }}</span>
         <button class="crumb st" :title="zoomReal ? 'Caber no painel' : 'Ver em 100%'" @click="zoomReal = !zoomReal">{{ zoomReal ? '100%' : 'Ajustar' }}</button>
       </template>
-      <template v-if="info && !reason">
-        <span class="st" title="Linha:coluna">{{ cursor.line }}:{{ cursor.col }}<template v-if="cursor.sel"> ({{ cursor.sel }} car.)</template></span>
-        <span class="st" title="Fim de linha">{{ info.eol }}</span>
-        <span class="st" title="Codificação">UTF-8</span>
+      <template v-if="path && info && !loading && !reason">
+        <span class="st" title="Linha e coluna">Ln {{ cursor.line }}, Col {{ cursor.col }}<template v-if="cursor.sel"> ({{ cursor.sel }} car.)</template></span>
         <span class="st" title="Indentação">{{ info.indent }}</span>
+        <span class="st" title="Codificação">UTF-8</span>
+        <span class="st" title="Fim de linha">{{ info.eol }}</span>
         <span class="st">{{ info.lang }}</span>
       </template>
     </footer>
@@ -725,27 +733,29 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 </template>
 
 <style scoped>
-.editor { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--panel); position: relative; }
+.editor { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--bg); position: relative; container-type: inline-size; }
 
-.tabs-bar { display: flex; align-items: stretch; flex: none; height: var(--pane-header); border-bottom: 1px solid var(--border); }
-.tree-btn { flex: none; align-self: center; width: 28px; height: 28px; margin: 0 2px 0 6px; color: var(--muted); }
+.tabs-bar { display: flex; align-items: stretch; flex: none; height: 35px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.tree-btn { flex: none; align-self: center; width: 26px; height: 26px; padding: 0; margin: 0 2px 0 6px; border-radius: 3px; color: var(--muted); }
 .tree-btn.on { color: var(--text); }
 .tabs { flex: 1; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
-  position: relative; display: flex; align-items: center; gap: 6px; flex: none; padding: 0 6px 0 12px;
-  font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap;
+  position: relative; display: flex; align-items: center; gap: 8px; flex: none; padding: 0 9px 0 12px; min-width: 120px;
+  border-right: 1px solid var(--border); font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap;
 }
 .tab:hover { background: var(--hover); }
-.tab.on { color: var(--text); }
-.tab.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
-.tname.modified, .tname.typechange { color: #5c8fd6; }
-.tname.added, .tname.untracked { color: var(--add); }
-.tname.conflict { color: var(--del); }
+.tab.on { color: var(--text); background: var(--bg); box-shadow: 0 1px var(--bg); }
+.tab.on::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--accent); }
+.tname.modified, .tname.typechange, .tab-change.modified, .tab-change.typechange { color: #5c8fd6; }
+.tname.added, .tname.untracked, .tab-change.added, .tab-change.untracked { color: var(--add); }
+.tname.conflict, .tab-change.conflict, .tab-change.deleted { color: var(--del); }
+.tab-change { font-size: 11px; }
+.tab-dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--text); flex: none; }
 .tab.preview .tname { font-style: italic; }
 .hint { font-size: 11.5px; color: var(--faint); }
 .warn { color: var(--del); font-weight: 700; }
-.x { width: 18px; height: 18px; padding: 0; border-radius: 4px; opacity: 0; color: var(--muted); }
+.x { width: 18px; height: 18px; margin-left: auto; padding: 0; border-radius: 3px; opacity: 0; color: var(--muted); }
 .tab:hover .x, .tab.on .x { opacity: 1; }
 .x:hover { background: var(--hover); color: var(--text); }
 .close-pane { width: 26px; height: 26px; align-self: center; margin: 0 8px 0 4px; flex: none; }
@@ -756,14 +766,13 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 }
 .conflict span { flex: 1; min-width: 0; }
 .env-bar {
-  display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 14px; font-size: 12.5px; color: var(--muted);
+  display: flex; align-items: center; gap: 10px; flex: none; padding: 6px 14px; font-size: 12px; color: var(--muted);
   border-bottom: 1px solid var(--border); background: var(--panel-2);
 }
-.env-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
-.env-tag.ok { color: var(--mod); background: color-mix(in srgb, var(--mod) 16%, transparent); }
-.env-tag.warn { color: var(--del); background: color-mix(in srgb, var(--del) 14%, transparent); }
-.env-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.env-bar .small { height: 26px; padding: 0 10px; font-size: 12px; flex: none; }
+.env-bar > svg { color: var(--mod); }
+.env-note { flex: 1; min-width: 0; }
+.env-note strong { color: var(--text); font-weight: 600; }
+.env-bar .small { height: 25px; padding: 0 10px; border-radius: 2px; font-size: 11px; flex: none; }
 .cm-host :deep(.env-dots) { color: var(--faint); letter-spacing: 1px; }
 .conflict .small { height: 26px; padding: 0 10px; font-size: 12px; flex: none; }
 
@@ -772,12 +781,12 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 .cm-host { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .body.split > .cm-host { border-right: 1px solid var(--border); }
 /* miniatura: separada do código por uma linha, com a área visível marcada (por cima do estilo da extensão) */
-.cm-host :deep(.cm-minimap-gutter) { background: var(--panel); border-left: 1px solid var(--border); }
+.cm-host :deep(.cm-minimap-gutter) { background: var(--bg); border-left: 1px solid var(--border); }
 .cm-host :deep(.cm-minimap-overlay-container .cm-minimap-overlay) { background: var(--text); opacity: 0.08; }
 .cm-host :deep(.cm-minimap-overlay-container:hover .cm-minimap-overlay) { opacity: 0.14; }
-.layouts { display: flex; align-self: center; padding: 2px; gap: 2px; background: var(--panel-2); border-radius: 7px; flex: none; margin-left: 6px; }
-.layouts button { width: 26px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 5px; }
-.layouts button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.layouts { display: flex; align-self: center; padding: 2px; gap: 2px; flex: none; margin-left: 6px; }
+.layouts button { width: 25px; height: 23px; padding: 0; border: 0; background: transparent; color: var(--muted); border-radius: 3px; }
+.layouts button.on { background: var(--hover); color: var(--text); }
 
 /* imagens: sobre xadrez, para ver a transparência */
 .img-preview {
@@ -814,13 +823,16 @@ const project = computed(() => state.repo?.root.split(/[\\/]/).pop() ?? '')
 .md-preview :deep(input[type='checkbox']) { margin-right: 6px; }
 
 .status {
-  display: flex; align-items: center; gap: 2px; flex: none; height: 26px; padding: 0 8px; font-size: 12px; color: var(--muted);
-  border-top: 1px solid var(--border); white-space: nowrap;
+  display: flex; align-items: center; gap: 2px; flex: none; height: 23px; padding: 0 8px; font-size: 11px; color: var(--muted);
+  border-top: 1px solid var(--border); background: var(--panel); white-space: nowrap; overflow: hidden;
 }
-.crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
-.crumb { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 12px; border-radius: 4px; }
+.branch-info, .sync-info { display: inline-flex; align-items: center; gap: 4px; padding: 0 5px; }
+.status-spacer { flex: 1; }
+.crumbs { flex: none; min-width: 0; display: flex; align-items: center; gap: 2px; height: 25px; padding: 0 10px; overflow: hidden; border-bottom: 1px solid var(--border); }
+.crumb { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 12px; border-radius: 2px; white-space: nowrap; }
 button.crumb:hover { background: var(--hover); color: var(--text); }
 .crumb.file { color: var(--text); }
 .sep { color: var(--faint); flex: none; }
 .st { padding: 0 7px; font-variant-numeric: tabular-nums; }
+@container (max-width: 600px) { .env-bar { flex-wrap: wrap; } .env-note { flex-basis: calc(100% - 30px); } }
 </style>

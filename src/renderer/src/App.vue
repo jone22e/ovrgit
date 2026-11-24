@@ -75,6 +75,7 @@ async function doPull(stash = false) {
 }
 
 const leftWidth = ref(Number(localStorage.getItem('ovseer.left') ?? 440))
+const sourceWidth = ref(Number(localStorage.getItem('ovseer.sourceWidth')) || 300)
 /** Coluna de arquivos oculta: só com o editor aberto (a lista de alterações nunca some) */
 const treeHidden = computed(() => state.hideTree && state.pane === 'files' && state.showDiff)
 /** Janela estreita: o diff ocupa a área toda e a coluna de arquivos vira um painel flutuante (botão no cabeçalho) */
@@ -135,14 +136,17 @@ watch(() => [state.tab, state.pane], ([tab, pane]) => {
 })
 function startResize(e: MouseEvent) {
   const startX = e.clientX
-  const start = leftWidth.value
+  const width = state.pane === 'files' ? sourceWidth : leftWidth
+  const key = state.pane === 'files' ? 'ovseer.sourceWidth' : 'ovseer.left'
+  const min = state.pane === 'files' ? 220 : 260
+  const start = width.value
   const move = (ev: MouseEvent) => {
-    leftWidth.value = Math.min(Math.max(start + ev.clientX - startX, 260), window.innerWidth - 300)
+    width.value = Math.min(Math.max(start + ev.clientX - startX, min), window.innerWidth - 300)
   }
   const up = () => {
     window.removeEventListener('mousemove', move)
     window.removeEventListener('mouseup', up)
-    localStorage.setItem('ovseer.left', String(leftWidth.value))
+    localStorage.setItem(key, String(width.value))
   }
   window.addEventListener('mousemove', move)
   window.addEventListener('mouseup', up)
@@ -260,7 +264,7 @@ onUnmounted(() => {
             <aside
               v-show="overlayMode ? state.listOverlay : !treeHidden"
               :class="{ full: !state.showDiff, overlay: overlayMode }"
-              :style="state.showDiff && !overlayMode ? { width: `${leftWidth}px` } : undefined"
+              :style="state.showDiff && !overlayMode ? { width: `${state.pane === 'files' ? sourceWidth : leftWidth}px` } : undefined"
             >
               <SourceTree v-if="state.pane === 'files'" />
               <FileList v-else />
