@@ -180,7 +180,7 @@ onMounted(() => {
   void refreshDeployOverview()
   deployTimer = setInterval(() => {
     deployTick += 1
-    if (state.showDeploys || deployTick % 3 === 0) void refreshDeployOverview()
+    if (state.showDeploys || state.deployOverview.some(({ snapshot }) => snapshot.operation) || deployTick % 3 === 0) void refreshDeployOverview()
   }, 5000)
   window.addEventListener('focus', onFocus)
   window.addEventListener('keydown', onShiftKey)

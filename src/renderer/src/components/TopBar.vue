@@ -5,6 +5,7 @@ import Icon from './Icon.vue'
 import AgentHistoryMenu from './AgentHistoryMenu.vue'
 import BranchSwitcher from './BranchSwitcher.vue'
 import DeployMenu from './DeployMenu.vue'
+import DeployActivity from './DeployActivity.vue'
 import ProjectSwitcher from './ProjectSwitcher.vue'
 import ServicesMenu from './ServicesMenu.vue'
 import UsageChip from './UsageChip.vue'
@@ -40,6 +41,7 @@ const mod = window.ovseer.platform === 'darwin' ? '⌘' : 'Ctrl+'
     </template>
 
     <span class="spacer" />
+    <DeployActivity />
     <UsageChip />
     <ServicesMenu />
     <button type="button" class="ghost icon" :class="{ on: simulatorOpen }" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" /></button>
