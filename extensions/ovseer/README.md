@@ -5,7 +5,7 @@ Os arquivos da extensão acompanham o instalador e as atualizações do Ovseer, 
 O guia só abre quando você pedir, em **Configurações → Agentes → Extensão do Chrome → Instalar / ver instruções**.
 
 1. No guia do Ovseer, clique em **Abrir pasta** ou **Copiar caminho** para localizar a extensão.
-2. No Chrome, abra `chrome://extensions`, ative **Modo do desenvolvedor**, clique em **Carregar sem compactação** e selecione essa pasta.
+2. No Chrome, abra `chrome://extensions`, ative **Modo do desenvolvedor** e clique em **Carregar sem compactação**. No seletor do macOS, pressione **Command + Shift + G** para abrir **Ir para a pasta**, cole o caminho copiado, pressione **Enter** e clique em **Selecionar**. No Windows, cole o caminho na barra de endereço do seletor, pressione **Enter** e confirme a pasta. Escolha a pasta `chrome-extension` que contém `manifest.json`.
 3. Mantenha o Ovseer aberto neste computador. A extensão se conecta automaticamente, sem copiar códigos ou configurar endereços. Se abrir o Chrome antes do aplicativo, ela continua tentando em segundo plano, sem clicar em um botão. Fixe e abra a extensão na barra de ferramentas para conferir “Conectado ao aplicativo”.
 4. Quando um agente pedir acesso, abra a extensão, escolha a conversa e a aba e clique em **Autorizar aba**. Peça ao agente para continuar.
 
