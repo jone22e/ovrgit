@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const FILES = ['manifest.json', 'background.js', 'controller.js', 'popup.html', 'popup.css', 'popup.js', 'icon.png', 'README.md']
@@ -32,4 +32,15 @@ export function acknowledgeChromeExtensionBundle(source: string, data: string, r
   const current = syncChromeExtensionBundle(source, data)
   if (current.revision !== revision) throw new Error('A extensão foi atualizada. Reabra o guia para ver as instruções atuais.')
   writeFileSync(stateFile(data), JSON.stringify({ revision, acknowledged: revision }))
+}
+
+/** Credencial por computador, fora do código distribuído e sem acesso por páginas web. */
+export function writeChromeExtensionConnection(folder: string, connection: string) {
+  const file = path.join(folder, 'connection.json')
+  const contents = JSON.stringify({ connection })
+  try { if (readFileSync(file, 'utf8') === contents) { chmodSync(file, 0o600); return } } catch { /* primeira conexão */ }
+  const temporary = `${file}.tmp`
+  writeFileSync(temporary, contents, { mode: 0o600 })
+  chmodSync(temporary, 0o600)
+  renameSync(temporary, file)
 }

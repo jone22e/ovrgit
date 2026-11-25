@@ -45,7 +45,7 @@ import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from
 import * as g from './git'
 import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, resolveSourcePath, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
-import { chromeExtensionSetup, acknowledgeChromeExtension, prepareChromeExtension, copyChromeExtensionFolder, copyChromeConnection, stopChromeBridge } from './chromeExtension'
+import { chromeExtensionSetup, acknowledgeChromeExtension, prepareChromeExtension, copyChromeExtensionFolder, stopChromeBridge } from './chromeExtension'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
@@ -869,7 +869,6 @@ function registerIpc() {
   ipcMain.handle('chrome-extension:acknowledge', (_e, revision: string) => acknowledgeChromeExtension(String(revision)))
   ipcMain.handle('chrome-extension:copy-folder', () => copyChromeExtensionFolder())
   ipcMain.handle('chrome-extension:prepare', () => prepareChromeExtension())
-  ipcMain.handle('chrome-extension:copy-connection', () => copyChromeConnection())
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)
     if ('captureShortcutKey' in patch) setScreenCaptureShortcut(next.captureShortcutKey)

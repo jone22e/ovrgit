@@ -16,12 +16,11 @@ async function refresh() {
   try { setup.value = await api.chromeExtensionSetup() }
   catch (e) { error.value = clean(e) }
 }
-async function action(kind: 'folder' | 'path' | 'connection') {
+async function action(kind: 'folder' | 'path') {
   busy.value = true; error.value = ''; copied.value = ''
   try {
     if (kind === 'folder') await api.chromeExtensionPrepare()
-    else if (kind === 'path') { await api.chromeExtensionCopyFolder(); copied.value = 'Caminho da pasta copiado.' }
-    else { await api.chromeExtensionCopyConnection(); copied.value = 'Conexão copiada. Cole no popup da extensão Ovseer.' }
+    else { await api.chromeExtensionCopyFolder(); copied.value = 'Caminho da pasta copiado.' }
   } catch (e) { error.value = clean(e) }
   finally { busy.value = false }
 }
@@ -50,9 +49,8 @@ onUnmounted(() => clearInterval(timer))
         <p>Digite <code>chrome://extensions</code> na barra de endereço, ative <strong>Modo do desenvolvedor</strong>, clique em <strong>Carregar sem compactação</strong> e selecione a pasta acima.</p>
       </li>
       <li>
-        <strong>Conecte ao aplicativo.</strong>
-        <p>No menu de extensões (peça de quebra-cabeça), fixe e abra <strong>Ovseer</strong>. Copie a conexão abaixo, cole no campo da extensão e clique em <strong>Conectar</strong>.</p>
-        <button :disabled="busy || !setup" @click="action('connection')">Copiar conexão</button>
+        <strong>A conexão é automática.</strong>
+        <p>Mantenha o Ovseer aberto neste computador. A extensão encontra o aplicativo sozinha, sem código nem configuração. No menu de extensões (peça de quebra-cabeça), fixe <strong>Ovseer</strong> para acessar as autorizações.</p>
         <p class="connection" :class="{ connected: setup?.connected }" role="status">{{ setup?.connected ? '✓ Extensão conectada ao Ovseer.' : 'Aguardando conexão da extensão.' }}</p>
       </li>
       <li>

@@ -3,15 +3,17 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { ChromeBridge, type ChromeSession } from './chromeBridge'
-import { acknowledgeChromeExtensionBundle, syncChromeExtensionBundle } from './chromeExtensionBundle'
+import { acknowledgeChromeExtensionBundle, syncChromeExtensionBundle, writeChromeExtensionConnection } from './chromeExtensionBundle'
 import type { ChromeExtensionSetup } from '../shared/types'
 
 let bridge: Promise<ChromeBridge> | undefined
 const sourceFolder = () => path.join(app.getAppPath(), 'extensions', 'ovseer')
 
 export async function chromeExtensionSetup(): Promise<ChromeExtensionSetup> {
+  const instance = await getBridge()
   const bundle = syncChromeExtensionBundle(sourceFolder(), app.getPath('userData'))
-  return { ...bundle, connected: (await getBridge()).connected }
+  writeChromeExtensionConnection(bundle.folder, (await instance.ready).connection)
+  return { ...bundle, connected: instance.connected }
 }
 
 export function acknowledgeChromeExtension(revision: string) {
@@ -57,10 +59,6 @@ export async function prepareChromeExtension(): Promise<string> {
 
 export async function copyChromeExtensionFolder(): Promise<void> {
   clipboard.writeText((await chromeExtensionSetup()).folder)
-}
-
-export async function copyChromeConnection(): Promise<void> {
-  clipboard.writeText((await (await getBridge()).ready).connection)
 }
 
 export async function stopChromeBridge() {

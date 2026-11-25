@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { acknowledgeChromeExtensionBundle, syncChromeExtensionBundle } from '../src/main/chromeExtensionBundle'
+import { acknowledgeChromeExtensionBundle, syncChromeExtensionBundle, writeChromeExtensionConnection } from '../src/main/chromeExtensionBundle'
 
 const roots: string[] = []
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })))
@@ -57,5 +57,26 @@ describe('extensão distribuída junto com o Ovseer', () => {
     rmSync(path.join(first.folder, 'controller.js'))
     expect(syncChromeExtensionBundle(source, data).needsGuide).toBe(false)
     expect(existsSync(path.join(first.folder, 'controller.js'))).toBe(true)
+  })
+
+  it('prepara a conexão privada automaticamente sem incluí-la no código distribuído nem repetir o guia', () => {
+    const { source, data } = setup()
+    const bundle = syncChromeExtensionBundle(source, data)
+    acknowledgeChromeExtensionBundle(source, data, bundle.revision)
+    const connection = 'http://127.0.0.1:12345/extension/chave-local-do-teste'
+    writeChromeExtensionConnection(bundle.folder, connection)
+    const file = path.join(bundle.folder, 'connection.json')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ connection })
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
+    const before = statSync(file).mtimeMs
+    writeChromeExtensionConnection(bundle.folder, connection)
+    expect(statSync(file).mtimeMs).toBe(before)
+    const nextConnection = connection.replace('12345', '45678')
+    writeChromeExtensionConnection(bundle.folder, nextConnection)
+    expect(JSON.parse(readFileSync(file, 'utf8')).connection).toBe(nextConnection)
+    expect(existsSync(path.join(source, 'connection.json'))).toBe(false)
+    expect(syncChromeExtensionBundle(source, data).needsGuide).toBe(false)
+    const manifest = JSON.parse(readFileSync(path.join(bundle.folder, 'manifest.json'), 'utf8'))
+    expect(manifest.web_accessible_resources ?? []).toEqual([])
   })
 })

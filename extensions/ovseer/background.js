@@ -50,9 +50,22 @@ async function run() {
 
 async function start() {
   if (loop) return
+  const current = generation
   loop = (async () => {
-    if (!connection) connection = (await chrome.storage.local.get('connection')).connection || ''
-    if (connection) await run()
+    if ((await chrome.storage.local.get('paused')).paused) return
+    try {
+      const response = await fetch(chrome.runtime.getURL('connection.json'), { cache: 'no-store', credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(3000) })
+      if (!response.ok) throw new Error('Conexão automática indisponível. Abra o Ovseer e recarregue a extensão da pasta indicada pelo aplicativo.')
+      const data = await response.json()
+      if (current !== generation) return
+      const url = new URL(data.connection)
+      if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash || !/^\/extension\/[\w-]{32,}$/.test(url.pathname)) throw new Error('Conexão automática inválida. Recarregue a extensão da pasta indicada pelo Ovseer.')
+      connection = url.href
+      await run()
+    } catch {
+      connected = false
+      error = 'Abra o Ovseer neste computador. Se acabou de atualizar, recarregue a extensão em chrome://extensions usando a pasta indicada pelo aplicativo.'
+    }
   })()
   try { await loop } finally { loop = undefined }
 }
@@ -66,12 +79,11 @@ async function handle(message, sender) {
   }
   if (!ownPopup) throw new Error('Origem inválida.')
   if (message.type === 'connect') {
-    const url = new URL(message.connection.trim())
-    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash || !/^\/extension\/[\w-]{32,}$/.test(url.pathname)) throw new Error('Cole o código de conexão mostrado nas configurações do Ovseer.')
     await controller.stopAll().catch(() => {})
     generation++; abort?.abort()
     if (loop) await loop
-    connection = url.href; await chrome.storage.local.set({ connection })
+    connection = ''; connected = false; error = ''
+    await chrome.storage.local.set({ paused: false })
     void start()
     return { ok: true }
   }
@@ -80,7 +92,7 @@ async function handle(message, sender) {
     generation++; abort?.abort()
     if (loop) await loop
     connection = ''; connected = false
-    await chrome.storage.local.remove('connection'); badge()
+    await chrome.storage.local.set({ paused: true }); badge()
     return { ok: true }
   }
   if (message.type === 'approve') {
@@ -91,7 +103,7 @@ async function handle(message, sender) {
   if (message.type === 'stop') { await controller.stop(message.session); badge(); return { ok: true } }
   if (message.type === 'state') {
     void start()
-    return { configured: !!connection, connected, error, sessions: (controller.infos ?? []).map((s) => ({ ...s, approved: controller.sessions.has(s.id), tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] })),
+    return { paused: (await chrome.storage.local.get('paused')).paused === true, connected, error, sessions: (controller.infos ?? []).map((s) => ({ ...s, approved: controller.sessions.has(s.id), tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] })),
       tabs: (await chrome.tabs.query({})).filter((t) => /^https?:/.test(t.url)).map((t) => ({ id: t.id, title: t.title, url: t.url, owner: controller.owners.get(t.id) })) }
   }
   throw new Error('Ação desconhecida.')
@@ -127,6 +139,8 @@ chrome.runtime.onInstalled.addListener(() => { void chrome.alarms.create('ovseer
 
 // Nunca restaura permissões de controle após reiniciar o worker/perfil.
 async function initialize() {
+  // Migra a configuração antiga: a credencial agora vem apenas da pasta preparada pelo aplicativo.
+  await chrome.storage.local.remove('connection')
   const { ovseerTabs = [] } = await chrome.storage.session.get('ovseerTabs')
   for (const tabId of ovseerTabs) {
     await chrome.scripting.executeScript({ target: { tabId }, func: () => document.getElementById('__ovseer_control__')?.remove() }).catch(() => {})

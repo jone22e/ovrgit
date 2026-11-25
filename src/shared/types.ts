@@ -1171,12 +1171,11 @@ export interface OvseerApi {
   /** Copia uma imagem (PNG em data URL) para a área de transferência */
   copyImage(dataUrl: string): Promise<void>
   getSettings(): Promise<Settings>
-  /** Extensão incluída no app e guia de instalação; a conexão privada só é copiada ao clipboard. */
+  /** Extensão incluída no app e guia de instalação; a conexão é preparada automaticamente. */
   chromeExtensionSetup(): Promise<ChromeExtensionSetup>
   chromeExtensionAcknowledge(revision: string): Promise<void>
   chromeExtensionCopyFolder(): Promise<void>
   chromeExtensionPrepare(): Promise<string>
-  chromeExtensionCopyConnection(): Promise<void>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   /** Configurações salvas por outra janela */
   onSettingsChanged(cb: (s: Settings) => void): () => void

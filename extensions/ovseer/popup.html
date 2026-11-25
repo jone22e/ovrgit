@@ -4,9 +4,9 @@
 <body>
   <header><span class="logo">O</span><div><h1>Ovseer</h1><p id="status">Conectando…</p></div></header>
   <section id="pairing">
-    <label for="connection">Conexão com o aplicativo</label>
-    <p>Nas configurações do Ovseer, copie o código em “Extensão do Chrome” e cole aqui.</p>
-    <form id="connect"><input id="connection" type="password" placeholder="Cole o código de conexão" required autocomplete="off"><button>Conectar</button></form>
+    <strong>Conexão automática</strong>
+    <p id="connection-help">Mantenha o Ovseer aberto neste computador. A extensão se conecta sozinha, sem código nem configuração.</p>
+    <button id="connect" type="button">Tentar novamente</button>
   </section>
   <p id="error" role="alert"></p>
   <main id="sessions"></main>

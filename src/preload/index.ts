@@ -134,7 +134,6 @@ const api: OvseerApi = {
   chromeExtensionAcknowledge: (revision) => ipcRenderer.invoke('chrome-extension:acknowledge', revision),
   chromeExtensionCopyFolder: () => ipcRenderer.invoke('chrome-extension:copy-folder'),
   chromeExtensionPrepare: () => ipcRenderer.invoke('chrome-extension:prepare'),
-  chromeExtensionCopyConnection: () => ipcRenderer.invoke('chrome-extension:copy-connection'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   onSettingsChanged: (cb) => {
     const h = (_e: unknown, s: Settings) => cb(s)

@@ -18,11 +18,14 @@ function el(tag, text, className) {
 }
 async function refresh() {
   const state = await send({ type: 'state' })
-  $('status').textContent = state.connected ? 'Conectado ao aplicativo' : state.configured ? 'Aguardando o aplicativo' : 'Conecte ao aplicativo para começar'
-  $('pairing').hidden = state.configured && state.connected
-  $('disconnect').hidden = !state.configured
-  if (state.error && !busy) $('error').textContent = state.error
-  const next = JSON.stringify([state.sessions, state.tabs])
+  $('status').textContent = state.connected ? 'Conectado ao aplicativo' : state.paused ? 'Conexão pausada' : 'Aguardando o Ovseer'
+  $('pairing').hidden = state.connected
+  $('disconnect').hidden = !state.connected
+  $('connect').textContent = state.paused ? 'Conectar ao Ovseer' : 'Tentar novamente'
+  $('connection-help').textContent = state.paused ? 'Você desconectou a extensão. Clique abaixo para retomar a conexão automática.' : 'Mantenha o Ovseer aberto neste computador. A extensão se conecta sozinha, sem código nem configuração.'
+  if (!state.error || state.paused) $('error').textContent = ''
+  if (state.error && !state.paused && !busy) $('error').textContent = state.error
+  const next = JSON.stringify([state.connected, state.paused, state.sessions, state.tabs])
   if (signature === next) return
   signature = next
   const nodes = []
@@ -50,7 +53,7 @@ async function refresh() {
   if (!nodes.length) nodes.push(el('p', 'Quando um agente pedir acesso ao navegador, a conversa aparecerá aqui para você escolher uma aba.', 'empty'))
   $('sessions').replaceChildren(...nodes)
 }
-$('connect').onsubmit = (event) => { event.preventDefault(); void action(() => send({ type: 'connect', connection: $('connection').value })) }
+$('connect').onclick = () => action(() => send({ type: 'connect' }))
 $('disconnect').onclick = () => action(() => send({ type: 'disconnect' }))
 void refresh().catch((e) => { $('error').textContent = e.message })
 setInterval(() => { if (!busy) void refresh().catch(() => {}) }, 1500)
