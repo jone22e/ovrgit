@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
+import { runInNewContext } from 'node:vm'
 import { BrowserController } from '../extensions/ovseer/controller.js'
 
-function setup() {
+function setup(input?: { type: string; autocomplete?: string }) {
   const tabs = [{ id: 10, url: 'https://exemplo.test', title: 'Teste' }, { id: 20, url: 'https://outra.test', title: 'Outra' }, { id: 30, url: 'chrome://settings', title: 'Configurações' }]
+  const field = input ? { tagName: 'INPUT', autocomplete: '', ...input, focus() {}, select() {}, getBoundingClientRect: () => ({ x: 20, y: 30, width: 20, height: 20 }) } : null
   const api = {
     runtime: { getURL: (file: string) => `chrome-extension://ovseer/${file}` },
     tabs: { get: vi.fn(async (id: number) => tabs.find((t) => t.id === id)), query: vi.fn(async () => tabs), update: vi.fn(async () => {}), create: vi.fn(async () => ({ id: 20 })), remove: vi.fn(async () => {}) },
-    debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), sendCommand: vi.fn(async (_target: object, method: string) => {
+    debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), sendCommand: vi.fn(async (_target: object, method: string, params: { functionDeclaration?: string; arguments?: { value: unknown }[]; expression?: string } = {}) => {
       if (method === 'Accessibility.getFullAXTree') return { nodes: [{ backendDOMNodeId: 123, role: { value: 'button' }, name: { value: 'Salvar' } }] }
       if (method === 'DOM.resolveNode') return { object: { objectId: 'node' } }
-      if (method === 'Runtime.callFunctionOn') return { result: { value: { x: 30, y: 40 } } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: field ? runInNewContext(`(${params.functionDeclaration})`).apply(field, params.arguments?.map((a) => a.value) ?? []) : { x: 30, y: 40 } } }
+      if (method === 'Runtime.evaluate' && params.expression?.includes('document.activeElement')) return { result: { value: runInNewContext(params.expression, { document: { activeElement: field } }) } }
       if (method === 'Page.captureScreenshot') return { data: 'png-base64' }
       return {}
     }) },
@@ -47,6 +50,39 @@ describe('controle das abas na extensão Ovseer', () => {
     await expect(call('browser_click', { ref: 'e1-123' })).rejects.toThrow('Referência expirada')
     await expect(call('browser_navigate', { url: 'file:///etc/passwd' })).rejects.toThrow('HTTP')
     await expect(call('browser_navigate', { url: 'javascript:alert(1)' })).rejects.toThrow('HTTP')
+  })
+
+  it.each([
+    { type: 'text', autocomplete: '', masked: false },
+    { type: 'password', autocomplete: '', masked: true },
+    { type: 'text', autocomplete: 'one-time-code', masked: true }
+  ])('mostra a prévia de digitação com proteção para $type/$autocomplete', async ({ type, autocomplete, masked }) => {
+    const { api, controller, infos, call } = setup({ type, autocomplete })
+    await controller.sync(infos); await controller.attachTab('a', 10); await call('browser_snapshot')
+    const text = 'texto-do-teste <b>literal</b>'
+    await call('browser_type', { ref: 'e1-123', text })
+    expect(api.scripting.executeScript).toHaveBeenLastCalledWith(expect.objectContaining({ args: [masked ? '••••••••' : text, 'Digitando', false] }))
+    if (masked) expect(JSON.stringify(api.scripting.executeScript.mock.calls)).not.toContain(text)
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'Input.insertText', { text })
+  })
+
+  it('mascara a prévia ao preencher uma senha pelo formulário', async () => {
+    const { api, controller, infos, call } = setup({ type: 'password' })
+    await controller.sync(infos); await controller.attachTab('a', 10); await call('browser_snapshot')
+    await call('browser_fill_form', { fields: [{ ref: 'e1-123', type: 'textbox', value: 'senha-do-teste' }] })
+    expect(api.scripting.executeScript).toHaveBeenLastCalledWith(expect.objectContaining({ args: ['••••••••', 'Digitando', false] }))
+    expect(JSON.stringify(api.scripting.executeScript.mock.calls)).not.toContain('senha-do-teste')
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'Input.insertText', { text: 'senha-do-teste' })
+  })
+
+  it.each(['text', 'password'])('protege caracteres enviados por teclas em campo $type', async (type) => {
+    const { api, controller, infos, call } = setup({ type })
+    await controller.sync(infos); await controller.attachTab('a', 10)
+    await call('browser_press_key', { key: 'a' })
+    expect(api.scripting.executeScript).toHaveBeenLastCalledWith(expect.objectContaining({ args: [type === 'password' ? '••••••••' : 'a', 'Digitando', type !== 'password'] }))
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'Input.dispatchKeyEvent', expect.objectContaining({ type: 'keyDown', text: 'a' }))
+    await call('browser_press_key', { key: 'Control+A' })
+    expect(api.scripting.executeScript).toHaveBeenLastCalledWith(expect.objectContaining({ args: ['Control+A', 'Tecla', false] }))
   })
 
   it('interromper remove a faixa, desanexa as abas e bloqueia ações futuras', async () => {

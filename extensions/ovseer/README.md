@@ -13,6 +13,8 @@ Cada conversa mantém suas próprias abas. Uma aba não pode ser controlada por 
 
 A moldura com brilho roxo e a faixa com a logo do Ovseer identificam a aba em controle. O ponteiro roxo tem um círculo de destaque e uma etiqueta indicando cliques, digitação, teclas e rolagem. Ele aparece nas ações de mouse ou junto ao campo em edição e desaparece com a faixa ao interromper o controle.
 
+No canto inferior direito, um painel de fundo transparente mostra em roxo o texto enviado pelo agente e as teclas usadas. Ele some após cinco segundos sem nova digitação. Senhas e campos identificados pelo navegador como senha ou código de uso único aparecem mascarados. O painel acompanha apenas os comandos do agente.
+
 **Interromper**, na página ou no popup, bloqueia a conversa e desconecta o depurador das suas abas. O botão de cancelar da faixa de depuração do Chrome também bloqueia o controle. Para continuar, clique em **Retomar** no popup. Fechar uma aba normalmente não interrompe as outras abas da conversa.
 
 O acesso usa o perfil já aberto no Chrome, incluindo seus logins. A extensão comunica-se somente com o aplicativo local por uma conexão autenticada, preparada automaticamente pelo Ovseer na pasta da extensão. Os agentes continuam respeitando as instruções do usuário sobre quando usar o navegador. Se desconectar pelo popup, a conexão fica pausada até clicar em **Conectar ao Ovseer**; conversas interrompidas ficam bloqueadas até clicar em **Retomar**.

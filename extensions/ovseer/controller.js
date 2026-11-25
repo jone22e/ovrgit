@@ -130,6 +130,10 @@ export class BrowserController {
         .arrow{position:absolute;left:-2px;top:-2px;width:26px;height:32px;overflow:visible;filter:drop-shadow(0 2px 3px #0008)}
         .activity{position:absolute;left:min(12px,calc(100vw - var(--ovseer-pointer-x,0px) - 188px));top:min(18px,calc(100vh - var(--ovseer-pointer-y,0px) - 32px));box-sizing:border-box;width:max-content;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:10px;background:#793bc0;color:#fff;padding:4px 8px;box-shadow:0 2px 8px #0003;font:600 11px/1.4 system-ui}
         .activity::after{content:var(--ovseer-pointer-action,"Movendo mouse")}
+        .typing{position:absolute;right:20px;bottom:20px;box-sizing:border-box;width:min(460px,calc(100vw - 40px));background:transparent;color:#b779f5;pointer-events:none;text-shadow:0 1px 2px #000,0 0 8px #000b;text-align:left}
+        .typing[hidden]{display:none}
+        .typing-title{margin-bottom:6px;font:700 11px/1.4 system-ui;letter-spacing:.06em;text-transform:uppercase}
+        .typing-text{max-height:min(180px,25vh);overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;font:600 14px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
       `
       const frame = document.createElement('div'); frame.className = 'frame'
       const bar = document.createElement('div'); bar.className = 'bar'
@@ -147,7 +151,30 @@ export class BrowserController {
       cursor.append(arrow)
       const activity = document.createElement('span'); activity.className = 'activity'
       pointer.append(halo, cursor, activity)
-      bar.append(logo, text, stop); root.append(style, frame, bar, pointer); document.documentElement.append(host)
+      const typing = document.createElement('div'); typing.className = 'typing'; typing.hidden = true; typing.setAttribute('aria-hidden', 'true')
+      const typingTitle = document.createElement('div'); typingTitle.className = 'typing-title'
+      const typingText = document.createElement('div'); typingText.className = 'typing-text'
+      typing.append(typingTitle, typingText)
+      let typingTimer, typingTarget
+      host.addEventListener('__ovseer_typing__', (event) => {
+        const { text, title, append } = event.detail
+        const target = document.activeElement
+        const sameTarget = !typing.hidden && typingTarget === target
+        if (title === 'Tecla' && sameTarget && typingTitle.textContent.startsWith('Digitando')) {
+          typingTitle.textContent = `Digitando · ${text}`
+        } else {
+          const previous = append && sameTarget && typingTitle.textContent === title ? typingText.textContent : ''
+          const value = previous + text
+          typingText.textContent = value.length > 1200 ? `…${value.slice(-1200)}` : value
+          typingTitle.textContent = title
+        }
+        typingTarget = target
+        typing.hidden = false
+        typingText.scrollTop = typingText.scrollHeight
+        clearTimeout(typingTimer)
+        typingTimer = setTimeout(() => { typing.hidden = true; typingText.textContent = ''; typingTarget = null }, 5000)
+      })
+      bar.append(logo, text, stop); root.append(style, frame, bar, pointer, typing); document.documentElement.append(host)
     }, args: [label, session, this.api.runtime.getURL('logo.png')] })
   }
 
@@ -200,6 +227,10 @@ export class BrowserController {
     return this.element(tabId, ref, 'function() { this.scrollIntoView({block:"center",inline:"center"}); const r=this.getBoundingClientRect(); if(!r.width||!r.height) throw new Error("Elemento não visível."); return {x:r.x+r.width/2,y:r.y+r.height/2}; }')
   }
 
+  async focusField(tabId, ref, contentEditable = false) {
+    return this.element(tabId, ref, 'function(contentEditable){this.focus();if(this.select)this.select();else if(contentEditable&&this.isContentEditable){getSelection().selectAllChildren(this);}else throw new Error("Campo não editável.");const r=this.getBoundingClientRect();return {point:r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null,sensitive:this.type==="password"||["current-password","new-password","one-time-code"].includes(this.autocomplete)};}', [contentEditable])
+  }
+
   async click(tabId, ref, button = 'left', doubleClick = false) {
     const point = await this.point(tabId, ref)
     await this.movePointer(tabId, point, doubleClick ? 'Clicando duas vezes' : 'Clicando')
@@ -231,6 +262,22 @@ export class BrowserController {
     }, args: [action, point] }).catch(() => {}) // O indicador visual não deve impedir a ação na página.
   }
 
+  async showTyping(tabId, text, sensitive = null, title = 'Digitando', append = false) {
+    if (sensitive === null) {
+      try {
+        const result = await this.cdp(tabId, 'Runtime.evaluate', {
+          expression: '(() => {let e=document.activeElement;while(e){if(e.shadowRoot?.activeElement){e=e.shadowRoot.activeElement;continue;}if(e.tagName==="IFRAME"){try{e=e.contentDocument?.activeElement;if(!e)return true;continue;}catch{return true;}}return e.type==="password"||["current-password","new-password","one-time-code"].includes(e.autocomplete);}return true;})()',
+          returnByValue: true
+        })
+        sensitive = result.result?.value !== false
+      } catch { sensitive = true }
+    }
+    const preview = sensitive ? '••••••••' : String(text)
+    await this.api.scripting.executeScript({ target: { tabId }, func: (text, title, append) => {
+      document.getElementById('__ovseer_control__')?.dispatchEvent(new CustomEvent('__ovseer_typing__', { detail: { text, title, append } }))
+    }, args: [preview, title, append && !sensitive] }).catch(() => {})
+  }
+
   async key(tabId, input) {
     const parts = input.split('+'), name = parts.pop()
     let modifiers = 0
@@ -240,6 +287,8 @@ export class BrowserController {
     const code = codes[name] ?? (name.length === 1 ? name.toUpperCase().charCodeAt(0) : 0)
     if (!code) throw new Error('Tecla não suportada.')
     await this.indicate(tabId, 'Pressionando tecla')
+    if (!modifiers && key.length === 1) await this.showTyping(tabId, key, null, 'Digitando', true)
+    else await this.showTyping(tabId, input, false, 'Tecla')
     const text = !modifiers && key.length === 1 ? key : name === 'Enter' ? '\r' : undefined
     await this.cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyDown', key, windowsVirtualKeyCode: code, modifiers, ...(text ? { text } : {}) })
     await this.cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyUp', key, windowsVirtualKeyCode: code, modifiers })
@@ -309,8 +358,9 @@ export class BrowserController {
     if (name === 'browser_click') await this.click(tabId, a.ref, a.button, a.doubleClick)
     else if (name === 'browser_hover') await this.movePointer(tabId, await this.point(tabId, a.ref))
     else if (name === 'browser_type') {
-      const point = await this.element(tabId, a.ref, 'function(){this.focus();if(this.select)this.select();else if(this.isContentEditable){const s=getSelection();s.selectAllChildren(this);}else throw new Error("Elemento não editável.");const r=this.getBoundingClientRect();return r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null;}')
-      valid(); await this.indicate(tabId, 'Digitando', point)
+      const target = await this.focusField(tabId, a.ref, true)
+      valid(); await this.indicate(tabId, 'Digitando', target.point)
+      valid(); await this.showTyping(tabId, a.text, target.sensitive !== false)
       valid(); await this.cdp(tabId, 'Input.insertText', { text: a.text })
       if (a.submit) { valid(); await this.key(tabId, 'Enter') }
     } else if (name === 'browser_fill_form') {
@@ -322,8 +372,9 @@ export class BrowserController {
           if (checked !== (field.value === 'true')) { valid(); await this.click(tabId, field.ref) }
         } else if (field.type === 'combobox') await this.select(tabId, field.ref, [field.value])
         else {
-          const point = await this.element(tabId, field.ref, 'function(){this.focus();if(this.select)this.select();else throw new Error("Campo não editável.");const r=this.getBoundingClientRect();return r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null;}')
-          valid(); await this.indicate(tabId, 'Preenchendo campo', point)
+          const target = await this.focusField(tabId, field.ref)
+          valid(); await this.indicate(tabId, 'Preenchendo campo', target.point)
+          valid(); await this.showTyping(tabId, field.value, target.sensitive !== false)
           valid(); await this.cdp(tabId, 'Input.insertText', { text: field.value })
         }
       }
