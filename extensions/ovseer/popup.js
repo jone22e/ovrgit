@@ -21,7 +21,8 @@ async function refresh() {
   $('status').textContent = state.connected ? 'Conectado ao aplicativo' : state.paused ? 'Conexão pausada' : 'Aguardando o Ovseer'
   $('pairing').hidden = state.connected
   $('disconnect').hidden = !state.connected
-  $('connect').textContent = state.paused ? 'Conectar ao Ovseer' : 'Tentar novamente'
+  $('connect').hidden = !state.paused
+  $('connect').textContent = 'Conectar ao Ovseer'
   $('connection-help').textContent = state.paused ? 'Você desconectou a extensão. Clique abaixo para retomar a conexão automática.' : 'Mantenha o Ovseer aberto neste computador. A extensão se conecta sozinha, sem código nem configuração.'
   if (!state.error || state.paused) $('error').textContent = ''
   if (state.error && !state.paused && !busy) $('error').textContent = state.error

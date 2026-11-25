@@ -6,7 +6,7 @@ O guia aparece na primeira abertura e quando os arquivos da extensão mudarem. V
 
 1. No guia do Ovseer, clique em **Abrir pasta** ou **Copiar caminho** para localizar a extensão.
 2. No Chrome, abra `chrome://extensions`, ative **Modo do desenvolvedor**, clique em **Carregar sem compactação** e selecione essa pasta.
-3. Mantenha o Ovseer aberto neste computador. A extensão se conecta automaticamente, sem copiar códigos ou configurar endereços. Fixe e abra a extensão na barra de ferramentas para conferir “Conectado ao aplicativo”.
+3. Mantenha o Ovseer aberto neste computador. A extensão se conecta automaticamente, sem copiar códigos ou configurar endereços. Se abrir o Chrome antes do aplicativo, ela continua tentando em segundo plano, sem clicar em um botão. Fixe e abra a extensão na barra de ferramentas para conferir “Conectado ao aplicativo”.
 4. Quando um agente pedir acesso, abra a extensão, escolha a conversa e a aba e clique em **Autorizar aba**. Peça ao agente para continuar.
 
 Cada conversa recebe seu próprio acesso. Uma aba não pode ser controlada por duas conversas ao mesmo tempo. Abas existentes adicionais exigem autorização na extensão; abas novas criadas pela conversa ficam sob seu controle. Abas internas do Chrome, arquivos locais e páginas de extensões não são aceitas.

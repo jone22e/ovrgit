@@ -1,7 +1,15 @@
 import { BrowserController } from './controller.js'
 
 let connection = '', connected = false, error = '', loop, abort, generation = 0
+let retryTimer, retryDelay = 1000, changingConnection = false
 const controller = new BrowserController(chrome, (session, approved) => post('/permission', { session, approved }))
+
+function cancelRetry() { clearTimeout(retryTimer); retryTimer = undefined }
+function scheduleRetry() {
+  cancelRetry()
+  retryTimer = setTimeout(() => { retryTimer = undefined; void start() }, retryDelay)
+  retryDelay = Math.min(retryDelay * 2, 10_000)
+}
 
 async function post(route, body, signal) {
   const response = await fetch(connection + route, {
@@ -28,6 +36,7 @@ async function run() {
       const data = await post('/poll', { immediate: first }, AbortSignal.any([abort.signal, AbortSignal.timeout(20_000)]))
       if (current !== generation) return
       first = false; connected = true; error = ''
+      cancelRetry(); retryDelay = 1000
       // Uma chamada de API a cada ciclo também mantém o worker apto a receber conexões.
       await chrome.storage.session.set({ ovseerTabs: [...controller.owners.keys()] })
       await controller.sync(data.sessions)
@@ -49,7 +58,8 @@ async function run() {
 }
 
 async function start() {
-  if (loop) return
+  if (loop || changingConnection) return
+  cancelRetry()
   const current = generation
   loop = (async () => {
     if ((await chrome.storage.local.get('paused')).paused) return
@@ -67,7 +77,27 @@ async function start() {
       error = 'Abra o Ovseer neste computador. Se acabou de atualizar, recarregue a extensão em chrome://extensions usando a pasta indicada pelo aplicativo.'
     }
   })()
-  try { await loop } finally { loop = undefined }
+  try { await loop } finally {
+    loop = undefined
+    if (!connected && !changingConnection && current === generation) {
+      const { paused } = await chrome.storage.local.get('paused')
+      if (!paused && !loop && !changingConnection && current === generation) scheduleRetry()
+    }
+  }
+}
+
+async function resetConnection(paused) {
+  changingConnection = true
+  generation++; cancelRetry(); abort?.abort()
+  try {
+    await controller.stopAll().catch(() => {})
+    if (loop) await loop
+    connection = ''; connected = false; error = ''; retryDelay = 1000
+    await chrome.storage.local.set({ paused })
+    badge()
+  } finally { changingConnection = false }
+  if (!paused) void start()
+  return { ok: true }
 }
 
 async function handle(message, sender) {
@@ -78,23 +108,8 @@ async function handle(message, sender) {
     await controller.stop(message.session); badge(); return { ok: true }
   }
   if (!ownPopup) throw new Error('Origem inválida.')
-  if (message.type === 'connect') {
-    await controller.stopAll().catch(() => {})
-    generation++; abort?.abort()
-    if (loop) await loop
-    connection = ''; connected = false; error = ''
-    await chrome.storage.local.set({ paused: false })
-    void start()
-    return { ok: true }
-  }
-  if (message.type === 'disconnect') {
-    await controller.stopAll().catch(() => {})
-    generation++; abort?.abort()
-    if (loop) await loop
-    connection = ''; connected = false
-    await chrome.storage.local.set({ paused: true }); badge()
-    return { ok: true }
-  }
+  if (message.type === 'connect') return resetConnection(false)
+  if (message.type === 'disconnect') return resetConnection(true)
   if (message.type === 'approve') {
     await controller.approve(message.session, Number(message.tabId))
     await chrome.storage.session.set({ ovseerTabs: [...controller.owners.keys()] })
