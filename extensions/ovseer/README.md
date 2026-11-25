@@ -11,6 +11,8 @@ O guia só abre quando você pedir, em **Configurações → Agentes → Extens�
 
 Cada conversa mantém suas próprias abas. Uma aba não pode ser controlada por duas conversas ao mesmo tempo. Quando o usuário pedir uma aba existente, o agente pode selecioná-la pelo identificador real retornado pelas ferramentas. Abas internas do Chrome, arquivos locais e páginas de extensões não são aceitas; uma aba vazia pode ser aberta antes de navegar.
 
+Um ponteiro roxo mostra onde o agente clica ou passa o mouse na página. Ele aparece na primeira ação de mouse e desaparece junto com a faixa ao interromper o controle.
+
 **Interromper**, na página ou no popup, bloqueia a conversa e desconecta o depurador das suas abas. O botão de cancelar da faixa de depuração do Chrome também bloqueia o controle. Para continuar, clique em **Retomar** no popup. Fechar uma aba normalmente não interrompe as outras abas da conversa.
 
 O acesso usa o perfil já aberto no Chrome, incluindo seus logins. A extensão comunica-se somente com o aplicativo local por uma conexão autenticada, preparada automaticamente pelo Ovseer na pasta da extensão. Os agentes continuam respeitando as instruções do usuário sobre quando usar o navegador. Se desconectar pelo popup, a conexão fica pausada até clicar em **Conectar ao Ovseer**; conversas interrompidas ficam bloqueadas até clicar em **Retomar**.

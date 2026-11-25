@@ -117,13 +117,19 @@ export class BrowserController {
       host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:block'
       const root = host.attachShadow({ mode: 'closed' })
       const style = document.createElement('style')
-      style.textContent = ':host{color-scheme:dark}.frame{position:absolute;inset:0;border:3px solid #b779f5;box-sizing:border-box;pointer-events:none}.bar{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:85vw;display:flex;align-items:center;gap:12px;background:#39234f;color:#fff;border:1px solid #b779f5;border-radius:0 0 12px 12px;padding:10px 14px;font:13px system-ui;box-shadow:0 4px 18px #0005;pointer-events:auto}.label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button{background:#fff;color:#39234f;border:0;border-radius:6px;padding:5px 9px;font:600 12px system-ui;cursor:pointer}'
+      style.textContent = ':host{color-scheme:dark}.frame{position:absolute;inset:0;border:3px solid #b779f5;box-sizing:border-box;pointer-events:none}.bar{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:85vw;display:flex;align-items:center;gap:12px;background:#39234f;color:#fff;border:1px solid #b779f5;border-radius:0 0 12px 12px;padding:10px 14px;font:13px system-ui;box-shadow:0 4px 18px #0005;pointer-events:auto}.label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button{background:#fff;color:#39234f;border:0;border-radius:6px;padding:5px 9px;font:600 12px system-ui;cursor:pointer}.pointer{position:absolute;top:0;left:0;width:26px;height:32px;overflow:visible;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px));filter:drop-shadow(0 2px 3px #0008)}'
       const frame = document.createElement('div'); frame.className = 'frame'
       const bar = document.createElement('div'); bar.className = 'bar'
       const text = document.createElement('span'); text.className = 'label'; text.textContent = `Ovseer trabalhando · ${label}`
       const stop = document.createElement('button'); stop.textContent = 'Interromper'
       stop.addEventListener('click', (event) => { if (event.isTrusted) chrome.runtime.sendMessage({ type: 'stop', session }) })
-      bar.append(text, stop); root.append(style, frame, bar); document.documentElement.append(host)
+      const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      pointer.setAttribute('class', 'pointer'); pointer.setAttribute('viewBox', '-2 -2 26 32'); pointer.setAttribute('aria-hidden', 'true')
+      const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      arrow.setAttribute('d', 'M0 0 L0 22 L6 16 L11 27 L16 25 L11 14 L21 14 Z')
+      arrow.setAttribute('fill', '#b779f5'); arrow.setAttribute('stroke', '#fff'); arrow.setAttribute('stroke-width', '2'); arrow.setAttribute('stroke-linejoin', 'round')
+      pointer.append(arrow)
+      bar.append(text, stop); root.append(style, frame, bar, pointer); document.documentElement.append(host)
     }, args: [label, session] })
   }
 
@@ -178,11 +184,22 @@ export class BrowserController {
 
   async click(tabId, ref, button = 'left', doubleClick = false) {
     const point = await this.point(tabId, ref)
-    await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await this.movePointer(tabId, point)
     for (let count = 1; count <= (doubleClick ? 2 : 1); count++) {
       await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button, clickCount: count })
       await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button, clickCount: count })
     }
+  }
+
+  async movePointer(tabId, point) {
+    await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await this.api.scripting.executeScript({ target: { tabId }, func: ({ x, y }) => {
+      const host = document.getElementById('__ovseer_control__')
+      if (!host) return
+      host.style.setProperty('--ovseer-pointer-x', `${x - 2}px`)
+      host.style.setProperty('--ovseer-pointer-y', `${y - 2}px`)
+      host.style.setProperty('--ovseer-pointer-visibility', 'visible')
+    }, args: [point] }).catch(() => {}) // O indicador visual não deve impedir a ação na página.
   }
 
   async key(tabId, input) {
@@ -260,7 +277,7 @@ export class BrowserController {
       return 'Navegação iniciada. Execute browser_snapshot novamente.'
     }
     if (name === 'browser_click') await this.click(tabId, a.ref, a.button, a.doubleClick)
-    else if (name === 'browser_hover') await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', ...await this.point(tabId, a.ref) })
+    else if (name === 'browser_hover') await this.movePointer(tabId, await this.point(tabId, a.ref))
     else if (name === 'browser_type') {
       await this.element(tabId, a.ref, 'function(){this.focus();if(this.select)this.select();else if(this.isContentEditable){const s=getSelection();s.selectAllChildren(this);}else throw new Error("Elemento não editável.");}')
       valid(); await this.cdp(tabId, 'Input.insertText', { text: a.text })
