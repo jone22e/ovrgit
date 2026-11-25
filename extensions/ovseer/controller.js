@@ -127,7 +127,7 @@ export class BrowserController {
         button:hover,button:focus-visible{background:#ffffff38}
         .pointer{position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px))}
         .halo{position:absolute;left:-12px;top:-12px;width:24px;height:24px;box-sizing:border-box;border:2px solid #b779f580;border-radius:50%;background:#a855f71f;box-shadow:0 0 12px #a855f733}
-        .arrow{position:absolute;left:-2px;top:-2px;width:26px;height:32px;overflow:visible;filter:drop-shadow(0 2px 3px #0008)}
+        .arrow{position:absolute;left:-2px;top:-2px;width:22px;height:24px;overflow:visible;filter:drop-shadow(0 1px 2px #0006)}
         .activity{position:absolute;left:min(12px,calc(100vw - var(--ovseer-pointer-x,0px) - 188px));top:min(18px,calc(100vh - var(--ovseer-pointer-y,0px) - 32px));box-sizing:border-box;width:max-content;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:10px;background:#793bc0;color:#fff;padding:4px 8px;box-shadow:0 2px 8px #0003;font:600 11px/1.4 system-ui}
         .activity::after{content:var(--ovseer-pointer-action,"Movendo mouse")}
         .typing{position:absolute;right:20px;bottom:20px;box-sizing:border-box;width:min(460px,calc(100vw - 40px));background:transparent;color:#b779f5;pointer-events:none;text-shadow:0 1px 2px #000,0 0 8px #000b;text-align:left}
@@ -144,10 +144,10 @@ export class BrowserController {
       const pointer = document.createElement('div'); pointer.className = 'pointer'; pointer.setAttribute('aria-hidden', 'true')
       const halo = document.createElement('div'); halo.className = 'halo'
       const cursor = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      cursor.setAttribute('class', 'arrow'); cursor.setAttribute('viewBox', '-2 -2 26 32')
+      cursor.setAttribute('class', 'arrow'); cursor.setAttribute('viewBox', '-2 -2 22 24')
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      arrow.setAttribute('d', 'M0 0 L0 22 L6 16 L11 27 L16 25 L11 14 L21 14 Z')
-      arrow.setAttribute('fill', '#b779f5'); arrow.setAttribute('stroke', '#fff'); arrow.setAttribute('stroke-width', '2'); arrow.setAttribute('stroke-linejoin', 'round')
+      arrow.setAttribute('d', 'M0 0 L5.5 17 L9.2 10.2 L16.5 7.5 Z')
+      arrow.setAttribute('fill', '#b779f5'); arrow.setAttribute('stroke', '#fff'); arrow.setAttribute('stroke-width', '1.4'); arrow.setAttribute('stroke-linejoin', 'round')
       cursor.append(arrow)
       const activity = document.createElement('span'); activity.className = 'activity'
       pointer.append(halo, cursor, activity)
