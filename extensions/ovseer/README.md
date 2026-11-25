@@ -2,7 +2,7 @@
 
 Os arquivos da extensão acompanham o instalador e as atualizações do Ovseer, no macOS e no Windows. Ao iniciar, o aplicativo mantém uma cópia atualizada numa pasta fixa dos seus dados. Não é necessário baixar a extensão separadamente.
 
-O guia aparece na primeira abertura e quando os arquivos da extensão mudarem. Você pode revê-lo em **Configurações → Agentes → Extensão do Chrome → Instalar / ver instruções**.
+O guia só abre quando você pedir, em **Configurações → Agentes → Extensão do Chrome → Instalar / ver instruções**.
 
 1. No guia do Ovseer, clique em **Abrir pasta** ou **Copiar caminho** para localizar a extensão.
 2. No Chrome, abra `chrome://extensions`, ative **Modo do desenvolvedor**, clique em **Carregar sem compactação** e selecione essa pasta.

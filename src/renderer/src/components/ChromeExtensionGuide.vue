@@ -60,7 +60,7 @@ onUnmounted(() => clearInterval(timer))
     </ol>
     <p v-if="copied" class="copied" role="status">{{ copied }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <p class="later">Este guia volta quando os arquivos da extensão mudarem. Para rever a qualquer momento: <strong>Configurações → Agentes → Extensão do Chrome</strong>.</p>
+    <p class="later">Abra este guia quando precisar em <strong>Configurações → Agentes → Extensão do Chrome</strong>.</p>
     <template #footer><button class="ghost" :disabled="busy" @click="close">Fechar guia</button></template>
   </Modal>
 </template>

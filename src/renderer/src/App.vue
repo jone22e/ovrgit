@@ -182,7 +182,6 @@ let deployTick = 0
 
 onMounted(() => {
   init()
-  void api.chromeExtensionSetup().then((s) => { if (s.needsGuide) state.showChromeExtensionGuide = true }).catch((e) => console.error('Guia da extensão do Chrome:', e))
   void refreshDeployOverview()
   deployTimer = setInterval(() => {
     deployTick += 1
