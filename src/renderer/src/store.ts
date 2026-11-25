@@ -55,6 +55,7 @@ export const state = reactive({
   result: null as (OperationResult & { title: string }) | null,
   toast: null as string | null,
   showSettings: false,
+  showChromeExtensionGuide: false,
   showServices: false,
   /** Atualização do app (versão nova disponível, baixando, pronta para instalar) */
   update: null as UpdateState | null,

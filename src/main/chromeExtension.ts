@@ -3,8 +3,20 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { ChromeBridge, type ChromeSession } from './chromeBridge'
+import { acknowledgeChromeExtensionBundle, syncChromeExtensionBundle } from './chromeExtensionBundle'
+import type { ChromeExtensionSetup } from '../shared/types'
 
 let bridge: Promise<ChromeBridge> | undefined
+const sourceFolder = () => path.join(app.getAppPath(), 'extensions', 'ovseer')
+
+export async function chromeExtensionSetup(): Promise<ChromeExtensionSetup> {
+  const bundle = syncChromeExtensionBundle(sourceFolder(), app.getPath('userData'))
+  return { ...bundle, connected: (await getBridge()).connected }
+}
+
+export function acknowledgeChromeExtension(revision: string) {
+  acknowledgeChromeExtensionBundle(sourceFolder(), app.getPath('userData'), revision)
+}
 
 function getBridge(): Promise<ChromeBridge> {
   if (bridge) return bridge
@@ -37,15 +49,14 @@ export async function chromeAgentSession(label: string): Promise<ChromeSession> 
 
 /** Instala uma cópia persistente, fora do asar, para o usuário carregar no Chrome. */
 export async function prepareChromeExtension(): Promise<string> {
-  await getBridge()
-  const folder = path.join(app.getPath('userData'), 'chrome-extension')
-  mkdirSync(folder, { recursive: true })
-  for (const name of ['manifest.json', 'background.js', 'controller.js', 'popup.html', 'popup.css', 'popup.js', 'icon.png', 'README.md']) {
-    writeFileSync(path.join(folder, name), readFileSync(path.join(app.getAppPath(), 'extensions', 'ovseer', name)))
-  }
+  const { folder } = await chromeExtensionSetup()
   const error = await shell.openPath(folder)
   if (error) throw new Error(error)
   return folder
+}
+
+export async function copyChromeExtensionFolder(): Promise<void> {
+  clipboard.writeText((await chromeExtensionSetup()).folder)
 }
 
 export async function copyChromeConnection(): Promise<void> {

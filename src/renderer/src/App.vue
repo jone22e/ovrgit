@@ -32,6 +32,7 @@ import PullDialog from './components/PullDialog.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import ResultDialog from './components/ResultDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import ChromeExtensionGuide from './components/ChromeExtensionGuide.vue'
 import ServicesDialog from './components/ServicesDialog.vue'
 import SimulatorPanel from './components/SimulatorPanel.vue'
 import TopBar from './components/TopBar.vue'
@@ -181,6 +182,7 @@ let deployTick = 0
 
 onMounted(() => {
   init()
+  void api.chromeExtensionSetup().then((s) => { if (s.needsGuide) state.showChromeExtensionGuide = true }).catch((e) => console.error('Guia da extensão do Chrome:', e))
   void refreshDeployOverview()
   deployTimer = setInterval(() => {
     deployTick += 1
@@ -300,6 +302,7 @@ onUnmounted(() => {
 
     <QuickOpen v-if="state.quickOpen !== null" :start="state.quickOpen" @close="state.quickOpen = null" />
     <SettingsDialog v-if="state.showSettings" @close="state.showSettings = false" />
+    <ChromeExtensionGuide v-if="state.showChromeExtensionGuide" @close="state.showChromeExtensionGuide = false" />
     <ServicesDialog v-if="state.showServices" @close="state.showServices = false" />
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />

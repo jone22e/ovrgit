@@ -59,10 +59,12 @@ async function start() {
 
 async function handle(message, sender) {
   if (sender.id !== chrome.runtime.id) throw new Error('Origem inválida.')
-  if (sender.tab) {
+  const ownPopup = sender.url === chrome.runtime.getURL('popup.html')
+  if (sender.tab && !ownPopup) {
     if (message.type !== 'stop' || controller.owners.get(sender.tab.id) !== message.session) throw new Error('Ação inválida.')
     await controller.stop(message.session); badge(); return { ok: true }
   }
+  if (!ownPopup) throw new Error('Origem inválida.')
   if (message.type === 'connect') {
     const url = new URL(message.connection.trim())
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash || !/^\/extension\/[\w-]{32,}$/.test(url.pathname)) throw new Error('Cole o código de conexão mostrado nas configurações do Ovseer.')

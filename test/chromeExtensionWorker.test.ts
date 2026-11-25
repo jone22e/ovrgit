@@ -14,7 +14,7 @@ it('conecta o worker real à ponte local, autoriza uma aba e interrompe pela fai
   })
   const listener = () => ({ addListener: vi.fn() })
   const chrome = {
-    runtime: { id: 'a'.repeat(32), onMessage: listener(), onStartup: listener(), onInstalled: listener() },
+    runtime: { id: 'a'.repeat(32), getURL: (file: string) => `chrome-extension://${'a'.repeat(32)}/${file}`, onMessage: listener(), onStartup: listener(), onInstalled: listener() },
     storage: { local: storage(local), session: storage(sessionStorage) },
     action: { setBadgeText: vi.fn(async () => {}), setBadgeBackgroundColor: vi.fn(async () => {}) },
     tabs: { query: vi.fn(async () => [{ id: 9, url: 'https://exemplo.test', title: 'Exemplo' }]), get: vi.fn(async () => ({ id: 9, url: 'https://exemplo.test', title: 'Exemplo' })), onRemoved: listener(), onUpdated: listener() },
@@ -25,8 +25,11 @@ it('conecta o worker real à ponte local, autoriza uma aba e interrompe pela fai
   vi.stubGlobal('chrome', chrome)
   await import('../extensions/ovseer/background.js')
   const receive = chrome.runtime.onMessage.addListener.mock.calls[0][0] as (message: object, sender: object, respond: (result: any) => void) => void
-  const message = (data: object, tab?: object): Promise<any> => new Promise((resolve) => receive(data, { id: chrome.runtime.id, ...(tab ? { tab } : {}) }, resolve))
+  const message = (data: object, tab?: object): Promise<any> => new Promise((resolve) => receive(data, { id: chrome.runtime.id, url: tab ? 'https://exemplo.test' : chrome.runtime.getURL('popup.html'), ...(tab ? { tab } : {}) }, resolve))
   try {
+    const tabPopup = await new Promise<any>((resolve) => receive({ type: 'state' }, { id: chrome.runtime.id, url: chrome.runtime.getURL('popup.html'), tab: { id: 55 } }, resolve))
+    expect(tabPopup.error).toBeFalsy()
+    expect(await message({ type: 'connect', connection }, { id: 9 })).toMatchObject({ error: 'Ação inválida.' })
     await vi.waitFor(async () => expect((await message({ type: 'state' })).connected).toBe(true))
     const session = bridge.session('Codex · Extensão')
     await expect(session.call('browser_take_screenshot', {})).rejects.toThrow('autorize uma aba')

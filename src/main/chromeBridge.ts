@@ -68,6 +68,8 @@ export class ChromeBridge {
   private lastSeen = 0
   private extensionRoute: string
 
+  get connected(): boolean { return Date.now() - this.lastSeen < 35_000 }
+
   constructor(token = secret(), port = 0) {
     this.extensionRoute = `/extension/${token}`
     this.server = http.createServer((req, res) => { void this.handle(req, res) })

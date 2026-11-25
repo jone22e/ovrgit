@@ -45,7 +45,7 @@ import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from
 import * as g from './git'
 import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, resolveSourcePath, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
-import { prepareChromeExtension, copyChromeConnection, stopChromeBridge } from './chromeExtension'
+import { chromeExtensionSetup, acknowledgeChromeExtension, prepareChromeExtension, copyChromeExtensionFolder, copyChromeConnection, stopChromeBridge } from './chromeExtension'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
@@ -865,6 +865,9 @@ function registerIpc() {
     return installCli(id)
   })
   ipcMain.handle('settings:get', () => getSettings())
+  ipcMain.handle('chrome-extension:setup', () => chromeExtensionSetup())
+  ipcMain.handle('chrome-extension:acknowledge', (_e, revision: string) => acknowledgeChromeExtension(String(revision)))
+  ipcMain.handle('chrome-extension:copy-folder', () => copyChromeExtensionFolder())
   ipcMain.handle('chrome-extension:prepare', () => prepareChromeExtension())
   ipcMain.handle('chrome-extension:copy-connection', () => copyChromeConnection())
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
@@ -992,6 +995,8 @@ app.whenReady().then(() => {
     callback(own && (permission === 'media' || permission === 'clipboard-sanitized-write'))
   })
   registerIpc()
+  // A extensão acompanha cada atualização e fica pronta numa pasta fixa, sem abrir o Chrome.
+  void chromeExtensionSetup().catch((e) => console.error('Não consegui preparar a extensão do Chrome:', e))
   buildMenu()
   agentChat.setupAgentWindows({ icon, background: initialBackground, main: () => win, simulatorNote: () => {
     const info = agentApi.agentApiInfo()

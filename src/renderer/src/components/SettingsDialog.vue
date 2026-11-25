@@ -118,23 +118,6 @@ const commitCodex = ref<'codex'>('codex')
 const commitAgy = ref<'agy'>('agy')
 const knownModels = ref<KnownModels | null>(null)
 const agentInstructions = ref(s.agentInstructions ?? '')
-const chromeFolder = ref('')
-const chromeCopied = ref(false)
-const chromeBusy = ref(false)
-const chromeError = ref('')
-
-async function setupChrome(copy = false) {
-  chromeBusy.value = true
-  chromeError.value = ''
-  try {
-    if (copy) { await api.chromeExtensionCopyConnection(); chromeCopied.value = true }
-    else chromeFolder.value = await api.chromeExtensionPrepare()
-  } catch (e) {
-    chromeError.value = String((e as Error).message ?? e)
-  } finally {
-    chromeBusy.value = false
-  }
-}
 const url = ref(s.ollamaUrl)
 const model = ref(s.model)
 const models = ref<string[]>([])
@@ -166,7 +149,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
-const onKey = (e: KeyboardEvent) => e.key === 'Escape' && emit('close')
+const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !state.showChromeExtensionGuide && emit('close')
 
 function available(id: AiProvider): boolean | null {
   if (!detected.value) return null
@@ -474,15 +457,11 @@ async function save() {
             <div class="block">
               <div class="field">
                 <strong>Extensão do Chrome</strong>
-                <p>Conecte os agentes à extensão própria do Ovseer. Você autoriza cada conversa e aba no Chrome e pode interromper o controle pela faixa na página.</p>
+                <p>A extensão acompanha o Ovseer e seus arquivos são atualizados junto com o aplicativo. Instale uma vez no Chrome para autorizar os agentes a controlar as abas escolhidas.</p>
                 <div class="row">
-                  <button type="button" :disabled="chromeBusy" @click="setupChrome()">Preparar extensão</button>
-                  <button type="button" :disabled="chromeBusy" @click="setupChrome(true)">{{ chromeCopied ? 'Conexão copiada' : 'Copiar conexão' }}</button>
+                  <button type="button" @click="state.showChromeExtensionGuide = true">Instalar / ver instruções</button>
                 </div>
-                <p v-if="chromeError" class="bad">{{ chromeError }}</p>
-                <p v-if="chromeFolder" class="faint">Pasta da extensão: {{ chromeFolder }}</p>
-                <p class="faint">No Chrome, abra chrome://extensions, ative o Modo do desenvolvedor e use “Carregar sem compactação” na pasta preparada. Depois abra a extensão Ovseer e cole o código de conexão. Para atualizar a extensão, prepare a pasta novamente e clique em recarregar no Chrome.</p>
-                <p v-if="chromeCopied" class="ok">Cole o código na extensão Ovseer. Ele é privado e conecta somente a este aplicativo.</p>
+                <p class="faint">O guia explica a instalação, a conexão e como recarregar a extensão após uma atualização. Você pode interromper o controle a qualquer momento.</p>
               </div>
             </div>
             <div class="block">

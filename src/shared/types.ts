@@ -3,6 +3,14 @@ import type { ChecklistItem } from './checklist'
 import type { ArchState, DesignAction, DesignWindowState } from './architect'
 export type ChangeKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflict' | 'typechange'
 
+export interface ChromeExtensionSetup {
+  folder: string
+  version: string
+  revision: string
+  needsGuide: boolean
+  connected: boolean
+}
+
 export interface FileChange {
   path: string
   /** Caminho anterior quando o arquivo foi renomeado */
@@ -1163,7 +1171,10 @@ export interface OvseerApi {
   /** Copia uma imagem (PNG em data URL) para a área de transferência */
   copyImage(dataUrl: string): Promise<void>
   getSettings(): Promise<Settings>
-  /** Token local da extensão Playwright; o valor salvo nunca é devolvido à interface. */
+  /** Extensão incluída no app e guia de instalação; a conexão privada só é copiada ao clipboard. */
+  chromeExtensionSetup(): Promise<ChromeExtensionSetup>
+  chromeExtensionAcknowledge(revision: string): Promise<void>
+  chromeExtensionCopyFolder(): Promise<void>
   chromeExtensionPrepare(): Promise<string>
   chromeExtensionCopyConnection(): Promise<void>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
