@@ -110,27 +110,45 @@ export class BrowserController {
   cdp(tabId, method, params = {}) { return this.api.debugger.sendCommand({ tabId }, method, params) }
 
   async overlay(tabId, label, session) {
-    await this.api.scripting.executeScript({ target: { tabId }, func: (label, session) => {
+    await this.api.scripting.executeScript({ target: { tabId }, func: (label, session, logoUrl) => {
       document.getElementById('__ovseer_control__')?.remove()
       const host = document.createElement('div')
       host.id = '__ovseer_control__'
       host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:block'
       const root = host.attachShadow({ mode: 'closed' })
       const style = document.createElement('style')
-      style.textContent = ':host{color-scheme:dark}.frame{position:absolute;inset:0;border:3px solid #b779f5;box-sizing:border-box;pointer-events:none}.bar{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:85vw;display:flex;align-items:center;gap:12px;background:#39234f;color:#fff;border:1px solid #b779f5;border-radius:0 0 12px 12px;padding:10px 14px;font:13px system-ui;box-shadow:0 4px 18px #0005;pointer-events:auto}.label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button{background:#fff;color:#39234f;border:0;border-radius:6px;padding:5px 9px;font:600 12px system-ui;cursor:pointer}.pointer{position:absolute;top:0;left:0;width:26px;height:32px;overflow:visible;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px));filter:drop-shadow(0 2px 3px #0008)}'
+      style.textContent = `
+        :host{color-scheme:dark}
+        .frame{position:absolute;inset:0;border:2px solid #b779f5;border-radius:0 0 16px 16px;box-sizing:border-box;box-shadow:inset 0 0 26px #a855f76b,inset 0 0 8px #b779f580;pointer-events:none}
+        .bar{position:absolute;top:0;left:50%;transform:translateX(-50%);max-width:85vw;display:flex;align-items:center;gap:10px;background:#793bc0;color:#fff;border:1px solid #b779f5;border-top:0;border-radius:0 0 14px 14px;padding:10px 14px;font:600 13px/1.4 system-ui;box-shadow:0 4px 18px #0004;pointer-events:auto}
+        .logo{width:26px;height:26px;object-fit:contain;flex:none;filter:brightness(0) invert(1)}
+        .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        button{background:#ffffff1f;color:#fff;border:1px solid #ffffff4d;border-radius:6px;padding:5px 9px;font:600 12px system-ui;cursor:pointer}
+        button:hover,button:focus-visible{background:#ffffff38}
+        .pointer{position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px))}
+        .halo{position:absolute;left:-12px;top:-12px;width:24px;height:24px;box-sizing:border-box;border:2px solid #b779f580;border-radius:50%;background:#a855f71f;box-shadow:0 0 12px #a855f733}
+        .arrow{position:absolute;left:-2px;top:-2px;width:26px;height:32px;overflow:visible;filter:drop-shadow(0 2px 3px #0008)}
+        .activity{position:absolute;left:min(12px,calc(100vw - var(--ovseer-pointer-x,0px) - 188px));top:min(18px,calc(100vh - var(--ovseer-pointer-y,0px) - 32px));box-sizing:border-box;width:max-content;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:10px;background:#793bc0;color:#fff;padding:4px 8px;box-shadow:0 2px 8px #0003;font:600 11px/1.4 system-ui}
+        .activity::after{content:var(--ovseer-pointer-action,"Movendo mouse")}
+      `
       const frame = document.createElement('div'); frame.className = 'frame'
       const bar = document.createElement('div'); bar.className = 'bar'
+      const logo = document.createElement('img'); logo.className = 'logo'; logo.src = logoUrl; logo.alt = ''; logo.draggable = false
       const text = document.createElement('span'); text.className = 'label'; text.textContent = `Ovseer trabalhando · ${label}`
       const stop = document.createElement('button'); stop.textContent = 'Interromper'
       stop.addEventListener('click', (event) => { if (event.isTrusted) chrome.runtime.sendMessage({ type: 'stop', session }) })
-      const pointer = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      pointer.setAttribute('class', 'pointer'); pointer.setAttribute('viewBox', '-2 -2 26 32'); pointer.setAttribute('aria-hidden', 'true')
+      const pointer = document.createElement('div'); pointer.className = 'pointer'; pointer.setAttribute('aria-hidden', 'true')
+      const halo = document.createElement('div'); halo.className = 'halo'
+      const cursor = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      cursor.setAttribute('class', 'arrow'); cursor.setAttribute('viewBox', '-2 -2 26 32')
       const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path')
       arrow.setAttribute('d', 'M0 0 L0 22 L6 16 L11 27 L16 25 L11 14 L21 14 Z')
       arrow.setAttribute('fill', '#b779f5'); arrow.setAttribute('stroke', '#fff'); arrow.setAttribute('stroke-width', '2'); arrow.setAttribute('stroke-linejoin', 'round')
-      pointer.append(arrow)
-      bar.append(text, stop); root.append(style, frame, bar, pointer); document.documentElement.append(host)
-    }, args: [label, session] })
+      cursor.append(arrow)
+      const activity = document.createElement('span'); activity.className = 'activity'
+      pointer.append(halo, cursor, activity)
+      bar.append(logo, text, stop); root.append(style, frame, bar, pointer); document.documentElement.append(host)
+    }, args: [label, session, this.api.runtime.getURL('logo.png')] })
   }
 
   event(source, method, params) {
@@ -184,22 +202,33 @@ export class BrowserController {
 
   async click(tabId, ref, button = 'left', doubleClick = false) {
     const point = await this.point(tabId, ref)
-    await this.movePointer(tabId, point)
+    await this.movePointer(tabId, point, doubleClick ? 'Clicando duas vezes' : 'Clicando')
     for (let count = 1; count <= (doubleClick ? 2 : 1); count++) {
       await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button, clickCount: count })
       await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button, clickCount: count })
     }
   }
 
-  async movePointer(tabId, point) {
+  async movePointer(tabId, point, action = 'Movendo mouse') {
     await this.cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
-    await this.api.scripting.executeScript({ target: { tabId }, func: ({ x, y }) => {
+    await this.indicate(tabId, action, point)
+  }
+
+  async indicate(tabId, action, point = null) {
+    await this.api.scripting.executeScript({ target: { tabId }, func: (action, point) => {
       const host = document.getElementById('__ovseer_control__')
       if (!host) return
-      host.style.setProperty('--ovseer-pointer-x', `${x - 2}px`)
-      host.style.setProperty('--ovseer-pointer-y', `${y - 2}px`)
-      host.style.setProperty('--ovseer-pointer-visibility', 'visible')
-    }, args: [point] }).catch(() => {}) // O indicador visual não deve impedir a ação na página.
+      host.style.setProperty('--ovseer-pointer-action', JSON.stringify(action))
+      if (!point && host.style.getPropertyValue('--ovseer-pointer-visibility') !== 'visible') {
+        const element = document.activeElement, rect = element?.getBoundingClientRect()
+        if (element && !['BODY', 'HTML'].includes(element.tagName) && rect?.width && rect.height) point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+      }
+      if (point) {
+        host.style.setProperty('--ovseer-pointer-x', `${point.x}px`)
+        host.style.setProperty('--ovseer-pointer-y', `${point.y}px`)
+        host.style.setProperty('--ovseer-pointer-visibility', 'visible')
+      }
+    }, args: [action, point] }).catch(() => {}) // O indicador visual não deve impedir a ação na página.
   }
 
   async key(tabId, input) {
@@ -210,6 +239,7 @@ export class BrowserController {
     const key = name === 'Space' ? ' ' : name
     const code = codes[name] ?? (name.length === 1 ? name.toUpperCase().charCodeAt(0) : 0)
     if (!code) throw new Error('Tecla não suportada.')
+    await this.indicate(tabId, 'Pressionando tecla')
     const text = !modifiers && key.length === 1 ? key : name === 'Enter' ? '\r' : undefined
     await this.cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyDown', key, windowsVirtualKeyCode: code, modifiers, ...(text ? { text } : {}) })
     await this.cdp(tabId, 'Input.dispatchKeyEvent', { type: 'keyUp', key, windowsVirtualKeyCode: code, modifiers })
@@ -279,7 +309,8 @@ export class BrowserController {
     if (name === 'browser_click') await this.click(tabId, a.ref, a.button, a.doubleClick)
     else if (name === 'browser_hover') await this.movePointer(tabId, await this.point(tabId, a.ref))
     else if (name === 'browser_type') {
-      await this.element(tabId, a.ref, 'function(){this.focus();if(this.select)this.select();else if(this.isContentEditable){const s=getSelection();s.selectAllChildren(this);}else throw new Error("Elemento não editável.");}')
+      const point = await this.element(tabId, a.ref, 'function(){this.focus();if(this.select)this.select();else if(this.isContentEditable){const s=getSelection();s.selectAllChildren(this);}else throw new Error("Elemento não editável.");const r=this.getBoundingClientRect();return r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null;}')
+      valid(); await this.indicate(tabId, 'Digitando', point)
       valid(); await this.cdp(tabId, 'Input.insertText', { text: a.text })
       if (a.submit) { valid(); await this.key(tabId, 'Enter') }
     } else if (name === 'browser_fill_form') {
@@ -291,14 +322,17 @@ export class BrowserController {
           if (checked !== (field.value === 'true')) { valid(); await this.click(tabId, field.ref) }
         } else if (field.type === 'combobox') await this.select(tabId, field.ref, [field.value])
         else {
-          await this.element(tabId, field.ref, 'function(){this.focus();if(this.select)this.select();else throw new Error("Campo não editável.");}')
+          const point = await this.element(tabId, field.ref, 'function(){this.focus();if(this.select)this.select();else throw new Error("Campo não editável.");const r=this.getBoundingClientRect();return r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null;}')
+          valid(); await this.indicate(tabId, 'Preenchendo campo', point)
           valid(); await this.cdp(tabId, 'Input.insertText', { text: field.value })
         }
       }
     } else if (name === 'browser_select_option') await this.select(tabId, a.ref, a.values)
     else if (name === 'browser_press_key') await this.key(tabId, a.key)
-    else if (name === 'browser_scroll') await this.cdp(tabId, 'Runtime.evaluate', { expression: `window.scrollBy(${Number(a.x) || 0},${Number(a.y) || 0})` })
-    else if (name === 'browser_evaluate') {
+    else if (name === 'browser_scroll') {
+      await this.indicate(tabId, 'Rolando página')
+      valid(); await this.cdp(tabId, 'Runtime.evaluate', { expression: `window.scrollBy(${Number(a.x) || 0},${Number(a.y) || 0})` })
+    } else if (name === 'browser_evaluate') {
       const result = await this.cdp(tabId, 'Runtime.evaluate', { expression: `(${a.function})()`, returnByValue: true, awaitPromise: true })
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
       return result.result.value ?? result.result.description ?? null
@@ -343,6 +377,7 @@ export class BrowserController {
   }
 
   async select(tabId, ref, values) {
-    await this.element(tabId, ref, 'function(values){if(this.tagName!=="SELECT")throw new Error("Elemento não é select.");if(values.some(v=>!Array.from(this.options).some(o=>o.value===v)))throw new Error("Opção não encontrada.");for(const o of this.options)o.selected=values.includes(o.value);this.dispatchEvent(new Event("input",{bubbles:true}));this.dispatchEvent(new Event("change",{bubbles:true}));}', [values])
+    const point = await this.element(tabId, ref, 'function(values){if(this.tagName!=="SELECT")throw new Error("Elemento não é select.");if(values.some(v=>!Array.from(this.options).some(o=>o.value===v)))throw new Error("Opção não encontrada.");for(const o of this.options)o.selected=values.includes(o.value);this.dispatchEvent(new Event("input",{bubbles:true}));this.dispatchEvent(new Event("change",{bubbles:true}));const r=this.getBoundingClientRect();return r.width&&r.height?{x:r.x+r.width/2,y:r.y+r.height/2}:null;}', [values])
+    await this.indicate(tabId, 'Selecionando opção', point)
   }
 }

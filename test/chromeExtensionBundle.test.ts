@@ -18,7 +18,7 @@ describe('extensão distribuída junto com o Ovseer', () => {
     const { source, data } = setup()
     const bundle = syncChromeExtensionBundle(source, data)
     const manifest = JSON.parse(readFileSync(path.join(bundle.folder, 'manifest.json'), 'utf8'))
-    for (const file of [manifest.background.service_worker, manifest.action.default_popup, manifest.action.default_icon, 'controller.js', 'popup.js', 'popup.css']) {
+    for (const file of [manifest.background.service_worker, manifest.action.default_popup, manifest.action.default_icon, 'controller.js', 'popup.js', 'popup.css', 'logo.png']) {
       expect(existsSync(path.join(bundle.folder, file))).toBe(true)
       expect(readFileSync(path.join(bundle.folder, file))).toEqual(readFileSync(path.join(source, file)))
     }
@@ -77,6 +77,6 @@ describe('extensão distribuída junto com o Ovseer', () => {
     expect(existsSync(path.join(source, 'connection.json'))).toBe(false)
     expect(syncChromeExtensionBundle(source, data).needsGuide).toBe(false)
     const manifest = JSON.parse(readFileSync(path.join(bundle.folder, 'manifest.json'), 'utf8'))
-    expect(manifest.web_accessible_resources ?? []).toEqual([])
+    expect(manifest.web_accessible_resources).toEqual([{ resources: ['logo.png'], matches: ['http://*/*', 'https://*/*'] }])
   })
 })

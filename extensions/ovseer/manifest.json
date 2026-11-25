@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Ovseer",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Os agentes do Ovseer abrem e controlam suas abas no Chrome, com identificação da conversa e botão para interromper.",
   "minimum_chrome_version": "120",
   "icons": { "128": "icon.png" },
   "permissions": ["debugger", "tabs", "scripting", "storage", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"],
+  "web_accessible_resources": [{ "resources": ["logo.png"], "matches": ["http://*/*", "https://*/*"] }],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Ovseer — agentes no navegador", "default_icon": "icon.png" }
 }

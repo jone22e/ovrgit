@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-const FILES = ['manifest.json', 'background.js', 'controller.js', 'popup.html', 'popup.css', 'popup.js', 'icon.png', 'README.md']
+const FILES = ['manifest.json', 'background.js', 'controller.js', 'popup.html', 'popup.css', 'popup.js', 'icon.png', 'logo.png', 'README.md']
 type Saved = { revision?: string; acknowledged?: string }
 const stateFile = (data: string) => path.join(data, 'chrome-extension-bundle.json')
 function saved(data: string): Saved {

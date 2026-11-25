@@ -4,6 +4,7 @@ import { BrowserController } from '../extensions/ovseer/controller.js'
 function setup() {
   const tabs = [{ id: 10, url: 'https://exemplo.test', title: 'Teste' }, { id: 20, url: 'https://outra.test', title: 'Outra' }, { id: 30, url: 'chrome://settings', title: 'Configurações' }]
   const api = {
+    runtime: { getURL: (file: string) => `chrome-extension://ovseer/${file}` },
     tabs: { get: vi.fn(async (id: number) => tabs.find((t) => t.id === id)), query: vi.fn(async () => tabs), update: vi.fn(async () => {}), create: vi.fn(async () => ({ id: 20 })), remove: vi.fn(async () => {}) },
     debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), sendCommand: vi.fn(async (_target: object, method: string) => {
       if (method === 'Accessibility.getFullAXTree') return { nodes: [{ backendDOMNodeId: 123, role: { value: 'button' }, name: { value: 'Salvar' } }] }
