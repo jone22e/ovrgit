@@ -27,8 +27,9 @@ import { randomUUID } from 'node:crypto'
 import { askOllama, runOllamaTurn } from './ollamaAgent'
 import { listModels } from './ai'
 import { computerUseBinary } from './computerUse'
-import { chromeExtensionMcp } from './chromeExtension'
-import { PersistentMcp, type PersistentMcpEndpoint } from './persistentMcp'
+import { chromeAgentSession } from './chromeExtension'
+import { chromeTools, type ChromeSession } from './chromeBridge'
+import type { PersistentMcpEndpoint } from './persistentMcp'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -98,7 +99,7 @@ interface AgentWin {
   claudeState?: ClaudeParseState
   lastSimulators?: string
   /** Conexão Chrome desta conversa: sobrevive ao CLI de cada mensagem. */
-  chromeMcp?: PersistentMcp
+  chromeMcp?: ChromeSession
 }
 
 const wins = new Map<string, AgentWin>()
@@ -1230,7 +1231,7 @@ export function claudeInputMessage(text: string, images: AgentAttachment[]): str
 
 // ---------- argumentos dos CLIs ----------
 
-export function claudeArgs(o: AgentSendOptions & { resume: string | null; images?: number; instructions?: string; addDirs?: string[]; chrome?: boolean; computerUseBin?: string | null }): string[] {
+export function claudeArgs(o: AgentSendOptions & { resume: string | null; images?: number; instructions?: string; addDirs?: string[]; chromeMcp?: PersistentMcpEndpoint | null; computerUseBin?: string | null }): string[] {
   // entrada em stream-json: o pedido vai como mensagem JSON (texto + imagens) e o stdin fica aberto durante
   // a resposta, para entregar outra mensagem no meio dela sem interromper (o modelo a recebe no próximo passo)
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--input-format', 'stream-json']
@@ -1244,10 +1245,11 @@ export function claudeArgs(o: AgentSendOptions & { resume: string | null; images
   if (o.resume) args.push('--resume', o.resume)
   // outros repositórios do espaço de trabalho: o Claude pode ler e editar neles sem pedir
   for (const d of o.addDirs ?? []) args.push('--add-dir', d)
-  // Claude in Chrome: no modo -p ele só liga com --chrome (a extensão e o host nativo são os do próprio Claude Code)
-  if (o.chrome) args.push('--chrome')
-  // controle do computador: a mesma ferramenta MCP nativa que o Codex recebe
-  if (o.computerUseBin) args.push('--mcp-config', JSON.stringify({ mcpServers: { ovseer_computer_use: { command: o.computerUseBin, args: [] } } }))
+  // A mesma extensão e o mesmo controle nativo usados pelos outros agentes.
+  if (o.computerUseBin || o.chromeMcp) args.push('--mcp-config', JSON.stringify({ mcpServers: {
+    ...(o.computerUseBin ? { ovseer_computer_use: { command: o.computerUseBin, args: [] } } : {}),
+    ...(o.chromeMcp ? { ovseer_chrome: { type: 'http', url: o.chromeMcp.url } } : {})
+  } }))
   return args
 }
 
@@ -1374,16 +1376,18 @@ export function codexArgs(o: AgentSendOptions & { resume: string | null; images?
 }
 
 const COMPUTER_USE_NOTE = 'O Ovseer disponibiliza a ferramenta MCP ovseer_computer_use para ler a tela e controlar aplicativos, mouse e teclado neste Mac, após as permissões do macOS. Leia o estado do aplicativo antes de usar um índice de elemento.'
-/** Claude: aviso do controle do computador, no prompt de sistema (o Claude in Chrome traz as próprias instruções) */
-export const claudeComputerAccessNote = (computerUseAvailable: boolean): string =>
-  computerUseAvailable ? `<computer_access>${COMPUTER_USE_NOTE} Para usar um navegador ou o computador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>` : ''
+const CHROME_NOTE = 'Para controlar abas e páginas do Chrome, use ovseer_chrome, conectado à extensão própria do Ovseer. Antes do primeiro uso, peça a autorização exigida pelo usuário. Quando a ferramenta pedir autorização da aba, oriente o usuário a abrir a extensão Ovseer, escolher esta conversa e autorizar uma aba; aguarde a confirmação antes de tentar novamente. A conexão pertence à conversa. Liste as abas com browser_tabs e selecione uma existente autorizada antes de criar outra; abas adicionais exigem autorização na extensão. Use somente referências reais de browser_snapshot. Se o usuário interromper, pare e peça nova autorização; não tente contornar o bloqueio com outra ferramenta.'
+export const claudeComputerAccessNote = (computerUseAvailable: boolean, chromeAvailable = false): string =>
+  computerUseAvailable || chromeAvailable ? `<computer_access>${computerUseAvailable ? COMPUTER_USE_NOTE : ''} ${chromeAvailable ? CHROME_NOTE : ''} Para usar um navegador ou o computador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>` : ''
+
+export const chromeApiNote = (url: string): string => `<browser_access>\n${CHROME_NOTE}\nNeste agente, as mesmas ferramentas estão na API HTTP local da conversa. Consulte os schemas com: curl -s '${url}/tools'\nPara executar, envie POST a '${url}/call' com Content-Type: application/json e o JSON {"name":"nome_da_ferramenta","arguments":{...}}. Exemplo de listagem: curl -s -H 'Content-Type: application/json' -d '{"name":"browser_tabs","arguments":{"action":"list"}}' '${url}/call'\nA URL é privada desta conversa. Respeite erros de autorização e não tente acessar a conexão de outra conversa.\n</browser_access>\n\n`
 
 /** O host do navegador do Codex só aceita chamadas com a conexão e a identidade fornecidas pelo app. */
 export function codexBrowserAccessNote(env: NodeJS.ProcessEnv, computerUseAvailable = false, chromeExtensionAvailable = false): string {
   if (computerUseAvailable || chromeExtensionAvailable) {
     return '<computer_access>' +
       (computerUseAvailable ? COMPUTER_USE_NOTE : '') +
-      (chromeExtensionAvailable ? ' Para controlar abas e páginas do Chrome, use ovseer_chrome, que requer a extensão Playwright MCP instalada no Chrome. A conexão é mantida entre mensagens desta conversa; quando o acesso estiver autorizado, liste as abas com browser_tabs e selecione uma existente antes de criar outra.' : '') +
+      (chromeExtensionAvailable ? ` ${CHROME_NOTE}` : '') +
       ' Para usar um navegador, respeite as instruções do usuário sobre pedir autorização antes.</computer_access>\n\n'
   }
   if (env.BROWSER_USE_ACCESS_PIPE_PATH && env.BROWSER_USE_ACCESS_VERIFYING_IDENTITY && env.BROWSER_USE_ACCESS_EXECUTOR_ID) return ''
@@ -1914,6 +1918,15 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     w.info.provider = opts.provider
   }
   const provider = w.info.provider
+  if (!w.chromeMcp) {
+    const session = await chromeAgentSession(`${PROVIDER_NAME[provider]} · ${w.info.title || w.info.project}`)
+    if (wins.get(uid) !== w || w.closing || quitting) { await session.close(); return }
+    w.chromeMcp = session
+  }
+  const chromeSession = w.chromeMcp
+  chromeSession.update(`${PROVIDER_NAME[provider]} · ${w.info.title || w.info.project}`)
+  const chromeMcp = await chromeSession.ready
+  if (wins.get(uid) !== w || w.closing || quitting || w.chromeMcp !== chromeSession) return
   if (provider === 'ollama') {
     if (w.ollamaAbort) throw new Error('O Ollama ainda está respondendo. Aguarde ou interrompa a resposta.')
     const model = safeModel(opts.model || '')
@@ -1944,7 +1957,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     const images = inlineImages.filter((i) => i.size <= 10_000_000).flatMap((i) => {
       try { return [readFileSync(i.path).toString('base64')] } catch { return [] }
     })
-    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote(), setup?.simulatorNote?.()].filter(Boolean).join('\n\n')
+    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote(), setup?.simulatorNote?.(), claudeComputerAccessNote(false, true)].filter(Boolean).join('\n\n')
     let answer = ''
     const finish = (ev: Extract<AgentChatEvent, { type: 'done' }>) => {
       if (w.ollamaAbort !== controller) return
@@ -1958,7 +1971,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
       emit(w, ev)
     }
     const task = runOllamaTurn({ model, effort: opts.effort, mode: w.info.mode, cwd: w.info.cwd, prompt, turns: previous, images,
-      instructions, signal: controller.signal, onEvent: (ev) => {
+      instructions, browser: { tools: chromeTools, call: (name, args) => chromeSession.call(name, args, controller.signal) }, signal: controller.signal, onEvent: (ev) => {
         if (ev.type === 'text') answer += ev.delta
         if (!w.win.isDestroyed() && w.ollamaAbort === controller) emit(w, ev)
       } })
@@ -1996,12 +2009,6 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   w.info.effort = clean.effort
   w.info.mode = clean.mode
   const computerUseBin = provider === 'codex' || provider === 'claude' ? computerUseBinary() : null
-  const chromeServer = provider === 'codex' ? chromeExtensionMcp() : null
-  if (chromeServer && !w.chromeMcp) w.chromeMcp = new PersistentMcp({ ...chromeServer, cwd: w.info.cwd })
-  const chromeSession = w.chromeMcp
-  const chromeMcp = chromeServer ? await chromeSession!.ready : null
-  // A janela pode ter fechado ou iniciado outra conversa enquanto a porta local era aberta.
-  if (wins.get(uid) !== w || w.closing || quitting || w.chromeMcp !== chromeSession) return
   lastAgent = { provider: w.info.provider, model: w.info.model, effort: w.info.effort, mode: w.info.mode, cwd: w.info.cwd }
   if (!w.win.isDestroyed()) w.win.setTitle(title(w.info))
 
@@ -2029,7 +2036,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const intro =
     (provider !== 'claude' && !w.info.sessionId
       ? `<custom_instructions>\n${[instructions, QUESTION_FORMAT, artifacts].filter(Boolean).join('\n\n')}\n</custom_instructions>\n\n`
-      : '') + workspaceBlock + servicesBlock + simulatorBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin, !!chromeMcp) : '')
+      : '') + workspaceBlock + servicesBlock + simulatorBlock + (provider === 'codex' ? codexBrowserAccessNote(process.env, !!computerUseBin, true) : provider === 'agy' ? chromeApiNote(chromeMcp.url) : '')
   const planExit = provider === 'codex' && !isPlanMode(clean.mode) && !!w.info.sessionId && (isPlanMode(w.lastMode) || w.lastMode === undefined)
   w.lastMode = clean.mode
   const modeNote = !isPlanMode(clean.mode)
@@ -2050,7 +2057,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const run = clean.mode === 'architect' ? { ...clean, model: provider === 'claude' ? 'haiku' : clean.model, effort: 'low' as AgentEffort } : clean
   const args =
     provider === 'claude'
-      ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, chrome: true, computerUseBin, instructions: [instructions, artifacts, workspace, services, simulators, claudeComputerAccessNote(!!computerUseBin)].filter(Boolean).join('\n\n') })
+      ? claudeArgs({ ...run, images: inlineImages.length, addDirs: w.info.extraDirs, chromeMcp, computerUseBin, instructions: [instructions, artifacts, workspace, services, simulators, claudeComputerAccessNote(!!computerUseBin, true)].filter(Boolean).join('\n\n') })
       : provider === 'codex'
         ? codexArgs({ ...run, images: inlineImages.map((i) => i.path), computerUseBin, chromeMcp })
         : agyArgs({ ...run, prompt })

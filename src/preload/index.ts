@@ -130,8 +130,8 @@ const api: OvseerApi = {
   captureDrag: () => ipcRenderer.send('capture:drag'),
   captureClose: () => ipcRenderer.send('capture:close'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  chromeExtensionTokenStatus: () => ipcRenderer.invoke('chrome-extension-token:status'),
-  chromeExtensionTokenSet: (token) => ipcRenderer.invoke('chrome-extension-token:set', token),
+  chromeExtensionPrepare: () => ipcRenderer.invoke('chrome-extension:prepare'),
+  chromeExtensionCopyConnection: () => ipcRenderer.invoke('chrome-extension:copy-connection'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   onSettingsChanged: (cb) => {
     const h = (_e: unknown, s: Settings) => cb(s)

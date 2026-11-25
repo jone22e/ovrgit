@@ -118,21 +118,21 @@ const commitCodex = ref<'codex'>('codex')
 const commitAgy = ref<'agy'>('agy')
 const knownModels = ref<KnownModels | null>(null)
 const agentInstructions = ref(s.agentInstructions ?? '')
-const chromeToken = ref('')
-const chromeTokenSaved = ref(false)
-const chromeTokenBusy = ref(false)
-const chromeTokenError = ref('')
+const chromeFolder = ref('')
+const chromeCopied = ref(false)
+const chromeBusy = ref(false)
+const chromeError = ref('')
 
-async function setChromeToken(token: string) {
-  chromeTokenBusy.value = true
-  chromeTokenError.value = ''
+async function setupChrome(copy = false) {
+  chromeBusy.value = true
+  chromeError.value = ''
   try {
-    chromeTokenSaved.value = await api.chromeExtensionTokenSet(token)
-    chromeToken.value = ''
+    if (copy) { await api.chromeExtensionCopyConnection(); chromeCopied.value = true }
+    else chromeFolder.value = await api.chromeExtensionPrepare()
   } catch (e) {
-    chromeTokenError.value = String((e as Error).message ?? e)
+    chromeError.value = String((e as Error).message ?? e)
   } finally {
-    chromeTokenBusy.value = false
+    chromeBusy.value = false
   }
 }
 const url = ref(s.ollamaUrl)
@@ -162,7 +162,6 @@ async function loadModels() {
 
 onMounted(async () => {
   ;[detected.value, knownModels.value] = await Promise.all([api.detectProviders(), api.knownModels().catch(() => null)])
-  chromeTokenSaved.value = await api.chromeExtensionTokenStatus().catch(() => false)
   if (detected.value.ollama) loadModels()
   window.addEventListener('keydown', onKey)
 })
@@ -474,15 +473,16 @@ async function save() {
             </div>
             <div class="block">
               <div class="field">
-                <label for="chrome-extension-token">Token da extensão Playwright para o Codex</label>
+                <strong>Extensão do Chrome</strong>
+                <p>Conecte os agentes à extensão própria do Ovseer. Você autoriza cada conversa e aba no Chrome e pode interromper o controle pela faixa na página.</p>
                 <div class="row">
-                  <input id="chrome-extension-token" v-model="chromeToken" type="password" class="mono" autocomplete="new-password" spellcheck="false" placeholder="Cole o token da extensão" />
-                  <button type="button" :disabled="chromeTokenBusy || !chromeToken.trim()" @click="setChromeToken(chromeToken)">Salvar</button>
-                  <button v-if="chromeTokenSaved" type="button" :disabled="chromeTokenBusy" @click="setChromeToken('')">Remover</button>
+                  <button type="button" :disabled="chromeBusy" @click="setupChrome()">Preparar extensão</button>
+                  <button type="button" :disabled="chromeBusy" @click="setupChrome(true)">{{ chromeCopied ? 'Conexão copiada' : 'Copiar conexão' }}</button>
                 </div>
-                <p v-if="chromeTokenError" class="bad">{{ chromeTokenError }}</p>
-                <p v-else-if="chromeTokenSaved" class="ok">Token salvo neste Mac. Novas conexões ao Chrome não precisam do botão “Allow & select”.</p>
-                <p v-else class="faint">Copie o valor mostrado pela extensão após PLAYWRIGHT_MCP_EXTENSION_TOKEN=. Sem ele, o Chrome pede autorização a cada conexão.</p>
+                <p v-if="chromeError" class="bad">{{ chromeError }}</p>
+                <p v-if="chromeFolder" class="faint">Pasta da extensão: {{ chromeFolder }}</p>
+                <p class="faint">No Chrome, abra chrome://extensions, ative o Modo do desenvolvedor e use “Carregar sem compactação” na pasta preparada. Depois abra a extensão Ovseer e cole o código de conexão. Para atualizar a extensão, prepare a pasta novamente e clique em recarregar no Chrome.</p>
+                <p v-if="chromeCopied" class="ok">Cole o código na extensão Ovseer. Ele é privado e conecta somente a este aplicativo.</p>
               </div>
             </div>
             <div class="block">

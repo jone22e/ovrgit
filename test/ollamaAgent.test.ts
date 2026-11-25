@@ -10,6 +10,27 @@ vi.mock('../src/main/settings', () => ({ getSettings: () => ({ ollamaUrl: 'http:
 afterEach(() => vi.unstubAllGlobals())
 
 describe('agente Ollama', () => {
+  it('encaminha ferramentas do Chrome e entrega capturas ao modelo como imagem', async () => {
+    const sent: { messages: { role: string; images?: string[]; content: string }[]; tools: { function: { name: string } }[] }[] = []
+    const answers = [
+      { role: 'assistant', content: '', tool_calls: [{ function: { name: 'browser_take_screenshot', arguments: {} } }] },
+      { role: 'assistant', content: 'Captura recebida.' }
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body))
+      return new Response(JSON.stringify({ message: answers.shift() }))
+    }))
+    const call = vi.fn(async () => 'imagem-base64')
+    await runOllamaTurn({ model: 'vision', effort: 'low', mode: 'full', cwd: '/pasta-inexistente', prompt: 'Veja a aba', turns: [], signal: new AbortController().signal, onEvent: () => {},
+      browser: { tools: [{ name: 'browser_take_screenshot', inputSchema: { type: 'object', properties: {} } }], call } })
+    expect(call).toHaveBeenCalledWith('browser_take_screenshot', {})
+    expect(sent[0].tools.map((t) => t.function.name)).toContain('browser_take_screenshot')
+    expect(sent[1].messages.slice(-2)).toEqual([
+      { role: 'tool', tool_name: 'browser_take_screenshot', content: 'Captura da aba enviada ao modelo.' },
+      { role: 'user', content: 'Captura da aba autorizada.', images: ['imagem-base64'] }
+    ])
+  })
+
   it('lê um arquivo pelo protocolo de ferramentas e continua a conversa local', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'ovseer-ollama-test-'))
     try {

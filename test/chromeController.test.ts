@@ -1,0 +1,111 @@
+import { describe, expect, it, vi } from 'vitest'
+import { BrowserController } from '../extensions/ovseer/controller.js'
+
+function setup() {
+  const tabs = [{ id: 10, url: 'https://exemplo.test', title: 'Teste' }, { id: 20, url: 'https://outra.test', title: 'Outra' }, { id: 30, url: 'chrome://settings', title: 'Configurações' }]
+  const api = {
+    tabs: { get: vi.fn(async (id: number) => tabs.find((t) => t.id === id)), query: vi.fn(async () => tabs), update: vi.fn(async () => {}), create: vi.fn(async () => ({ id: 20 })), remove: vi.fn(async () => {}) },
+    debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), sendCommand: vi.fn(async (_target: object, method: string) => {
+      if (method === 'Accessibility.getFullAXTree') return { nodes: [{ backendDOMNodeId: 123, role: { value: 'button' }, name: { value: 'Salvar' } }] }
+      if (method === 'DOM.resolveNode') return { object: { objectId: 'node' } }
+      if (method === 'Runtime.callFunctionOn') return { result: { value: { x: 30, y: 40 } } }
+      if (method === 'Page.captureScreenshot') return { data: 'png-base64' }
+      return {}
+    }) },
+    scripting: { executeScript: vi.fn(async () => {}) }
+  }
+  const permission = vi.fn(async () => ({ epoch: 'permissao-atual' }))
+  const controller = new BrowserController(api, permission)
+  const infos = [{ id: 'a', label: 'Codex · Loja', state: 'waiting' }, { id: 'b', label: 'Claude · Flexi', state: 'waiting' }]
+  const call = (name: string, args = {}, session = 'a') => controller.execute({ name, args, session, epoch: 'permissao-atual', deadline: Date.now() + 30_000 })
+  return { api, permission, controller, infos, call }
+}
+
+describe('controle das abas na extensão Ovseer', () => {
+  it('não controla antes de autorizar e bloqueia abas internas e abas de outra conversa', async () => {
+    const { api, controller, infos, call } = setup()
+    await controller.sync(infos)
+    await expect(call('browser_snapshot')).rejects.toThrow('Autorize')
+    expect(api.debugger.attach).not.toHaveBeenCalled()
+    await expect(controller.approve('a', 30)).rejects.toThrow('HTTP')
+    await controller.approve('a', 10)
+    await expect(controller.approve('b', 10)).rejects.toThrow('outra conversa')
+    await expect(call('browser_tabs', { action: 'select', tabId: 20 })).rejects.toThrow('não foi autorizada')
+    expect(await call('browser_tabs', { action: 'list' })).toHaveLength(2)
+  })
+
+  it('usa referências reais, invalida após navegação e envia cliques pelo CDP', async () => {
+    const { api, controller, infos, call } = setup()
+    await controller.sync(infos); await controller.approve('a', 10)
+    const snapshot = await call('browser_snapshot')
+    expect(snapshot).toContain('[e1-123] button "Salvar"')
+    await call('browser_click', { ref: 'e1-123' })
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'Input.dispatchMouseEvent', expect.objectContaining({ type: 'mousePressed', x: 30, y: 40 }))
+    controller.event({ tabId: 10 }, 'Page.frameNavigated', {})
+    await expect(call('browser_click', { ref: 'e1-123' })).rejects.toThrow('Referência expirada')
+    await expect(call('browser_navigate', { url: 'file:///etc/passwd' })).rejects.toThrow('HTTP')
+    await expect(call('browser_navigate', { url: 'javascript:alert(1)' })).rejects.toThrow('HTTP')
+  })
+
+  it('interromper remove a faixa, desanexa as abas e bloqueia ações futuras', async () => {
+    const { api, permission, controller, infos, call } = setup()
+    await controller.sync(infos); await controller.approve('a', 10); await controller.approve('a', 20)
+    await controller.stop('a')
+    expect(permission).toHaveBeenLastCalledWith('a', false)
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 })
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 20 })
+    expect(controller.owners.size).toBe(0)
+    await expect(call('browser_snapshot')).rejects.toThrow('Autorize')
+  })
+
+  it('fechar a conversa desconecta; uma resposta de poll anterior à autorização não a revoga', async () => {
+    const { api, controller, infos } = setup()
+    await controller.sync(infos); await controller.approve('a', 10)
+    await controller.sync(infos)
+    expect(controller.sessions.has('a')).toBe(true)
+    await controller.sync([])
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 })
+    expect(controller.sessions.size).toBe(0)
+  })
+
+  it('interromper durante attach não deixa um depurador anexado depois', async () => {
+    const { api, controller, infos } = setup()
+    await controller.sync(infos)
+    let finish!: () => void
+    api.debugger.attach.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve }))
+    const approving = expect(controller.approve('a', 10)).rejects.toThrow('interrompida')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    await controller.stop('a')
+    finish(); await approving
+    expect(controller.owners.size).toBe(0)
+    expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 })
+  })
+
+  it('captura imagens e registra console/rede somente para abas autorizadas', async () => {
+    const { controller, infos, call } = setup()
+    await controller.sync(infos); await controller.approve('a', 10)
+    controller.event({ tabId: 10 }, 'Runtime.consoleAPICalled', { type: 'log', args: [{ value: 'ok' }] })
+    controller.event({ tabId: 20 }, 'Runtime.consoleAPICalled', { type: 'log', args: [{ value: 'privado' }] })
+    controller.event({ tabId: 10 }, 'Network.requestWillBeSent', { requestId: '1', request: { method: 'GET', url: 'https://exemplo.test/api' } })
+    controller.event({ tabId: 10 }, 'Network.responseReceived', { requestId: '1', response: { status: 200 } })
+    expect(await call('browser_console_messages')).toEqual([{ type: 'log', text: 'ok' }])
+    expect(await call('browser_network_requests')).toEqual([{ id: '1', method: 'GET', url: 'https://exemplo.test/api', status: 200 }])
+    expect(await call('browser_take_screenshot')).toBe('png-base64')
+  })
+
+  it('recusa comandos expirados e comandos da autorização anterior', async () => {
+    const { controller, infos } = setup()
+    await controller.sync(infos); await controller.approve('a', 10)
+    await expect(controller.execute({ name: 'browser_snapshot', args: {}, session: 'a', epoch: 'antiga', deadline: Date.now() + 30_000 })).rejects.toThrow('autorização anterior')
+    await expect(controller.execute({ name: 'browser_snapshot', args: {}, session: 'a', epoch: 'permissao-atual', deadline: Date.now() - 1 })).rejects.toThrow('expirado')
+  })
+
+  it('revoga o controle se o JavaScript da página não responder ao comando', async () => {
+    const { api, controller, infos } = setup()
+    await controller.sync(infos); await controller.approve('a', 10)
+    api.debugger.sendCommand.mockImplementationOnce(() => new Promise(() => {}))
+    await expect(controller.execute({ name: 'browser_evaluate', args: { function: '() => new Promise(() => {})' }, session: 'a', epoch: 'permissao-atual', deadline: Date.now() + 20 })).rejects.toThrow('controle foi interrompido')
+    expect(controller.sessions.size).toBe(0)
+    await vi.waitFor(() => expect(api.debugger.detach).toHaveBeenCalledWith({ tabId: 10 }))
+  })
+})

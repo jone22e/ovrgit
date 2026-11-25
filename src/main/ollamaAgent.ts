@@ -3,12 +3,13 @@ import path from 'node:path'
 import type { AgentChatEvent, AgentEffort, AgentMode, AgentTurn } from '../shared/types'
 import { runCli } from './cli'
 import { getSettings } from './settings'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 type Message = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[]; tool_calls?: ToolCall[]; tool_name?: string }
 type ToolCall = { function: { name: string; arguments: Record<string, unknown> | string } }
-type Tool = { type: 'function'; function: { name: string; description: string; parameters: { type: 'object'; properties: Record<string, { type: string; description?: string }>; required: string[] } } }
+type Tool = { type: 'function'; function: { name: string; description: string; parameters: McpTool['inputSchema'] } }
 
-const tool = (name: string, description: string, properties: Tool['function']['parameters']['properties'], required: string[]): Tool =>
+const tool = (name: string, description: string, properties: Record<string, object>, required: string[]): Tool =>
   ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } })
 
 const READ_TOOLS: Tool[] = [
@@ -118,6 +119,7 @@ export async function askOllama(model: string, prompt: string, signal: AbortSign
 export async function runOllamaTurn(o: {
   model: string; effort: AgentEffort; mode: AgentMode; cwd: string; prompt: string; turns: AgentTurn[];
   images?: string[]; instructions?: string; signal: AbortSignal; onEvent: (ev: AgentChatEvent) => void
+  browser?: { tools: McpTool[]; call: (name: string, args: Record<string, unknown>) => Promise<unknown> }
 }): Promise<void> {
   const settings = getSettings()
   const rules = await readFile(path.join(o.cwd, 'AGENTS.md'), 'utf8').catch(() => '')
@@ -128,7 +130,8 @@ export async function runOllamaTurn(o: {
     settings.agentInstructions?.trim(), rules ? `Instruções do projeto (AGENTS.md):\n${rules.slice(0, 25_000)}` : '', o.instructions
   ].filter(Boolean).join('\n\n')
   const messages: Message[] = [{ role: 'system', content: system }, ...historyMessages(o.turns), { role: 'user', content: o.prompt, ...(o.images?.length ? { images: o.images } : {}) }]
-  const tools = o.mode === 'full' ? [...READ_TOOLS, ...WRITE_TOOLS] : READ_TOOLS
+  const browserTools = (o.browser?.tools ?? []).map((t): Tool => ({ type: 'function', function: { name: t.name, description: t.description ?? t.name, parameters: t.inputSchema } }))
+  const tools = [...(o.mode === 'full' ? [...READ_TOOLS, ...WRITE_TOOLS] : READ_TOOLS), ...browserTools]
   for (let step = 0; step < 20; step++) {
     if (o.signal.aborted) throw new Error('Interrompido.')
     const r = await request(o.model, o.effort, messages, tools, o.signal)
@@ -150,9 +153,19 @@ export async function runOllamaTurn(o: {
       const detail = String(args.path ?? args.query ?? args.command ?? '').slice(0, 160)
       o.onEvent({ type: 'tool', id, name, title: name.replace(/_/g, ' '), detail })
       let output: string
-      try { output = await execute(name, args, o.cwd, o.mode, o.signal) } catch (e) { output = String(e) }
+      let screenshot: string | undefined
+      try {
+        if (o.browser && browserTools.some((t) => t.function.name === name)) {
+          const result = await o.browser.call(name, args)
+          if (name === 'browser_take_screenshot' && typeof result === 'string') {
+            screenshot = result
+            output = 'Captura da aba enviada ao modelo.'
+          } else output = limit(typeof result === 'string' ? result : JSON.stringify(result) ?? 'Concluído.', 80_000)
+        } else output = await execute(name, args, o.cwd, o.mode, o.signal)
+      } catch (e) { output = `Erro: ${String(e)}` }
       o.onEvent({ type: 'toolResult', id, ok: !/^Falha|^Error|^Erro/.test(output), output })
       messages.push({ role: 'tool', content: output, tool_name: name })
+      if (screenshot) messages.push({ role: 'user', content: 'Captura da aba autorizada.', images: [screenshot] })
     }
   }
   throw new Error('O agente local atingiu o limite de etapas desta resposta.')

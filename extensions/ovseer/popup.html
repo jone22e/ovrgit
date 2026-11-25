@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Ovseer</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><span class="logo">O</span><div><h1>Ovseer</h1><p id="status">Conectando…</p></div></header>
+  <section id="pairing">
+    <label for="connection">Conexão com o aplicativo</label>
+    <p>Nas configurações do Ovseer, copie o código em “Extensão do Chrome” e cole aqui.</p>
+    <form id="connect"><input id="connection" type="password" placeholder="Cole o código de conexão" required autocomplete="off"><button>Conectar</button></form>
+  </section>
+  <p id="error" role="alert"></p>
+  <main id="sessions"></main>
+  <footer><button id="disconnect" class="secondary" hidden>Desconectar</button><span>Você escolhe as abas que cada conversa pode controlar.</span></footer>
+  <script type="module" src="popup.js"></script>
+</body></html>

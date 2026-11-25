@@ -19,13 +19,17 @@ describe('argumentos dos CLIs', () => {
     expect(full.slice(-2)).toEqual(['--resume', 'abc-123'])
   })
 
-  it('claude: Claude in Chrome e controle do computador', () => {
-    const a = claudeArgs({ model: '', effort: 'high', mode: 'full', resume: null, chrome: true, computerUseBin: '/x/ovseer-computer' })
-    expect(a).toContain('--chrome')
+  it('claude: extensão própria do Ovseer e controle do computador', () => {
+    const a = claudeArgs({ model: '', effort: 'high', mode: 'full', resume: null, chromeMcp: { url: 'http://127.0.0.1:12345/mcp/conversa' }, computerUseBin: '/x/ovseer-computer' })
+    expect(a).not.toContain('--chrome')
     const cfg = JSON.parse(a[a.indexOf('--mcp-config') + 1])
-    expect(cfg).toEqual({ mcpServers: { ovseer_computer_use: { command: '/x/ovseer-computer', args: [] } } })
+    expect(cfg).toEqual({ mcpServers: {
+      ovseer_computer_use: { command: '/x/ovseer-computer', args: [] },
+      ovseer_chrome: { type: 'http', url: 'http://127.0.0.1:12345/mcp/conversa' }
+    } })
     expect(claudeComputerAccessNote(true)).toContain('ovseer_computer_use')
     expect(claudeComputerAccessNote(false)).toBe('')
+    expect(claudeComputerAccessNote(false, true)).toContain('extensão própria do Ovseer')
   })
 
   it('codex: exec e exec resume com o pedido pelo stdin', () => {

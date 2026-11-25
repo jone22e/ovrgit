@@ -1,39 +1,59 @@
-import { app } from 'electron'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { app, clipboard, shell } from 'electron'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
+import { ChromeBridge, type ChromeSession } from './chromeBridge'
 
-const tokenFile = () => path.join(app.getPath('userData'), 'playwright-mcp-token')
+let bridge: Promise<ChromeBridge> | undefined
 
-function savedToken(): string {
-  try { return readFileSync(tokenFile(), 'utf8').trim() } catch { return '' }
+function getBridge(): Promise<ChromeBridge> {
+  if (bridge) return bridge
+  bridge = (async () => {
+    const file = path.join(app.getPath('userData'), 'chrome-bridge.json')
+    let token = randomBytes(32).toString('base64url'), port = 0
+    try {
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      if (typeof saved.token === 'string' && /^[\w-]{40,}$/.test(saved.token)) token = saved.token
+      if (Number.isInteger(saved.port) && saved.port > 0 && saved.port < 65536) port = saved.port
+    } catch { /* primeira configuração */ }
+    let instance = new ChromeBridge(token, port)
+    try { await instance.ready } catch (e) {
+      if (!port || (e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e
+      await instance.close()
+      instance = new ChromeBridge(token)
+      await instance.ready
+    }
+    const info = await instance.ready
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ token, port: info.port }), { mode: 0o600 })
+    return instance
+  })().catch((e) => { bridge = undefined; throw e })
+  return bridge
 }
 
-export function chromeExtensionTokenConfigured(): boolean {
-  return !!savedToken()
+export async function chromeAgentSession(label: string): Promise<ChromeSession> {
+  return (await getBridge()).session(label)
 }
 
-export function setChromeExtensionToken(input: string): boolean {
-  const token = input.trim().replace(/^PLAYWRIGHT_MCP_EXTENSION_TOKEN=/, '')
-  if (!token) {
-    rmSync(tokenFile(), { force: true })
-    return false
+/** Instala uma cópia persistente, fora do asar, para o usuário carregar no Chrome. */
+export async function prepareChromeExtension(): Promise<string> {
+  await getBridge()
+  const folder = path.join(app.getPath('userData'), 'chrome-extension')
+  mkdirSync(folder, { recursive: true })
+  for (const name of ['manifest.json', 'background.js', 'controller.js', 'popup.html', 'popup.css', 'popup.js', 'icon.png', 'README.md']) {
+    writeFileSync(path.join(folder, name), readFileSync(path.join(app.getAppPath(), 'extensions', 'ovseer', name)))
   }
-  if (token.length > 512 || /\s/.test(token)) throw new Error('Token da extensão inválido.')
-  mkdirSync(path.dirname(tokenFile()), { recursive: true })
-  writeFileSync(tokenFile(), `${token}\n`, { mode: 0o600 })
-  chmodSync(tokenFile(), 0o600)
-  return true
+  const error = await shell.openPath(folder)
+  if (error) throw new Error(error)
+  return folder
 }
 
-/** MCP que controla abas do Chrome existente por meio da extensão Playwright. */
-export function chromeExtensionMcp(): { command: string; args: string[]; env: Record<string, string> } | null {
-  if (process.platform !== 'darwin' && process.platform !== 'win32') return null
-  const cli = path.join(app.getAppPath(), 'node_modules', '@playwright', 'mcp', 'cli.js')
-  if (!existsSync(cli)) return null
-  const token = savedToken()
-  return {
-    command: process.execPath,
-    args: [cli, '--extension', '--ignore-roots'],
-    env: { ELECTRON_RUN_AS_NODE: '1', ...(token ? { PLAYWRIGHT_MCP_EXTENSION_TOKEN: token } : {}) }
-  }
+export async function copyChromeConnection(): Promise<void> {
+  clipboard.writeText((await (await getBridge()).ready).connection)
+}
+
+export async function stopChromeBridge() {
+  const current = bridge
+  bridge = undefined
+  if (current) await (await current).close()
 }

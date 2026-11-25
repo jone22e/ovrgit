@@ -1164,8 +1164,8 @@ export interface OvseerApi {
   copyImage(dataUrl: string): Promise<void>
   getSettings(): Promise<Settings>
   /** Token local da extensão Playwright; o valor salvo nunca é devolvido à interface. */
-  chromeExtensionTokenStatus(): Promise<boolean>
-  chromeExtensionTokenSet(token: string): Promise<boolean>
+  chromeExtensionPrepare(): Promise<string>
+  chromeExtensionCopyConnection(): Promise<void>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
   /** Configurações salvas por outra janela */
   onSettingsChanged(cb: (s: Settings) => void): () => void

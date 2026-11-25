@@ -45,7 +45,7 @@ import { agyStatus, authStatus, cancelLogin, logout, sendCode, startLogin } from
 import * as g from './git'
 import { createSourceFile, listSourceFiles, readSourceFile, readSourceImage, resolveSourcePath, writeSourceFile } from './sourceFiles'
 import { getSettings, rememberProject, saveSettings } from './settings'
-import { chromeExtensionTokenConfigured, setChromeExtensionToken } from './chromeExtension'
+import { prepareChromeExtension, copyChromeConnection, stopChromeBridge } from './chromeExtension'
 import * as updater from './updater'
 import * as aws from './aws'
 import * as services from './services'
@@ -865,8 +865,8 @@ function registerIpc() {
     return installCli(id)
   })
   ipcMain.handle('settings:get', () => getSettings())
-  ipcMain.handle('chrome-extension-token:status', () => chromeExtensionTokenConfigured())
-  ipcMain.handle('chrome-extension-token:set', (_e, token: string) => setChromeExtensionToken(String(token ?? '')))
+  ipcMain.handle('chrome-extension:prepare', () => prepareChromeExtension())
+  ipcMain.handle('chrome-extension:copy-connection', () => copyChromeConnection())
   ipcMain.handle('settings:save', (e, patch: Partial<Settings>) => {
     const next = saveSettings(patch)
     if ('captureShortcutKey' in patch) setScreenCaptureShortcut(next.captureShortcutKey)
@@ -1060,6 +1060,7 @@ function prepareQuit() {
   killAllTerminals()
   services.stopAllServices()
   agentApi.stopAgentApi()
+  void stopChromeBridge().catch(() => {})
 }
 /**
  * Reiniciar para atualizar. No Mac o Electron fecha todas as janelas e só reinicia quando a última fechar: tudo
