@@ -33,33 +33,40 @@ describe('extensão própria do Ovseer — ponte local', () => {
     }
   })
 
-  it('exige autorização e entrega comandos à extensão com isolamento por conversa', async () => {
+  it('entrega o primeiro comando diretamente, com isolamento por conversa e sem confirmação no popup', async () => {
     const { bridge, extension } = await setup()
     const a = bridge.session('Codex · Loja'), b = bridge.session('Claude · Financeiro')
-    await expect(a.call('browser_tabs', { action: 'list' })).rejects.toThrow('autorize uma aba')
-    const info = (await extension('/poll', { immediate: true })).sessions[0]
-    expect(info.label).toBe('Codex · Loja')
-    await extension('/permission', { session: info.id, approved: true })
+    await extension('/poll', { immediate: true })
     const answer = a.call('browser_tabs', { action: 'list' })
-    const { commands } = await extension('/poll', { immediate: true })
+    const { commands, sessions } = await extension('/poll', { immediate: true })
+    const info = sessions[0]
+    expect(info).toMatchObject({ label: 'Codex · Loja', state: 'approved' })
     expect(commands[0]).toMatchObject({ session: info.id, name: 'browser_tabs', args: { action: 'list' } })
     await extension('/result', { id: commands[0].id, result: [{ tabId: 42 }] })
     expect(await answer).toEqual([{ tabId: 42 }])
-    await expect(b.call('browser_snapshot', {})).rejects.toThrow('autorize uma aba')
+    const other = b.call('browser_snapshot', {})
+    const next = (await extension('/poll', { immediate: true })).commands[0]
+    expect(next.session).not.toBe(info.id)
+    await extension('/result', { id: next.id, result: 'Outra conversa' })
+    expect(await other).toBe('Outra conversa')
     expect((await a.ready).url).not.toBe((await b.ready).url)
   })
 
-  it('interromper revoga comandos pendentes e impede novas ações até nova autorização', async () => {
+  it('interromper revoga comandos pendentes e impede novas ações até clicar em Retomar', async () => {
     const { bridge, extension } = await setup()
     const session = bridge.session('Codex')
     await expect(session.call('browser_snapshot', {})).rejects.toThrow()
     const { id } = (await extension('/poll', { immediate: true })).sessions[0]
-    await extension('/permission', { session: id, approved: true })
     const pending = expect(session.call('browser_click', { ref: 'e1-3' })).rejects.toThrow('interrompido')
     await extension('/permission', { session: id, approved: false })
     await pending
-    await expect(session.call('browser_snapshot', {})).rejects.toThrow('nova autorização')
+    await expect(session.call('browser_snapshot', {})).rejects.toThrow('Retomar')
     expect((await extension('/poll', { immediate: true })).commands).toEqual([])
+    await extension('/permission', { session: id, approved: true })
+    const resumed = session.call('browser_snapshot', {})
+    const command = (await extension('/poll', { immediate: true })).commands[0]
+    await extension('/result', { id: command.id, result: 'Retomado' })
+    expect(await resumed).toBe('Retomado')
     await session.close()
     expect((await extension('/poll', { immediate: true })).sessions).toEqual([])
   })
@@ -87,7 +94,6 @@ describe('extensão própria do Ovseer — ponte local', () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(url)))
     expect((await client.callTool({ name: 'browser_snapshot', arguments: {} })).isError).toBe(true)
     const { id } = (await extension('/poll', { immediate: true })).sessions[0]
-    await extension('/permission', { session: id, approved: true })
     const screenshot = client.callTool({ name: 'browser_take_screenshot', arguments: {} })
     let commands: { id: string }[] = []
     // A requisição MCP chega por outro socket; a consulta longa espera o comando.
@@ -107,7 +113,6 @@ describe('extensão própria do Ovseer — ponte local', () => {
     const session = bridge.session('Codex')
     await expect(session.call('browser_snapshot', {})).rejects.toThrow()
     const { id } = (await extension('/poll', { immediate: true })).sessions[0]
-    await extension('/permission', { session: id, approved: true })
     const abort = new AbortController()
     const pending = expect(session.call('browser_snapshot', {}, abort.signal)).rejects.toThrow('Interrompido')
     abort.abort()

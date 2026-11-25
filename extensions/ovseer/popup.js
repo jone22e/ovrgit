@@ -26,32 +26,27 @@ async function refresh() {
   $('connection-help').textContent = state.paused ? 'Você desconectou a extensão. Clique abaixo para retomar a conexão automática.' : 'Mantenha o Ovseer aberto neste computador. A extensão se conecta sozinha, sem código nem configuração.'
   if (!state.error || state.paused) $('error').textContent = ''
   if (state.error && !state.paused && !busy) $('error').textContent = state.error
-  const next = JSON.stringify([state.connected, state.paused, state.sessions, state.tabs])
+  const next = JSON.stringify([state.connected, state.paused, state.sessions])
   if (signature === next) return
   signature = next
   const nodes = []
   for (const session of state.sessions) {
     const box = el('section', '', 'session')
-    box.append(el('h2', session.label), el('div', session.approved ? `${session.tabs.length} aba(s) autorizada(s)` : session.state === 'stopped' ? 'Controle interrompido' : 'Aguardando sua autorização', 'state'))
-    const select = el('select'); select.setAttribute('aria-label', 'Aba para autorizar')
-    for (const tab of state.tabs) {
-      const option = el('option', `${tab.title || tab.url}${tab.owner && tab.owner !== session.id ? ' · outra conversa' : ''}`)
-      option.value = tab.id; option.disabled = !!tab.owner && tab.owner !== session.id
-      select.append(option)
-    }
+    box.append(el('h2', session.label), el('div', session.state === 'stopped' ? 'Controle interrompido' : session.tabs.length ? `${session.tabs.length} aba(s) em uso` : 'Pronto para navegar', 'state'))
     const actions = el('div', '', 'actions')
-    const allow = el('button', session.approved ? 'Autorizar outra aba' : 'Autorizar aba')
-    allow.disabled = !state.connected || !state.tabs.some((t) => !t.owner || t.owner === session.id)
-    allow.onclick = () => action(() => send({ type: 'approve', session: session.id, tabId: Number(select.value) }))
-    actions.append(allow)
-    if (session.approved) {
+    if (session.state === 'stopped') {
+      const resume = el('button', 'Retomar')
+      resume.disabled = !state.connected
+      resume.onclick = () => action(() => send({ type: 'resume', session: session.id }))
+      actions.append(resume)
+    } else if (session.tabs.length) {
       const stop = el('button', 'Interromper', 'stop')
       stop.onclick = () => action(() => send({ type: 'stop', session: session.id }))
       actions.append(stop)
     }
-    box.append(select, actions); nodes.push(box)
+    box.append(actions); nodes.push(box)
   }
-  if (!nodes.length) nodes.push(el('p', 'Quando um agente pedir acesso ao navegador, a conversa aparecerá aqui para você escolher uma aba.', 'empty'))
+  if (!nodes.length) nodes.push(el('p', 'Os agentes abrem e controlam suas abas automaticamente. Quando uma conversa usar o navegador, você poderá acompanhar e interromper por aqui.', 'empty'))
   $('sessions').replaceChildren(...nodes)
 }
 $('connect').onclick = () => action(() => send({ type: 'connect' }))

@@ -457,7 +457,7 @@ async function save() {
             <div class="block">
               <div class="field">
                 <strong>Extensão do Chrome</strong>
-                <p>A extensão acompanha o Ovseer e seus arquivos são atualizados junto com o aplicativo. Instale uma vez no Chrome para autorizar os agentes a controlar as abas escolhidas.</p>
+                <p>A extensão acompanha o Ovseer e seus arquivos são atualizados junto com o aplicativo. Instale uma vez no Chrome para os agentes abrirem e controlarem suas próprias abas automaticamente.</p>
                 <div class="row">
                   <button type="button" @click="state.showChromeExtensionGuide = true">Instalar / ver instruções</button>
                 </div>

@@ -3,6 +3,7 @@ const webUrl = (value) => {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Somente páginas HTTP e HTTPS são permitidas.')
   return url.href
 }
+const pageUrl = (value) => value === 'about:blank' ? value : webUrl(value)
 
 /** Estado e permissões pertencem à extensão, nunca à página visitada. */
 export class BrowserController {
@@ -14,33 +15,52 @@ export class BrowserController {
     this.refs = new Map()
     this.logs = new Map()
     this.serial = 0
+    this.stopped = new Set()
   }
 
   async sync(infos) {
     for (const id of this.sessions.keys()) if (!infos.some((s) => s.id === id)) await this.stop(id, false)
+    for (const id of this.stopped) if (!infos.some((s) => s.id === id)) this.stopped.delete(id)
     this.infos = infos
     for (const info of infos) {
       const session = this.sessions.get(info.id)
-      if (session && info.state === 'stopped') await this.stop(info.id, false)
+      if (info.state === 'stopped') this.stopped.add(info.id)
+      if (session && (info.state === 'stopped' || session.epoch !== info.epoch)) await this.stop(info.id, false)
       else if (session) session.label = info.label
     }
   }
 
-  async approve(id, tabId) {
+  session(id) {
     const info = this.infos?.find((s) => s.id === id)
     if (!info) throw new Error('Conversa encerrada. Atualize a extensão.')
+    if (info.state === 'stopped' || this.stopped.has(id)) throw new Error('Controle interrompido. Clique em Retomar na extensão para continuar.')
+    let session = this.sessions.get(id)
+    if (!session) {
+      session = { label: info.label, epoch: info.epoch, tabs: new Set(), current: null }
+      this.sessions.set(id, session)
+    }
+    return session
+  }
+
+  async resume(id) {
+    if (!this.infos?.some((s) => s.id === id)) throw new Error('Conversa encerrada.')
+    const permission = await this.permission(id, true)
+    const info = this.infos?.find((s) => s.id === id)
+    if (info) { info.state = 'approved'; info.epoch = permission.epoch; this.stopped.delete(id) }
+  }
+
+  async attachTab(id, tabId) {
+    const session = this.session(id)
     const tab = await this.api.tabs.get(tabId)
-    webUrl(tab.url)
+    pageUrl(tab.url)
     const owner = this.owners.get(tabId)
     if (owner && owner !== id) throw new Error('Esta aba já está sendo usada por outra conversa.')
-    let session = this.sessions.get(id)
-    if (!session) { session = { label: info.label, tabs: new Set(), current: tabId }; this.sessions.set(id, session) }
     if (!owner) {
       try { await this.api.debugger.attach({ tabId }, '1.3') }
       catch (e) { if (!session.tabs.size) this.sessions.delete(id); throw e }
       if (this.sessions.get(id) !== session) {
         await this.api.debugger.detach({ tabId }).catch(() => {})
-        throw new Error('Autorização interrompida.')
+        throw new Error('Controle interrompido.')
       }
       this.owners.set(tabId, id)
       session.tabs.add(tabId)
@@ -53,15 +73,17 @@ export class BrowserController {
     }
     session.current = tabId
     try {
-      await this.overlay(tabId, session.label, id)
-      if (this.sessions.get(id) !== session) throw new Error('Autorização interrompida.')
-      const permission = await this.permission(id, true)
-      session.epoch = permission.epoch
-      if (this.sessions.get(id) !== session) { await this.permission(id, false); throw new Error('Autorização interrompida.') }
+      if (tab.url !== 'about:blank') await this.overlay(tabId, session.label, id)
+      if (this.sessions.get(id) !== session) throw new Error('Controle interrompido.')
     } catch (e) { await this.stop(id, false); throw e }
   }
 
   async stop(id, notify = true) {
+    if (notify) {
+      this.stopped.add(id)
+      const info = this.infos?.find((s) => s.id === id)
+      if (info) info.state = 'stopped'
+    }
     const session = this.sessions.get(id)
     this.sessions.delete(id) // revoga antes de aguardar qualquer operação assíncrona
     if (session) for (const tabId of session.tabs) {
@@ -75,6 +97,15 @@ export class BrowserController {
   }
 
   async stopAll(notify = true) { for (const id of [...this.sessions.keys()]) await this.stop(id, notify) }
+
+  removed(tabId) {
+    const session = this.sessions.get(this.owners.get(tabId))
+    this.owners.delete(tabId); this.refs.delete(tabId); this.logs.delete(tabId)
+    if (session) {
+      session.tabs.delete(tabId)
+      if (session.current === tabId) session.current = [...session.tabs][0] ?? null
+    }
+  }
 
   cdp(tabId, method, params = {}) { return this.api.debugger.sendCommand({ tabId }, method, params) }
 
@@ -176,7 +207,7 @@ export class BrowserController {
         this.perform(command),
         new Promise((_, reject) => { timer = setTimeout(() => {
           void this.stop(command.session).catch(() => {})
-          reject(new Error('A página não respondeu a tempo. O controle foi interrompido; autorize novamente para continuar.'))
+          reject(new Error('A página não respondeu a tempo. O controle foi interrompido; clique em Retomar na extensão para continuar.'))
         }, remaining) })
       ])
     } finally { clearTimeout(timer) }
@@ -184,8 +215,7 @@ export class BrowserController {
 
   async perform(command) {
     if (Date.now() > command.deadline) throw new Error('Comando expirado.')
-    const session = this.sessions.get(command.session)
-    if (!session) throw new Error('Autorize esta conversa na extensão Ovseer.')
+    const session = this.session(command.session)
     if (command.epoch !== session.epoch) throw new Error('Comando de uma autorização anterior. Solicite novamente.')
     const a = command.args ?? {}, name = command.name
     const valid = () => {
@@ -193,29 +223,34 @@ export class BrowserController {
       if (command.epoch !== session.epoch || Date.now() > command.deadline) throw new Error('Comando expirado ou autorização revogada.')
     }
     if (name === 'browser_tabs') {
-      if (a.action === 'list') return (await this.api.tabs.query({})).filter((t) => /^https?:/.test(t.url)).map((t) => ({ tabId: t.id, title: t.title, url: t.url, authorized: session.tabs.has(t.id), current: session.current === t.id }))
+      if (a.action === 'list') return (await this.api.tabs.query({})).filter((t) => t.url === 'about:blank' || /^https?:/.test(t.url)).map((t) => ({ tabId: t.id, title: t.title, url: t.url, owned: session.tabs.has(t.id), inUseByOtherConversation: this.owners.has(t.id) && this.owners.get(t.id) !== command.session, current: session.current === t.id }))
       if (a.action === 'new') {
-        if (!a.url) throw new Error('Informe a URL HTTP(S) para criar uma aba.')
-        const url = webUrl(a.url)
-        const tab = await this.api.tabs.create({ url, active: true })
-        valid()
-        try { await this.approve(command.session, tab.id) } catch (e) { await this.api.tabs.remove(tab.id).catch(() => {}); throw e }
-        return { tabId: tab.id, url }
+        return this.openTab(command.session, a.url ? webUrl(a.url) : 'about:blank', valid)
       }
-      if (!session.tabs.has(a.tabId)) throw new Error('Esta aba não foi autorizada. Peça ao usuário para autorizá-la na extensão Ovseer.')
-      if (a.action === 'close') { await this.api.tabs.remove(a.tabId); return 'Aba fechada.' }
+      if (!Number.isInteger(a.tabId)) throw new Error('Informe o tabId real retornado por browser_tabs.')
+      if (this.owners.has(a.tabId) && this.owners.get(a.tabId) !== command.session) throw new Error('Esta aba já está sendo usada por outra conversa.')
+      if (!session.tabs.has(a.tabId)) {
+        if (a.action !== 'select') throw new Error('Selecione a aba antes de fechá-la.')
+        await this.attachTab(command.session, a.tabId)
+        valid()
+      }
+      if (a.action === 'close') { await this.api.tabs.remove(a.tabId); this.removed(a.tabId); return 'Aba fechada.' }
       if (a.action !== 'select') throw new Error('Ação de aba inválida.')
       session.current = a.tabId
       await this.api.tabs.update(a.tabId, { active: true })
       return this.snapshot(a.tabId)
     }
+    if (name === 'browser_navigate' && !session.tabs.size) {
+      await this.openTab(command.session, webUrl(a.url), valid)
+      return this.snapshot(session.current)
+    }
     const tabId = session.current
-    if (!session.tabs.has(tabId) || this.owners.get(tabId) !== command.session) throw new Error('Selecione uma aba autorizada.')
+    if (!session.tabs.has(tabId) || this.owners.get(tabId) !== command.session) throw new Error('Abra uma aba com browser_navigate ou browser_tabs (action new).')
     const tab = await this.api.tabs.get(tabId)
-    webUrl(tab.url)
+    pageUrl(tab.url)
     valid()
     if (name === 'browser_snapshot') return this.snapshot(tabId)
-    if (name === 'browser_navigate') { await this.cdp(tabId, 'Page.navigate', { url: webUrl(a.url) }); this.refs.delete(tabId); return 'Navegação iniciada. Execute browser_snapshot para ler a nova página.' }
+    if (name === 'browser_navigate') { await this.navigate(tabId, webUrl(a.url), valid); return this.snapshot(tabId) }
     if (name === 'browser_navigate_back') {
       const history = await this.cdp(tabId, 'Page.getNavigationHistory')
       const entry = history.entries[history.currentIndex - 1]
@@ -254,10 +289,40 @@ export class BrowserController {
     else if (name === 'browser_handle_dialog') { await this.cdp(tabId, 'Page.handleJavaScriptDialog', { accept: a.accept, promptText: a.promptText }); return 'Diálogo tratado.' }
     else if (name === 'browser_console_messages') return this.logs.get(tabId)?.console ?? []
     else if (name === 'browser_network_requests') return this.logs.get(tabId)?.network ?? []
-    else if (name === 'browser_close') { await this.api.tabs.remove(tabId); return 'Aba fechada.' }
+    else if (name === 'browser_close') { await this.api.tabs.remove(tabId); this.removed(tabId); return 'Aba fechada.' }
     else throw new Error('Ferramenta desconhecida.')
     valid()
     return 'Ação concluída. Execute browser_snapshot para conferir o resultado.'
+  }
+
+  async openTab(id, url, valid) {
+    const tab = await this.api.tabs.create({ url: 'about:blank', active: true })
+    try {
+      valid()
+      await this.attachTab(id, tab.id)
+      valid()
+      if (url !== 'about:blank') await this.navigate(tab.id, url, valid)
+      valid()
+      return { tabId: tab.id, url }
+    } catch (e) { this.removed(tab.id); await this.api.tabs.remove(tab.id).catch(() => {}); throw e }
+  }
+
+  async navigate(tabId, url, valid) {
+    const navigation = await this.cdp(tabId, 'Page.navigate', { url })
+    if (navigation.errorText) throw new Error(navigation.errorText)
+    this.refs.delete(tabId)
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      valid()
+      try {
+        const result = await this.cdp(tabId, 'Runtime.evaluate', { expression: 'document.readyState', returnByValue: true })
+        if (result.result?.value !== 'loading') break
+      } catch { valid() }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    valid()
+    const session = this.sessions.get(this.owners.get(tabId))
+    if (session) await this.overlay(tabId, session.label, this.owners.get(tabId))
   }
 
   async select(tabId, ref, values) {

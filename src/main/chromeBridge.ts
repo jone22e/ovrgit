@@ -12,9 +12,9 @@ const tool = (name: string, description: string, properties: Record<string, obje
   ({ name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } })
 
 export const chromeTools: Tool[] = [
-  tool('browser_tabs', 'Liste, selecione, crie ou feche abas. Use o id real retornado na lista. Abas existentes precisam de autorização individual na extensão.', { action: { enum: ['list', 'select', 'new', 'close'] }, tabId: num, url: str }, ['action']),
+  tool('browser_tabs', 'Liste, selecione, crie ou feche abas. new abre uma aba da conversa automaticamente; url é opcional. Para select/close, use o tabId real retornado na lista. Não use abas de outra conversa.', { action: { enum: ['list', 'select', 'new', 'close'] }, tabId: num, url: str }, ['action']),
   tool('browser_snapshot', 'Leia a árvore de acessibilidade da aba, com referências para interagir. Capture novamente após navegar ou quando uma referência expirar.'),
-  tool('browser_navigate', 'Navegue a aba autorizada para uma URL HTTP(S).', { url: str }, ['url']),
+  tool('browser_navigate', 'Navegue a aba da conversa para uma URL HTTP(S). Se ainda não houver aba, abre uma automaticamente.', { url: str }, ['url']),
   tool('browser_navigate_back', 'Volte uma página no histórico da aba.'),
   tool('browser_click', 'Clique em uma referência da última captura de acessibilidade.', { ref: str, button: { enum: ['left', 'right', 'middle'] }, doubleClick: { type: 'boolean' } }, ['ref']),
   tool('browser_hover', 'Mova o ponteiro até uma referência da última captura.', { ref: str }, ['ref']),
@@ -23,18 +23,18 @@ export const chromeTools: Tool[] = [
   tool('browser_select_option', 'Selecione valores em um elemento select.', { ref: str, values: { type: 'array', items: str } }, ['ref', 'values']),
   tool('browser_press_key', 'Pressione uma tecla, por exemplo Enter, Tab, Escape, ArrowDown ou Control+A.', { key: str }, ['key']),
   tool('browser_scroll', 'Role a página em pixels.', { x: num, y: num }, ['y']),
-  tool('browser_evaluate', 'Execute uma função JavaScript na aba autorizada, por exemplo () => document.title. Respeite o pedido do usuário.', { function: str }, ['function']),
-  tool('browser_take_screenshot', 'Capture a parte visível da aba autorizada em PNG.'),
+  tool('browser_evaluate', 'Execute uma função JavaScript na aba da conversa, por exemplo () => document.title. Respeite o pedido do usuário.', { function: str }, ['function']),
+  tool('browser_take_screenshot', 'Capture a parte visível da aba da conversa em PNG.'),
   tool('browser_handle_dialog', 'Aceite ou dispense um diálogo JavaScript.', { accept: { type: 'boolean' }, promptText: str }, ['accept']),
-  tool('browser_console_messages', 'Leia as mensagens de console capturadas desde a autorização da aba.'),
-  tool('browser_network_requests', 'Liste as requisições HTTP capturadas desde a autorização da aba.'),
-  tool('browser_close', 'Feche a aba autorizada atual.')
+  tool('browser_console_messages', 'Leia as mensagens de console capturadas desde o início do controle da aba.'),
+  tool('browser_network_requests', 'Liste as requisições HTTP capturadas desde o início do controle da aba.'),
+  tool('browser_close', 'Feche a aba atual da conversa.')
 ]
 
 const validator = new AjvJsonSchemaValidator()
 const validators = new Map(chromeTools.map((t) => [t.name, validator.getValidator(t.inputSchema)]))
 
-type Session = { id: string; label: string; state: 'waiting' | 'approved' | 'stopped'; requested: boolean; epoch: string }
+type Session = { id: string; label: string; state: 'approved' | 'stopped'; requested: boolean; epoch: string }
 type Command = { id: string; session: string; epoch: string; name: string; args: Record<string, unknown>; deadline: number }
 type Pending = { command: Command; resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
 const secret = () => randomBytes(24).toString('base64url')
@@ -84,7 +84,7 @@ export class ChromeBridge {
 
   session(label: string): ChromeSession {
     if (this.closed) throw new Error('Ponte do Chrome encerrada.')
-    const info: Session = { id: secret(), label: label.slice(0, 180), state: 'waiting', requested: false, epoch: secret() }
+    const info: Session = { id: secret(), label: label.slice(0, 180), state: 'approved', requested: false, epoch: secret() }
     this.sessions.set(info.id, info)
     return new ChromeSession(this, info)
   }
@@ -98,9 +98,7 @@ export class ChromeBridge {
     if (signal?.aborted) throw new Error('Interrompido.')
     session.requested = true
     this.poll?.()
-    if (session.state !== 'approved') throw new Error(session.state === 'stopped'
-      ? 'Controle interrompido pelo usuário. Peça nova autorização na extensão Ovseer antes de continuar.'
-      : 'Abra a extensão Ovseer no Chrome, escolha esta conversa e autorize uma aba. Não tente outro acesso sem autorização.')
+    if (session.state === 'stopped') throw new Error('Controle interrompido pelo usuário. Aguarde ele clicar em Retomar na extensão Ovseer antes de continuar.')
     if (Date.now() - this.lastSeen > 35_000) throw new Error('Extensão Ovseer desconectada. Abra a extensão e confira a conexão com o app.')
     return new Promise((resolve, reject) => {
       const command: Command = { id: secret(), session: id, epoch: session.epoch, name, args, deadline: Date.now() + 30_000 }

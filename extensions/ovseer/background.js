@@ -22,9 +22,8 @@ async function post(route, body, signal) {
 }
 
 function badge() {
-  const pending = controller.infos?.filter((s) => s.state === 'waiting').length ?? 0
   void chrome.action.setBadgeBackgroundColor({ color: '#7952b3' })
-  void chrome.action.setBadgeText({ text: pending ? String(pending) : controller.sessions.size ? 'ON' : '' })
+  void chrome.action.setBadgeText({ text: controller.owners.size ? 'ON' : '' })
 }
 
 async function run() {
@@ -110,16 +109,11 @@ async function handle(message, sender) {
   if (!ownPopup) throw new Error('Origem inválida.')
   if (message.type === 'connect') return resetConnection(false)
   if (message.type === 'disconnect') return resetConnection(true)
-  if (message.type === 'approve') {
-    await controller.approve(message.session, Number(message.tabId))
-    await chrome.storage.session.set({ ovseerTabs: [...controller.owners.keys()] })
-    badge(); return { ok: true }
-  }
+  if (message.type === 'resume') { await controller.resume(message.session); badge(); return { ok: true } }
   if (message.type === 'stop') { await controller.stop(message.session); badge(); return { ok: true } }
   if (message.type === 'state') {
     void start()
-    return { paused: (await chrome.storage.local.get('paused')).paused === true, connected, error, sessions: (controller.infos ?? []).map((s) => ({ ...s, approved: controller.sessions.has(s.id), tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] })),
-      tabs: (await chrome.tabs.query({})).filter((t) => /^https?:/.test(t.url)).map((t) => ({ id: t.id, title: t.title, url: t.url, owner: controller.owners.get(t.id) })) }
+    return { paused: (await chrome.storage.local.get('paused')).paused === true, connected, error, sessions: (controller.infos ?? []).map((s) => ({ ...s, tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] })) }
   }
   throw new Error('Ação desconhecida.')
 }
@@ -129,24 +123,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   return true
 })
 chrome.debugger.onEvent.addListener((source, method, params) => controller.event(source, method, params))
-chrome.debugger.onDetach.addListener((source) => {
+chrome.debugger.onDetach.addListener((source, reason) => {
+  if (reason === 'target_closed') { controller.removed(source.tabId); badge(); return }
   const id = controller.owners.get(source.tabId)
   if (id) void controller.stop(id).catch(() => {}).finally(badge)
 })
 chrome.tabs.onRemoved.addListener((tabId) => {
-  const id = controller.owners.get(tabId), session = controller.sessions.get(id)
-  controller.owners.delete(tabId); controller.refs.delete(tabId); controller.logs.delete(tabId)
-  if (!session) return
-  session.tabs.delete(tabId)
-  if (!session.tabs.size) void controller.stop(id).catch(() => {}).finally(badge)
-  else if (session.current === tabId) session.current = [...session.tabs][0]
+  controller.removed(tabId); badge()
 })
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   const id = controller.owners.get(tabId), session = controller.sessions.get(id)
   if (!session) return
   if (change.url) controller.refs.delete(tabId)
-  if (change.url && !/^https?:/.test(tab.url)) { void controller.stop(id).catch(() => {}).finally(badge); return }
-  if (change.status === 'complete') void controller.overlay(tabId, session.label, id).catch(() => {})
+  if (change.url && tab.url !== 'about:blank' && !/^https?:/.test(tab.url)) { void controller.stop(id).catch(() => {}).finally(badge); return }
+  if (change.status === 'complete' && /^https?:/.test(tab.url)) void controller.overlay(tabId, session.label, id).catch(() => {})
 })
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === 'ovseer-reconnect') void start() })
 chrome.runtime.onStartup.addListener(() => { void start() })

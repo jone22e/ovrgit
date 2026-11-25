@@ -43,7 +43,8 @@ onUnmounted(() => clearInterval(timer))
         <p>Clique em <strong>Copiar caminho</strong> para usar esta pasta na instalação do Chrome.</p>
         <input v-if="setup" :value="setup.folder" readonly aria-label="Pasta da extensão" @focus="($event.target as HTMLInputElement).select()" />
         <div class="actions"><button :disabled="busy || !setup" @click="action('path')">Copiar caminho</button><button class="ghost" :disabled="busy || !setup" @click="action('folder')">Abrir pasta</button></div>
-          </li>
+        <p v-if="copied" class="copied" role="status">{{ copied }}</p>
+      </li>
       <li>
         <strong>Carregue no Chrome.</strong>
         <p>Digite <code>chrome://extensions</code> na barra de endereço, ative <strong>Modo do desenvolvedor</strong> e clique em <strong>Carregar sem compactação</strong>.</p>
@@ -56,12 +57,12 @@ onUnmounted(() => clearInterval(timer))
       </li>
       <li>
         <strong>A conexão é automática.</strong>
-        <p>Mantenha o Ovseer aberto neste computador. A extensão encontra o aplicativo sozinha, sem código nem configuração. No menu de extensões (peça de quebra-cabeça), fixe <strong>Ovseer</strong> para acessar as autorizações.</p>
+        <p>Mantenha o Ovseer aberto neste computador. A extensão encontra o aplicativo sozinha, sem código nem configuração. No menu de extensões (peça de quebra-cabeça), fixe <strong>Ovseer</strong> para acompanhar as conversas.</p>
         <p class="connection" :class="{ connected: setup?.connected }" role="status">{{ setup?.connected ? '✓ Extensão conectada ao Ovseer.' : 'Aguardando conexão da extensão.' }}</p>
       </li>
       <li>
-        <strong>Autorize cada conversa e aba.</strong>
-        <p>Quando o agente pedir acesso, abra a extensão, escolha a conversa e a aba e clique em <strong>Autorizar aba</strong>. Use <strong>Interromper</strong>, no popup ou na faixa da página, para revogar o controle.</p>
+        <strong>O agente abre a própria aba.</strong>
+        <p>Quando você pedir uma tarefa no navegador, o agente abre e controla a aba diretamente. A faixa na página mostra qual conversa está trabalhando. Use <strong>Interromper</strong>, na faixa ou no popup, para parar; depois, clique em <strong>Retomar</strong> quando quiser continuar.</p>
       </li>
     </ol>
     <p v-if="error" class="error" role="alert">{{ error }}</p>

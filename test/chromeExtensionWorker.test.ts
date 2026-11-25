@@ -23,7 +23,7 @@ it('conecta automaticamente, acompanha mudanças de porta e respeita pausa e aut
     runtime: { id: 'a'.repeat(32), getURL: (file: string) => `chrome-extension://${'a'.repeat(32)}/${file}`, onMessage: listener(), onStartup: listener(), onInstalled: listener() },
     storage: { local: storage(local), session: storage(sessionStorage) },
     action: { setBadgeText: vi.fn(async () => {}), setBadgeBackgroundColor: vi.fn(async () => {}) },
-    tabs: { query: vi.fn(async () => [{ id: 9, url: 'https://exemplo.test', title: 'Exemplo' }]), get: vi.fn(async () => ({ id: 9, url: 'https://exemplo.test', title: 'Exemplo' })), onRemoved: listener(), onUpdated: listener() },
+    tabs: { query: vi.fn(async () => [{ id: 9, url: 'https://exemplo.test', title: 'Exemplo' }]), create: vi.fn(async () => ({ id: 9 })), remove: vi.fn(async () => {}), get: vi.fn(async () => ({ id: 9, url: 'https://exemplo.test', title: 'Exemplo' })), onRemoved: listener(), onUpdated: listener() },
     scripting: { executeScript: vi.fn(async () => {}) },
     debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), onEvent: listener(), onDetach: listener(), sendCommand: vi.fn(async (_target: object, method: string) => method === 'Page.captureScreenshot' ? { data: 'imagem-verificada' } : {}) },
     alarms: { create: vi.fn(async () => {}), onAlarm: listener() }
@@ -41,15 +41,16 @@ it('conecta automaticamente, acompanha mudanças de porta e respeita pausa e aut
     expect(local.connection).toBeUndefined()
     expect(JSON.stringify(await message({ type: 'state' }))).not.toContain(connection)
     const session = bridge.session('Codex · Extensão')
-    await expect(session.call('browser_take_screenshot', {})).rejects.toThrow('autorize uma aba')
+    expect(await session.call('browser_tabs', { action: 'new', url: 'https://exemplo.test' })).toMatchObject({ tabId: 9 })
     let info: { id: string }
     await vi.waitFor(async () => { const state = await message({ type: 'state' }); expect(state.sessions).toHaveLength(1); info = state.sessions[0] })
-    expect(await message({ type: 'approve', session: info!.id, tabId: 9 })).toEqual({ ok: true })
     expect(await session.call('browser_take_screenshot', {})).toBe('imagem-verificada')
     expect(chrome.debugger.attach).toHaveBeenCalledWith({ tabId: 9 }, '1.3')
     expect(await message({ type: 'stop', session: info!.id }, { id: 9 })).toEqual({ ok: true })
-    await expect(session.call('browser_take_screenshot', {})).rejects.toThrow('nova autorização')
+    await expect(session.call('browser_take_screenshot', {})).rejects.toThrow('Retomar')
     expect(chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 9 })
+    expect(await message({ type: 'resume', session: info!.id })).toEqual({ ok: true })
+    expect(await session.call('browser_tabs', { action: 'new', url: 'https://exemplo.test' })).toMatchObject({ tabId: 9 })
     await message({ type: 'disconnect' })
     expect(await message({ type: 'state' })).toMatchObject({ connected: false, paused: true })
     await message({ type: 'connect' })
@@ -61,7 +62,7 @@ it('conecta automaticamente, acompanha mudanças de porta e respeita pausa e aut
       await message({ type: 'state' })
       expect(nextBridge!.connected).toBe(true)
     })
-    await expect(nextBridge.session('Nova conversa').call('browser_snapshot', {})).rejects.toThrow('autorize uma aba')
+    expect(await nextBridge.session('Nova conversa').call('browser_tabs', { action: 'new', url: 'https://exemplo.test' })).toMatchObject({ tabId: 9 })
   } finally {
     await message({ type: 'disconnect' })
     await bridge.close()
