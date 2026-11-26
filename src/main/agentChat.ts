@@ -30,6 +30,7 @@ import { computerUseBinary } from './computerUse'
 import { chromeAgentSession } from './chromeExtension'
 import { chromeTools, type ChromeSession } from './chromeBridge'
 import type { PersistentMcpEndpoint } from './persistentMcp'
+import { schedulesNote } from '../shared/schedulesNote'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -958,6 +959,13 @@ export function closeAgentWindows(uids: string[]) {
   }
 }
 
+/** Libera a janela invisível de uma tarefa periódica depois de a transcrição final ter sido gravada. */
+export function closeFinishedScheduledAgent(uid: string) {
+  const w = wins.get(uid)
+  if (!w?.info.scheduled || w.win.isDestroyed() || w.win.isVisible() || w.info.running) return
+  if (w.status === 'done' || w.status === 'error') closeAgentWindows([uid])
+}
+
 /** Esconde a janela sem fechar: a conversa continua viva e o agente segue trabalhando */
 export function hideAgentWindow(uid: string) {
   const w = wins.get(uid)
@@ -1075,6 +1083,11 @@ export function reportStatus(uid: string, status: AgentStatus) {
 // ---------- quem quer saber da situação dos agentes (a fila de tarefas) ----------
 const statusListeners = new Set<(uid: string, status: AgentStatus) => void>()
 const goneListeners = new Set<(uid: string) => void>()
+const eventListeners = new Set<(uid: string, event: AgentChatEvent) => void>()
+export function onAgentEvent(fn: (uid: string, event: AgentChatEvent) => void): () => void {
+  eventListeners.add(fn)
+  return () => { eventListeners.delete(fn) }
+}
 export const onAgentStatus = (fn: (uid: string, status: AgentStatus) => void) => void statusListeners.add(fn)
 export const onAgentGone = (fn: (uid: string) => void) => void goneListeners.add(fn)
 
@@ -1105,6 +1118,9 @@ export function availableStandby(): AvailableAgent[] {
 }
 
 function emit(w: AgentWin, ev: AgentChatEvent) {
+  for (const fn of eventListeners) {
+    try { fn(w.info.uid, ev) } catch (e) { console.error('Falha ao acompanhar o evento do agente:', e) }
+  }
   if (!w.win.isDestroyed()) w.win.webContents.send('agent:event', w.info.uid, ev)
 }
 
@@ -1957,7 +1973,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
     const images = inlineImages.filter((i) => i.size <= 10_000_000).flatMap((i) => {
       try { return [readFileSync(i.path).toString('base64')] } catch { return [] }
     })
-    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote(), setup?.simulatorNote?.(), claudeComputerAccessNote(false, true)].filter(Boolean).join('\n\n')
+    const instructions = [QUESTION_FORMAT, planFormat(w.info.mode), artifactsRule(artifactsDir(w.info.cwd)), workspaceNote(w.info), servicesNote(), schedulesNote(agentApiInfo(), w.info), setup?.simulatorNote?.(), claudeComputerAccessNote(false, true)].filter(Boolean).join('\n\n')
     let answer = ''
     const finish = (ev: Extract<AgentChatEvent, { type: 'done' }>) => {
       if (w.ollamaAbort !== controller) return
@@ -2017,7 +2033,7 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   const artifacts = artifactsRule(artifactsDir(w.info.cwd))
   // serviços rodando no computador (menu Serviços): o agente fica sabendo das portas e não sobe duplicados.
   // Claude recebe a cada pedido (no prompt de sistema); Codex e Antigravity, no primeiro e quando a lista muda.
-  const services = servicesNote()
+  const services = [servicesNote(), schedulesNote(agentApiInfo(), w.info)].filter(Boolean).join('\n\n')
   const servicesChanged = services !== (w.lastServices ?? '')
   w.lastServices = services
   const servicesBlock = services && provider !== 'claude' && (servicesChanged || !w.info.sessionId) ? `${services}\n\n` : ''
@@ -2870,7 +2886,7 @@ function saveOpenAgents() {
   if (openAgentsFrozen) return
   if (openAgentsTimer) clearTimeout(openAgentsTimer)
   openAgentsTimer = null
-  const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing)
+  const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing && !w.info.scheduled)
   const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible(), floating: !!w.floating, order: w.order }))
   agents.push(...unrestoredAgents)
   const json = JSON.stringify(agents)

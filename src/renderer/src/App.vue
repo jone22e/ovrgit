@@ -34,6 +34,7 @@ import ResultDialog from './components/ResultDialog.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import ChromeExtensionGuide from './components/ChromeExtensionGuide.vue'
 import ServicesDialog from './components/ServicesDialog.vue'
+import SchedulesDialog from './components/SchedulesDialog.vue'
 import SimulatorPanel from './components/SimulatorPanel.vue'
 import TopBar from './components/TopBar.vue'
 import Welcome from './components/Welcome.vue'
@@ -303,6 +304,7 @@ onUnmounted(() => {
     <SettingsDialog v-if="state.showSettings" @close="state.showSettings = false" />
     <ChromeExtensionGuide v-if="state.showChromeExtensionGuide" @close="state.showChromeExtensionGuide = false" />
     <ServicesDialog v-if="state.showServices" @close="state.showServices = false" />
+    <SchedulesDialog v-if="state.showSchedules" @close="state.showSchedules = false" />
     <FeatureDialog v-if="showFeature" @close="showFeature = false" />
     <PullDialog v-if="showPull" @close="showPull = false" @confirm="doPull(true)" />
     <PlanDialog />

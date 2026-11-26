@@ -51,6 +51,12 @@ modelo local pelo Ollama.
 
 ### Agentes de IA
 
+- **Agendamentos** no menu do usuário: tarefas por intervalo, diariamente ou em dias da semana, com horário e
+  fuso definidos. Também podem ser criadas, editadas, pausadas e excluídas por um agente quando você pedir.
+  Cada execução abre uma conversa separada; a tela guarda as últimas 50 execuções, resultados e acesso às conversas.
+  Requer Ovseer aberto e computador acordado. Ao retornar, executa uma vez o horário atrasado, sem acumular
+  repetições nem sobrepor execuções da mesma tarefa. Pausar impede as próximas execuções; interrompa a atual
+  pela conversa. Execuções interrompidas ao encerrar o app ficam no histórico e não são repetidas automaticamente.
 - Janela própria para conversar com Claude Code, Codex (ChatGPT) e Antigravity, dentro da pasta do projeto.
 - Espaço de trabalho com vários repositórios: clique no chip do repositório para juntar outros à mesma conversa
   (`flexi2 + separador`); a IA vê e edita todos ao mesmo tempo, com o principal como pasta de trabalho.

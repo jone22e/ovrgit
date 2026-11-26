@@ -2,6 +2,7 @@ import http from 'node:http'
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import type { Service, ServiceState } from '../shared/types'
+import { ScheduleError, type Scheduler } from './schedules'
 import { validSimulatorAction, type SimulatorAction, type SimulatorCatalog, type SimulatorDevice } from '../shared/simulator'
 
 /**
@@ -12,6 +13,7 @@ import { validSimulatorAction, type SimulatorAction, type SimulatorCatalog, type
  */
 
 export interface AgentApiBackend {
+  schedules?: Pick<Scheduler, 'list' | 'create' | 'update' | 'enable' | 'remove' | 'run'>
   services(): Service[]
   states(): ServiceState[]
   start(id: string): Promise<void>
@@ -85,6 +87,31 @@ export function startAgentApi(backend: AgentApiBackend): Promise<AgentApiInfo> {
       const auth = req.headers.authorization ?? ''
       if (auth !== `Bearer ${token}`) return json(res, 401, { error: 'Token inválido. Use o cabeçalho Authorization: Bearer <token> da nota de serviços.' })
       const parts = url.pathname.split('/').filter(Boolean).map((p) => decodeURIComponent(p))
+      if (parts[0] === 'schedules') {
+        const schedules = backend.schedules
+        if (!schedules) return json(res, 503, { error: 'Agendamentos indisponíveis nesta instância.' })
+        if (parts.length > 3) return json(res, 404, { error: 'Rota de agendamento desconhecida.' })
+        const id = parts[1], action = parts[2]
+        if (req.method === 'GET' && !action) {
+          if (!id) return json(res, 200, { schedules: schedules.list() })
+          const task = schedules.list().find((t) => t.id === id)
+          return task ? json(res, 200, task) : json(res, 404, { error: 'Agendamento não encontrado.' })
+        }
+        if ((req.method === 'POST' && !id) || (req.method === 'PUT' && id && !action)) {
+          let body: unknown
+          try { body = JSON.parse(await readBody(req)) } catch { return json(res, 400, { error: 'Envie um objeto JSON válido.' }) }
+          return json(res, id ? 200 : 201, id ? schedules.update(id, body) : schedules.create(body))
+        }
+        if (req.method === 'DELETE' && id && !action) {
+          schedules.remove(id)
+          return json(res, 200, { removed: true })
+        }
+        if (req.method === 'POST' && id) {
+          if (action === 'pause' || action === 'resume') return json(res, 200, schedules.enable(id, action === 'resume'))
+          if (action === 'run') return json(res, 202, schedules.run(id))
+        }
+        return json(res, 405, { error: 'Use GET/POST /schedules, GET/PUT/DELETE /schedules/{id}, POST /schedules/{id}/{pause,resume,run}.' })
+      }
       if (parts[0] === 'simulators') {
         const sim = backend.simulators
         if (!sim) return json(res, 503, { error: 'Controle de simuladores indisponível nesta instância.' })
@@ -184,7 +211,7 @@ export function startAgentApi(backend: AgentApiBackend): Promise<AgentApiInfo> {
       }
       return json(res, 404, { error: `Ação "${action}" desconhecida. Ações: start, stop, log.` })
     } catch (e) {
-      json(res, 500, { error: String((e as Error)?.message ?? e) })
+      json(res, e instanceof ScheduleError ? e.status : 500, { error: String((e as Error)?.message ?? e) })
     }
   })
   server = srv

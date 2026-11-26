@@ -74,6 +74,9 @@ async function checkUpdate() {
       <button class="ghost item" @click="(open = false), (state.showServices = true)">
         <Icon name="server" :size="14" /> Serviços
       </button>
+      <button class="ghost item" @click="(open = false), (state.showSchedules = true)">
+        <Icon name="clock" :size="14" /> Agendamentos
+      </button>
       <button class="ghost item" :disabled="checkingUpdate || state.update?.status === 'checking' || state.update?.status === 'downloading'" @click="checkUpdate">
         <Icon name="refresh" :size="14" /> Verificar atualizações
       </button>

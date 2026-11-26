@@ -57,6 +57,7 @@ export const state = reactive({
   showSettings: false,
   showChromeExtensionGuide: false,
   showServices: false,
+  showSchedules: false,
   /** Atualização do app (versão nova disponível, baixando, pronta para instalar) */
   update: null as UpdateState | null,
   showDiff: readPref('ovseer.diff') === '1' || readPref('ovseer.pane') === 'files',

@@ -482,7 +482,8 @@ const planDone = computed(() => {
   if (!t || t.running || running.value || t.error || !isPlanMode(t.mode) || questions.value.length) return false
   return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
 })
-const showPlanAsk = computed(() => askOpen.value && planDone.value && !(turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase !== 'discovery'))
+// Em análise periódica, entregar o plano encerra a tarefa; a implementação depende de outro pedido do usuário.
+const showPlanAsk = computed(() => !(info.value?.scheduled && info.value.mode === 'plan') && askOpen.value && planDone.value && !(turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase !== 'discovery'))
 /** Texto do plano pronto: o maior bloco de texto da última resposta (os outros são comentários entre as leituras) */
 const planText = computed(() => {
   if (!planDone.value) return ''

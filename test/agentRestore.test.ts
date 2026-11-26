@@ -13,6 +13,8 @@ let opened = 0
 let failAt = 0
 
 class Host extends EventEmitter {
+  visible = false
+  close = () => { this.emit('closed') }
   webContents = Object.assign(new EventEmitter(), {
     setWindowOpenHandler: vi.fn(), setBackgroundThrottling: vi.fn(), send: vi.fn(), isDestroyed: () => false
   })
@@ -25,7 +27,7 @@ class Host extends EventEmitter {
   isDestroyed = () => false
   isMinimized = () => false
   isFullScreen = () => false
-  isVisible = () => false
+  isVisible = () => this.visible
   getBounds = () => area
 }
 
@@ -128,4 +130,29 @@ it('sair enquanto restaura não substitui o retrato completo por uma lista parci
   await restoring
   expect(saved()).toEqual(before)
   expect(agents.agentWindowInfos()).toHaveLength(1)
+})
+
+it('execuções periódicas não entram no retrato usado para restaurar conversas', async () => {
+  const agents = await import('../src/main/agentChat')
+  const base = { provider: 'codex' as const, model: '', effort: 'high' as const, mode: 'full' as const, cwd: userData, hidden: true }
+  await agents.openAgentWindow({ ...base, scheduled: true })
+  await agents.openAgentWindow(base)
+  agents.shutdownAgents()
+  expect(saved()).toHaveLength(1)
+})
+
+it('libera somente a janela de execução periódica concluída; preserva perguntas e agentes manuais', async () => {
+  const agents = await import('../src/main/agentChat')
+  const base = { provider: 'codex' as const, model: '', effort: 'high' as const, mode: 'full' as const, cwd: userData, hidden: true }
+  const periodic = await agents.openAgentWindow({ ...base, scheduled: true })
+  const manual = await agents.openAgentWindow(base)
+  agents.reportStatus(periodic.uid, 'waiting')
+  agents.closeFinishedScheduledAgent(periodic.uid)
+  expect(agents.agentInfo(periodic.uid)).not.toBeNull()
+  agents.reportStatus(periodic.uid, 'done')
+  agents.closeFinishedScheduledAgent(periodic.uid)
+  expect(agents.agentInfo(periodic.uid)).toBeNull()
+  agents.reportStatus(manual.uid, 'done')
+  agents.closeFinishedScheduledAgent(manual.uid)
+  expect(agents.agentInfo(manual.uid)).not.toBeNull()
 })
