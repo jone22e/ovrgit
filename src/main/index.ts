@@ -684,6 +684,7 @@ function registerIpc() {
     })
   })
   ipcMain.handle('agent:info', (_e, uid: string) => agentChat.agentInfo(String(uid)))
+  ipcMain.handle('agent:subagent', (_e, uid: string, id: string) => agentChat.agentSubagent(String(uid), String(id)))
   ipcMain.handle('agent:scheduleSummary', (_e, uid: string) => {
     const sessionId = agentChat.agentInfo(String(uid))?.sessionId ?? null
     return scheduler?.summary(sessionId) ?? { sessionId, count: 0, nextRunAt: null }

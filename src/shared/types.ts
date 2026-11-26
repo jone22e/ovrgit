@@ -617,6 +617,7 @@ export interface BackgroundTask {
 }
 
 export type AgentChatEvent =
+  | { type: 'subagent'; update: import('./subagents').SubagentUpdate }
   | { type: 'scheduledStart'; runId: string }
   | { type: 'session'; sessionId: string; model?: string }
   | { type: 'text'; delta: string }
@@ -781,6 +782,8 @@ export interface DaySummary {
 
 /** Resumo de uma janela de agente aberta, publicado por ela para o gerenciador de agentes */
 export interface AgentSnapshot {
+  /** Subagentes nativos desta sessão, com a hierarquia fornecida pelo CLI. */
+  subagents?: import('./subagents').SubagentSummary[]
   uid: string
   /** Última resposta da conversa; permanece igual ao fechar e reabrir o app */
   lastTurnId?: string
@@ -1295,6 +1298,7 @@ export interface OvseerApi {
   /** Janela exclusiva de um agente de IA (Claude Code ou Codex) */
   agentOpen(opts: AgentChatOpen): Promise<AgentWindowInfo>
   agentInfo(uid: string): Promise<AgentWindowInfo | null>
+  agentSubagent(uid: string, id: string): Promise<import('./subagents').SubagentDetail | null>
   agentScheduleSummary(uid: string): Promise<import('./schedules').ScheduleSummary>
   onSchedulesChanged(cb: () => void): () => void
   agentSend(uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]): Promise<void>

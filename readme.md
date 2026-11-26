@@ -51,6 +51,9 @@ modelo local pelo Ollama.
 
 ### Agentes de IA
 
+- Subagentes nativos do Claude e do Codex aparecem em uma árvore abaixo da conversa principal, com atividade e
+  estado de cada filho. Expanda ou recolha os ramos e clique em um filho para acompanhar o pedido, as mensagens,
+  as ferramentas e o resultado disponibilizados pelo CLI. A hierarquia fica salva ao reabrir a conversa.
 - Peça ao próprio agente para criar, consultar ou cancelar tarefas periódicas por intervalo, diariamente ou em
   dias da semana, com horário e fuso definidos. O gerenciamento acontece pela conversa, sem uma tela dedicada.
   O próprio agente executa na conversa de origem, preservando seu histórico. Se estiver fechada, a sessão é

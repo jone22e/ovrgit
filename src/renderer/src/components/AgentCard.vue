@@ -289,6 +289,7 @@ async function saveRename() {
       </span>
       <small class="list-meta"><span>{{ group?.name ?? a.project }} · {{ a.model }}</span><span v-if="detail" class="list-activity"> · {{ detail }}</span></small>
     </div>
+    <slot v-if="compact" name="children" />
     <span v-if="compact && a.files?.count" class="stats mono list-stats" :title="`${a.files.count} ${a.files.count === 1 ? 'arquivo alterado' : 'arquivos alterados'} · +${a.files.add} −${a.files.del} linhas`">
       <Icon name="pencil" :size="11" /> {{ a.files.count }}
       <span class="sq" aria-hidden="true"><i v-for="k in 4" :key="k" :class="k <= addSquares ? 'add' : 'del'" /></span>
@@ -321,6 +322,7 @@ async function saveRename() {
         <small class="faint project"><RepoIcon :icon="workspaceIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="22" /><span class="ellipsis">{{ group?.name ?? a.project }} · {{ a.model }}</span></small>
       </div>
       <!-- rodando ou aguardando: anel de progresso (checklist feito/total; sem checklist, gira). Concluído e falhou: um selo pequeno -->
+      <slot name="children" />
       <!-- mascote no lugar do anel (Configurações): trabalhando, esperando você ou cochilando (parado) -->
       <AgentBuddy
         v-if="mascot && (a.status === 'live' || a.status === 'waiting')"

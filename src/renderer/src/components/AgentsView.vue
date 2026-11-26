@@ -8,7 +8,7 @@ import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { ago as agoSince } from '../ago'
 import { dockCovered, useDockVisibility } from '../dockVisibility'
-import AgentCard from './AgentCard.vue'
+import AgentBranch from './AgentBranch.vue'
 import QueuePanel from './QueuePanel.vue'
 import AskCard from './AskCard.vue'
 import AgentWindowMenu from './AgentWindowMenu.vue'
@@ -201,7 +201,7 @@ function select(a: AgentSnapshot | undefined) {
   nextTick(() => root.value?.querySelector(`[data-uid="${a.uid}"]`)?.scrollIntoView({ block: 'nearest' }))
 }
 function onKey(e: KeyboardEvent) {
-  if (state.tab !== 'agents' || planUid.value) return
+  if (state.tab !== 'agents' || planUid.value || document.querySelector('.backdrop')) return
   if (compactList.value && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     searchInput.value?.focus()
@@ -460,14 +460,14 @@ function pick(a: AgentSnapshot) {
         ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
           <h3>{{ section.label }} · {{ section.agents.length }}</h3>
           <div class="list-rows">
-            <AgentCard v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
+            <AgentBranch v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
           </div>
         </section>
         <p v-if="snaps.length && !order.length" class="list-no-match">Nenhum agente corresponde à busca.</p>
       </template>
       <section v-else-if="order.length" class="orch-list">
         <div class="list">
-          <AgentCard v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
+          <AgentBranch v-for="a in order" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
         </div>
       </section>
 

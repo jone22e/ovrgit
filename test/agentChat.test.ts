@@ -107,9 +107,9 @@ describe('saída do Claude Code (stream-json)', () => {
     expect(evs).toEqual([{ type: 'text', delta: 'Tudo certo.' }])
   })
 
-  it('ignora mensagens internas de subagentes e reporta erro no fim', () => {
+  it('separa mensagens internas de subagentes e reporta erro do principal no fim', () => {
     const s = st()
-    expect(parseClaudeLine(j({ type: 'assistant', parent_tool_use_id: 'x', message: { content: [{ type: 'text', text: 'interno' }] } }), s)).toEqual([])
+    expect(parseClaudeLine(j({ type: 'assistant', parent_tool_use_id: 'x', message: { content: [{ type: 'text', text: 'interno' }] } }), s)).toEqual([{ type: 'subagent', update: { id: 'claude:x', provider: 'claude', event: { type: 'text', delta: 'interno' } } }])
     expect(parseClaudeLine(j({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Falhou' }), s)[0]).toMatchObject({ type: 'done', ok: false, error: 'Falhou' })
     expect(parseClaudeLine('não é json', s)).toEqual([])
   })
@@ -580,7 +580,7 @@ describe('parseClaudeLine: tarefas em segundo plano', () => {
   })
   it('CLI sem a lista: o task_started em segundo plano basta, o de primeiro plano não conta', () => {
     const st: ClaudeParseState = { cwd: '/p', streamed: 0, done: false }
-    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 'a1', description: 'Subagente', is_backgrounded: true, task_type: 'local_agent' }), st)).toEqual([{ type: 'background', tasks: [{ id: 'a1', description: 'Subagente', kind: 'local_agent' }] }])
+    expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 'a1', description: 'Subagente', is_backgrounded: true, task_type: 'local_agent' }), st)).toContainEqual({ type: 'background', tasks: [{ id: 'a1', description: 'Subagente', kind: 'local_agent' }] })
     expect(parseClaudeLine(JSON.stringify({ type: 'system', subtype: 'task_started', task_id: 's1', description: 'Em primeiro plano', is_backgrounded: false }), st)).toEqual([])
     expect(st.bg?.size).toBe(1)
   })

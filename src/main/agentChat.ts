@@ -31,6 +31,8 @@ import { chromeAgentSession } from './chromeExtension'
 import { chromeTools, type ChromeSession } from './chromeBridge'
 import type { PersistentMcpEndpoint } from './persistentMcp'
 import { schedulesNote } from '../shared/schedulesNote'
+import { SubagentHistory } from './subagentHistory'
+import type { SubagentUpdate } from '../shared/subagents'
 
 /**
  * Janela exclusiva de um agente de IA (Claude Code ou Codex), no estilo dos apps deles.
@@ -104,6 +106,7 @@ interface AgentWin {
 }
 
 const wins = new Map<string, AgentWin>()
+const subagents = new SubagentHistory(() => path.join(app.getPath('userData'), 'subagent-history'))
 let setup: { icon: string; background: () => string; main: () => BrowserWindow | null; simulatorNote?: () => string } | null = null
 
 export function setupAgentWindows(s: { icon: string; background: () => string; main: () => BrowserWindow | null; simulatorNote?: () => string }) {
@@ -483,6 +486,7 @@ function wireHost(uid: string, win: BrowserWindow, onReady: 'show' | 'showInacti
     // hospedeiro trocado: a conversa continua no novo
     if (!current()) return
     const w = wins.get(uid)
+    if (w?.info.sessionId) { subagents.interrupt(w.info.sessionId); subagents.flush(w.info.sessionId) }
     if (dockedUid === uid) dockedUid = null
     if (w?.child) terminate(w.child, 'codex')
     w?.ollamaAbort?.abort()
@@ -677,6 +681,11 @@ export function agentInfo(uid: string): AgentWindowInfo | null {
   return wins.get(uid)?.info ?? null
 }
 
+export function agentSubagent(uid: string, id: string) {
+  const session = wins.get(uid)?.info.sessionId
+  return session ? subagents.detail(session, id) : null
+}
+
 /**
  * Área da tela correspondente a uma escolha no grid: a área útil (sem barra de menu e Dock) da tela onde a
  * janela está, dividida em colunas × linhas. Célula e extensão fora do grid são encaixadas nele.
@@ -844,6 +853,7 @@ export function agentSnapshots(): AgentSnapshot[] {
     // no modo orquestrador, ficar fora da área não é "escondida": é só não ser a conversa da vez
     .map((w) => ({
       ...w.snap!,
+      subagents: subagents.list(w.info.sessionId),
       icon: w.info.icon,
       hidden: !!w.floating && !w.win.isVisible(),
       floating: !!w.floating,
@@ -1118,6 +1128,13 @@ export function availableStandby(): AvailableAgent[] {
 }
 
 function emit(w: AgentWin, ev: AgentChatEvent) {
+  if (ev.type === 'subagent') {
+    if (w.info.sessionId) {
+      subagents.apply(w.info.sessionId, ev.update)
+      broadcastSnapshots()
+    }
+    return
+  }
   for (const fn of eventListeners) {
     try { fn(w.info.uid, ev) } catch (e) { console.error('Falha ao acompanhar o evento do agente:', e) }
   }
@@ -1429,6 +1446,9 @@ const safeModel = (m: string) => (/^[\w.:/-]+$/.test(m) ? m : '')
 // ---------- tradução da saída do Claude Code (stream-json) ----------
 
 export interface ClaudeParseState {
+  children?: Map<string, ClaudeParseState>
+  subagentTools?: Set<string>
+  subagentNativeIds?: Map<string, string>
   cwd: string
   /** Chamadas de ferramenta que escrevem no arquivo de plano do Claude Code (id → caminho) */
   planTools?: Map<string, string>
@@ -1567,8 +1587,21 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     return []
   }
   const out: AgentChatEvent[] = []
-  // mensagens internas de subagentes não entram na conversa
-  if (o.parent_tool_use_id) return out
+  // Conteúdo de um filho fica na sua própria execução; nunca vaza para o texto do principal.
+  if (typeof o.parent_tool_use_id === 'string' && o.parent_tool_use_id) {
+    const parent = o.parent_tool_use_id
+    const children = st.children ??= new Map()
+    let child = children.get(parent)
+    if (!child) { child = { cwd: st.cwd, streamed: 0, done: false }; children.set(parent, child) }
+    for (const ev of parseClaudeLine(JSON.stringify({ ...o, parent_tool_use_id: null }), child)) {
+      if (ev.type === 'subagent') out.push({ type: 'subagent', update: { ...ev.update, parentId: ev.update.parentId ?? `claude:${parent}` } })
+      else if (ev.type === 'session') out.push({ type: 'subagent', update: { id: `claude:${parent}`, provider: 'claude', nativeId: ev.sessionId } })
+      else if (['text', 'tool', 'toolResult', 'thinking', 'done'].includes(ev.type)) out.push({ type: 'subagent', update: {
+        id: `claude:${parent}`, provider: 'claude', event: ev as SubagentUpdate['event']
+      } })
+    }
+    return out
+  }
   const msg = (o.message ?? {}) as { content?: ClaudeBlock[]; model?: string; usage?: { input_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }
   if (o.type === 'system' && o.subtype === 'init') {
     if (typeof o.model === 'string') st.model = o.model
@@ -1582,6 +1615,16 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     st.bg = new Map(list.filter((t) => t.task_id && !t.ambient).map((t) => [String(t.task_id), bgTaskOf(t)]))
     out.push({ type: 'background', tasks: [...st.bg.values()] })
   } else if (o.type === 'system' && o.subtype === 'task_started') {
+    // O CLI fornece o id da chamada, o id nativo e o pai também para subagentes em primeiro plano.
+    if (o.task_type === 'local_agent' && typeof o.task_id === 'string' && !o.ambient) {
+      const toolId = typeof o.tool_use_id === 'string' ? o.tool_use_id : o.task_id
+      ;(st.subagentTools ??= new Set()).add(toolId)
+      ;(st.subagentNativeIds ??= new Map()).set(o.task_id, toolId)
+      const parent = typeof o.parent_task_id === 'string' ? st.subagentNativeIds.get(o.parent_task_id) : undefined
+      out.push({ type: 'subagent', update: { id: `claude:${toolId}`, provider: 'claude', nativeId: o.task_id,
+        parentId: parent ? `claude:${parent}` : undefined, status: 'live',
+        name: typeof o.description === 'string' ? o.description : undefined, prompt: typeof o.prompt === 'string' ? o.prompt : undefined } })
+    }
     // CLI sem a lista acima: a tarefa que nasce em segundo plano entra por aqui
     if (o.is_backgrounded && o.task_id && !o.ambient && !st.bg?.has(String(o.task_id))) {
       ;(st.bg ??= new Map()).set(String(o.task_id), bgTaskOf(o as { task_id?: unknown; description?: unknown; task_type?: unknown }))
@@ -1591,6 +1634,9 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
     // a tarefa terminou (o CLI retoma a conversa sozinho em seguida)
     const id = String(o.task_id ?? '')
     const t = st.bg?.get(id)
+    const agentTool = st.subagentNativeIds?.get(id)
+    if (agentTool) out.push({ type: 'subagent', update: { id: `claude:${agentTool}`, provider: 'claude', status: o.status === 'completed' ? 'done' : 'error',
+      ...(typeof o.summary === 'string' ? { result: o.summary } : {}) } })
     if (t) {
       st.bg!.delete(id)
       out.push({ type: 'background', tasks: [...st.bg!.values()], finished: { description: t.description, status: String(o.status ?? 'completed'), summary: typeof o.summary === 'string' ? o.summary : undefined } })
@@ -1635,6 +1681,12 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
         // sem pedaços parciais (CLI antigo ou opção ignorada): entrega o texto inteiro de uma vez
         if (!st.streamed) out.push({ type: 'text', delta: b.text })
       } else if (b.type === 'tool_use' && b.id && b.name) {
+        if (b.name === 'Agent' || b.name === 'Task') {
+          ;(st.subagentTools ??= new Set()).add(b.id)
+          out.push({ type: 'subagent', update: { id: `claude:${b.id}`, provider: 'claude', status: 'live',
+            name: typeof b.input?.description === 'string' ? b.input.description : 'Subagente',
+            prompt: typeof b.input?.prompt === 'string' ? b.input.prompt : undefined } })
+        }
         // fim do modo plano: o plano vem dentro da chamada da ferramenta, e sem alguém para aprovar ele ficaria escondido
         if (b.name === 'ExitPlanMode' && typeof b.input?.plan === 'string' && b.input.plan.trim()) {
           out.push({ type: 'text', delta: `\n\n${b.input.plan.trim()}\n\n` })
@@ -1647,6 +1699,14 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
   } else if (o.type === 'user') {
     for (const b of msg.content ?? []) {
       if (b.type === 'tool_result' && b.tool_use_id) {
+        if (st.subagentTools?.has(b.tool_use_id)) {
+          const meta = (o.tool_use_result ?? o.toolUseResult ?? {}) as { agentId?: unknown; isAsync?: unknown }
+          const nativeId = typeof meta.agentId === 'string' ? meta.agentId : undefined
+          if (nativeId) (st.subagentNativeIds ??= new Map()).set(nativeId, b.tool_use_id)
+          const result = textOf(b.content).slice(-100_000)
+          out.push({ type: 'subagent', update: { id: `claude:${b.tool_use_id}`, provider: 'claude', nativeId,
+            status: b.is_error ? 'error' : meta.isAsync === true || [...(st.bg?.keys() ?? [])].some((id) => st.subagentNativeIds?.get(id) === b.tool_use_id) ? 'live' : 'done', result: result || undefined } })
+        }
         out.push({ type: 'toolResult', id: b.tool_use_id, ok: !b.is_error, output: textOf(b.content).slice(-4000) })
         // o plano foi gravado (ou ajustado) no arquivo do Claude: quem repassa os eventos lê o arquivo e mostra na conversa
         const planFile = st.planTools?.get(b.tool_use_id)
@@ -1683,6 +1743,7 @@ export function parseClaudeLine(line: string, st: ClaudeParseState): AgentChatEv
 // ---------- tradução da saída do Codex (exec --json) ----------
 
 export interface CodexParseState {
+  sessionId?: string
   /** Quanto do texto de cada item já foi entregue (os itens chegam repetidos, cada vez mais completos) */
   emitted: Map<string, number>
   error: string | null
@@ -1690,6 +1751,10 @@ export interface CodexParseState {
 }
 
 interface CodexItem {
+  sender_thread_id?: string
+  receiver_thread_ids?: string[]
+  agents_states?: Record<string, { status?: string; message?: string }>
+  prompt?: string
   id?: string
   type?: string
   text?: string
@@ -1730,12 +1795,28 @@ export function parseCodexLine(line: string, st: CodexParseState): AgentChatEven
   const out: AgentChatEvent[] = []
   const t = o.type ?? ''
   if (t === 'thread.started' && o.thread_id) {
+    st.sessionId = o.thread_id
     out.push({ type: 'session', sessionId: o.thread_id })
   } else if (t.startsWith('item.') && o.item) {
     const it = o.item
     const id = it.id ?? `${it.type}-${st.emitted.size}`
     const completed = t === 'item.completed'
-    if (it.type === 'agent_message' && typeof it.text === 'string') {
+    if (it.type === 'collab_tool_call') {
+      for (const receiver of Array.isArray(it.receiver_thread_ids) ? it.receiver_thread_ids : []) {
+        if (typeof receiver !== 'string' || !receiver || receiver === st.sessionId) continue
+        const state = it.agents_states?.[receiver]
+        const status = state?.status === 'completed' ? 'done' : state?.status === 'errored' || state?.status === 'not_found' || state?.status === 'notFound' ? 'error'
+          : state?.status === 'shutdown' || state?.status === 'interrupted' ? 'stopped' : undefined
+        const itemKey = `subagent:${id}:${receiver}`
+        const first = !st.emitted.has(itemKey)
+        st.emitted.set(itemKey, 1)
+        out.push({ type: 'subagent', update: { id: `codex:${receiver}`, provider: 'codex', nativeId: receiver,
+          ...(first && it.prompt ? { name: it.prompt.replace(/\s+/g, ' ').slice(0, 90) } : {}),
+          parentId: it.sender_thread_id && it.sender_thread_id !== st.sessionId ? `codex:${it.sender_thread_id}` : undefined,
+          ...(first && it.prompt ? { prompt: it.prompt } : {}), ...(status ? { status } : {}),
+          ...(completed && state?.message ? { result: state.message.slice(-100_000) } : {}) } })
+      }
+    } else if (it.type === 'agent_message' && typeof it.text === 'string') {
       const sent = st.emitted.get(id) ?? 0
       if (it.text.length > sent) {
         out.push({ type: 'text', delta: it.text.slice(sent) })
@@ -2230,6 +2311,11 @@ export async function sendToAgent(uid: string, text: string, opts: AgentSendOpti
   })
   child.on('close', (code, signal) => {
     if (buf.trim()) handle(buf)
+    if ((child.killed || signal || (code !== null && code !== 0)) && w.info.sessionId) {
+      subagents.interrupt(w.info.sessionId)
+      subagents.flush(w.info.sessionId)
+      broadcastSnapshots()
+    }
     // Se a vez foi interrompida durante a espera, o último resultado pode ser da resposta anterior.
     if (claudeCompletion?.waiting && (child.killed || signal || (code !== null && code !== 0))) claudeSt.done = false
     else claudeCompletion?.flush()
@@ -2853,6 +2939,7 @@ export function backToPreviousChat(uid: string): boolean {
 
 export function cancelAgent(uid: string) {
   const w = wins.get(uid)
+  if (w?.info.sessionId) subagents.interrupt(w.info.sessionId)
   if (w?.pendingSend) {
     w.pendingSend = undefined
     w.info.running = false
@@ -2866,6 +2953,8 @@ export function cancelAgent(uid: string) {
 let quitting = false
 
 export function shutdownAgents() {
+  for (const w of wins.values()) if (w.info.sessionId) subagents.interrupt(w.info.sessionId)
+  subagents.flush()
   quitting = true
   // o retrato fica como estava com tudo aberto: as janelas que vão fechar agora não saem dele
   saveOpenAgents()
