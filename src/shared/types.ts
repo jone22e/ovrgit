@@ -461,6 +461,8 @@ export type AgentMode = 'plan' | 'checklist' | 'architect' | 'full'
 
 /** Pedido para abrir a janela exclusiva de um agente */
 export interface AgentChatOpen {
+  /** Preferência 1,5x exclusiva desta conversa (novas começam desligadas). */
+  fast?: boolean
   provider: CliProvider
   model: string
   effort: AgentEffort
@@ -617,6 +619,7 @@ export interface BackgroundTask {
 }
 
 export type AgentChatEvent =
+  | { type: 'fastPreference'; enabled: boolean }
   | { type: 'subagent'; update: import('./subagents').SubagentUpdate }
   | { type: 'scheduledStart'; runId: string }
   | { type: 'session'; sessionId: string; model?: string }
@@ -877,6 +880,8 @@ export type AgentAction =
   | { type: 'dock' }
 
 export interface AgentHistoryItem {
+  /** Preferência 1,5x salva para esta sessão, independente da última tarefa executada. */
+  fast?: boolean
   sessionId: string
   /** Ícone escolhido para esta conversa */
   icon?: string
@@ -1298,6 +1303,7 @@ export interface OvseerApi {
   /** Janela exclusiva de um agente de IA (Claude Code ou Codex) */
   agentOpen(opts: AgentChatOpen): Promise<AgentWindowInfo>
   agentInfo(uid: string): Promise<AgentWindowInfo | null>
+  agentSetFast(uid: string, on: boolean): Promise<boolean>
   agentSubagent(uid: string, id: string): Promise<import('./subagents').SubagentDetail | null>
   agentScheduleSummary(uid: string): Promise<import('./schedules').ScheduleSummary>
   onSchedulesChanged(cb: () => void): () => void

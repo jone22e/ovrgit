@@ -12,7 +12,6 @@ import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
 import type { ScheduleSummary } from '@shared/schedules'
-import { readCodexFast } from './agentPrefs'
 import { useDictation } from './dictation'
 import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, CONTINUE_REQUEST, canAutoRetry } from '@shared/autoRetry'
 import { handoffDigest, handoffPreamble, handoffTranscript } from '@shared/handoff'
@@ -205,6 +204,13 @@ function expectResume(on: boolean) {
   if (on) resumeTimer = setTimeout(() => (resuming.value = false), 20_000)
 }
 const sessionId = ref<string | null>(null)
+const codexFast = ref(false)
+async function setCodexFast(on: boolean) {
+  const previous = codexFast.value
+  codexFast.value = on
+  try { codexFast.value = await api.agentSetFast(uid, on) }
+  catch (e) { codexFast.value = previous; attachError.value = clean(e) }
+}
 const known = ref<KnownModels | null>(null)
 /** Último modelo/esforço de cada IA, guardado pelo diálogo "Novo agente" (mesma origem: compartilhado) */
 const pickerDefaults = (() => {
@@ -716,6 +722,7 @@ function apply(ev: AgentChatEvent) {
     saveAgentVoice()
     return
   }
+  if (ev.type === 'fastPreference') { codexFast.value = ev.enabled; return }
   if (ev.type === 'title') {
     if (!editingTitle.value) chatTitle.value = ev.title
     return
@@ -1063,7 +1070,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   if (p.mode) setMode(p.mode)
   if (p.auto) clearRetryTimer()
   else resetRetry()
-  const fast = provider.value === 'codex' && readCodexFast()
+  const fast = provider.value === 'codex' && codexFast.value
   const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, scheduled: !!p.scheduledRun, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, fast, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
@@ -2118,6 +2125,7 @@ onMounted(async () => {
     return
   }
   info.value = i
+  codexFast.value = i.fast === true
   bgTasks.value = i.bgTasks ?? []
   provider.value = i.provider
   model.value = i.model
@@ -2527,7 +2535,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
         <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole na janela)" :disabled="!info" @click="pickFiles">
           <Icon name="paperclip" :size="15" />
         </button>
-        <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" />
+        <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" :fast="codexFast" providers :lock-provider="!!sessionId" :known="known" :defaults="pickerDefaults" @update:fast="setCodexFast" />
         <div ref="modeRoot" class="mode-menu">
           <!-- só o ícone: o nome do modo fica na dica e no menu -->
           <button type="button" class="chip mode-chip" :class="[`m-${mode}`, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">

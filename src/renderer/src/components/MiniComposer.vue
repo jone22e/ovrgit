@@ -310,7 +310,7 @@ onUnmounted(() => {
     <slot name="scope" />
     <div class="row">
       <button type="button" class="ghost icon attach" title="Anexar arquivos (ou arraste/cole aqui)" @click="pickFiles"><Icon name="paperclip" :size="15" /></button>
-      <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :lock-provider="!!agent" :known="known" :defaults="pickerDefaults" />
+      <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" providers :no-fast="manager" :lock-provider="!!agent" :known="known" :defaults="pickerDefaults" />
       <div ref="modeRoot" class="mode-menu">
         <button type="button" class="chip mode-chip" :class="[`m-${mode}`, { on: modeOpen }]" :title="`${currentMode.label}: ${currentMode.hint}`" :aria-label="currentMode.label" @click="modeOpen = !modeOpen">
           <Icon :name="currentMode.icon" :size="13" />

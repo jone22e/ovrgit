@@ -16,6 +16,7 @@ const prefs = readAgentPrefs()
 const provider = ref<CliProvider>(prefs.provider)
 const model = ref(prefs.model[prefs.provider])
 const effort = ref<AgentEffort>(prefs.effort[prefs.provider])
+const fast = ref(false)
 // o Plano pode ser escolhido aqui, mas não vira o padrão: o diálogo sempre abre num modo que executa
 const START_MODES = MODES
 // toda conversa nova começa em Controle Total (o modo escolhido vale só para a conversa)
@@ -73,6 +74,7 @@ async function openAgent() {
       model: model.value,
       effort: effort.value,
       mode: mode.value,
+      fast: provider.value === 'codex' && fast.value,
       cwd: state.repo.root,
       firstMessage
     })
@@ -119,7 +121,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <button type="button" class="ghost icon small" title="Abrir sem esse pedido" @click="brief = null"><Icon name="x" :size="12" /></button>
     </div>
 
-    <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" inline providers :known="known" :defaults="defaults" />
+    <ModelPicker v-model:provider="provider" v-model:model="model" v-model:effort="effort" v-model:fast="fast" inline providers :known="known" :defaults="defaults" />
     <p v-if="detected && !detected[provider]" class="bad">
       {{ CLI_NAME[provider] }} não foi encontrado. {{ INSTALL[provider] }}
     </p>

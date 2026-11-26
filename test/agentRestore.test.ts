@@ -24,6 +24,7 @@ class Host extends EventEmitter {
   }
   loadFile = async () => undefined
   loadURL = async () => undefined
+  setTitle = vi.fn()
   isDestroyed = () => false
   isMinimized = () => false
   isFullScreen = () => false
@@ -70,6 +71,24 @@ function seed(): OpenAgent[] {
   return agents
 }
 const saved = (): OpenAgent[] => JSON.parse(readFileSync(snapshotFile, 'utf8')).agents
+
+it('1,5x é exclusivo da conversa escolhida, sem afetar agentes abertos ou conversas novas', async () => {
+  const agents = await import('../src/main/agentChat')
+  const opts = { provider: 'codex' as const, model: '', effort: 'high' as const, mode: 'full' as const, cwd: userData, hidden: true }
+  const a = await agents.openAgentWindow(opts)
+  const b = await agents.openAgentWindow(opts)
+  expect(agents.setAgentFast(a.uid, true)).toBe(true)
+  expect(agents.agentInfo(a.uid)?.fast).toBe(true)
+  expect(agents.agentInfo(b.uid)?.fast).toBe(false)
+  const fresh = await agents.openAgentWindow(opts)
+  expect(agents.agentInfo(fresh.uid)?.fast).toBe(false)
+  agents.setAgentFast(b.uid, true)
+  agents.setAgentFast(a.uid, false)
+  expect(agents.agentInfo(b.uid)?.fast).toBe(true)
+  expect(agents.agentInfo(a.uid)?.fast).toBe(false)
+  await agents.newChat(b.uid)
+  expect(agents.agentInfo(b.uid)?.fast).toBe(false)
+})
 
 it('restaura mais de 24 conversas e conserva a ordem mesmo com telas carregando em outra sequência', async () => {
   const before = seed()

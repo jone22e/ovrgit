@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
@@ -7,7 +7,12 @@ import type { AgentTurn, AgentWindowInfo } from '../src/shared/types'
 const userData = mkdtempSync(path.join(tmpdir(), 'ovseer-history-persistence-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData } }))
 afterAll(() => rmSync(userData, { recursive: true, force: true }))
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.resetModules()
+  rmSync(userData, { recursive: true, force: true })
+  mkdirSync(userData, { recursive: true })
+})
 
 const info = (sessionId: string): AgentWindowInfo => ({
   uid: sessionId, sessionId, provider: 'codex', model: '', effort: 'high', mode: 'full',
@@ -16,6 +21,25 @@ const info = (sessionId: string): AgentWindowInfo => ({
 const turn = (id: string): AgentTurn => ({
   id, user: 'Pedido', attachments: [], running: false, thinking: false, startedAt: 1000,
   blocks: [{ kind: 'tool', id: 'tool', name: 'Bash', title: 'Testes', ok: true, open: true }]
+})
+
+it('salva a preferência 1,5x por sessão e a alteração não reordena outras conversas', async () => {
+  vi.useFakeTimers()
+  const history = await import('../src/main/agentHistory')
+  vi.setSystemTime(10000)
+  history.saveTranscript({ ...info('fast-session'), fast: true }, [turn('fast-turn')], 'done')
+  vi.setSystemTime(20000)
+  history.saveTranscript({ ...info('standard-session'), fast: false }, [turn('standard-turn')], 'done')
+  vi.setSystemTime(30000)
+  history.setHistoryFast('fast-session', false)
+  expect(history.findHistory('standard-session')?.fast).toBe(false)
+  expect(history.findHistory('fast-session')).toMatchObject({ fast: false, updatedAt: 10000 })
+  history.setHistoryFast('standard-session', true)
+  expect(history.findHistory('fast-session')?.fast).toBe(false)
+  vi.resetModules()
+  const reopened = await import('../src/main/agentHistory')
+  expect(reopened.findHistory('standard-session')).toMatchObject({ fast: true, updatedAt: 20000 })
+  expect(reopened.findHistory('fast-session')?.fast).toBe(false)
 })
 
 it('reabrir e republicar transcrições em outra ordem não altera a ordem do histórico', async () => {

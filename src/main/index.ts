@@ -674,6 +674,7 @@ function registerIpc() {
       model: String(opts?.model ?? '').slice(0, 80),
       effort: opts?.effort,
       mode: agentChat.normalizeMode(opts?.mode),
+      fast: typeof opts?.fast === 'boolean' ? opts.fast : undefined,
       cwd,
       extraDirs: Array.isArray(opts?.extraDirs) ? opts.extraDirs.map(String).filter((d) => d !== cwd && existsSync(d)).slice(0, 12) : undefined,
       firstMessage: typeof opts?.firstMessage === 'string' ? opts.firstMessage.slice(0, 50000) : undefined,
@@ -684,6 +685,7 @@ function registerIpc() {
     })
   })
   ipcMain.handle('agent:info', (_e, uid: string) => agentChat.agentInfo(String(uid)))
+  ipcMain.handle('agent:setFast', (_e, uid: string, on: boolean) => agentChat.setAgentFast(String(uid), on === true))
   ipcMain.handle('agent:subagent', (_e, uid: string, id: string) => agentChat.agentSubagent(String(uid), String(id)))
   ipcMain.handle('agent:scheduleSummary', (_e, uid: string) => {
     const sessionId = agentChat.agentInfo(String(uid))?.sessionId ?? null

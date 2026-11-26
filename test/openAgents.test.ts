@@ -18,6 +18,13 @@ describe('toOpenAgent', () => {
 })
 
 describe('reopenRequest', () => {
+  it('preserva 1,5x apenas no agente que o ativou e mantém as outras conversas no padrão', () => {
+    const fast = toOpenAgent(info({ fast: true }), { docked: false, hidden: false })
+    const standard = toOpenAgent(info({ uid: 'other', sessionId: 'other-thread', fast: false }), { docked: false, hidden: false })
+    expect(reopenRequest(fast).fast).toBe(true)
+    expect(reopenRequest(standard).fast).toBeUndefined()
+    expect(parseSnapshot(JSON.stringify({ agents: [fast, standard] }), () => true).map((a) => a.fast)).toEqual([true, undefined])
+  })
   it('retoma a sessão e nasce quieto; só o encaixado toma a área; janela própria volta como janela', () => {
     const a = toOpenAgent(info(), { docked: true, hidden: false })
     expect(reopenRequest(a)).toMatchObject({ resumeId: 'thread-abc-123', standby: false, hidden: false, floating: false, quiet: false })

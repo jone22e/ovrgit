@@ -11,6 +11,7 @@ import type { AgentOrderState } from './agentOrder'
  * voltam prontos para a fila, e a conversa que ocupava a área do orquestrador volta a ela.
  */
 export interface OpenAgent {
+  fast?: boolean
   provider: CliProvider
   model: string
   effort: AgentEffort
@@ -39,6 +40,7 @@ const file = () => path.join(app.getPath('userData'), 'open-agents.json')
 /** O retrato de um agente aberto, a partir do que o processo principal sabe dele */
 export function toOpenAgent(info: AgentWindowInfo, o: { docked: boolean; hidden: boolean; floating?: boolean; order?: AgentOrderState }): OpenAgent {
   const a: OpenAgent = { provider: info.provider, model: info.model, effort: info.effort, mode: info.mode, cwd: info.cwd }
+  if (info.provider === 'codex' && info.fast) a.fast = true
   if (info.extraDirs?.length) a.extraDirs = info.extraDirs
   if (info.sessionId) a.sessionId = info.sessionId
   if (info.standby) a.standby = true
@@ -60,6 +62,7 @@ export function reopenRequest(a: OpenAgent): AgentChatOpen {
     effort: a.effort,
     mode: a.mode,
     cwd: a.cwd,
+    ...(a.fast === true ? { fast: true } : {}),
     extraDirs: a.extraDirs,
     resumeId: a.sessionId,
     standby: !!a.standby,
@@ -85,6 +88,7 @@ export function parseSnapshot(raw: string, exists: (p: string) => boolean = exis
     if (!PROVIDERS.has(provider) || typeof x.cwd !== 'string' || !x.cwd || !exists(x.cwd)) continue
     const effort = EFFORTS[provider].some((e) => e.id === x.effort) ? (x.effort as AgentEffort) : DEFAULT_EFFORT[provider]
     const a: OpenAgent = { provider, model: typeof x.model === 'string' ? x.model.slice(0, 80) : '', effort, mode: x.mode as AgentMode, cwd: x.cwd }
+    if (provider === 'codex' && x.fast === true) a.fast = true
     const extra = Array.isArray(x.extraDirs) ? x.extraDirs.filter((d): d is string => typeof d === 'string' && d !== a.cwd && exists(d)).slice(0, 12) : []
     if (extra.length) a.extraDirs = extra
     if (typeof x.sessionId === 'string' && SESSION_ID.test(x.sessionId)) a.sessionId = x.sessionId

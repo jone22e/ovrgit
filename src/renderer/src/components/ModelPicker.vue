@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { CLAUDE_ALIASES, CLAUDE_EXACT, CLAUDE_FAMILIES, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, PROVIDERS, agyModelEffort, effortsFor, modelLabel } from '@shared/models'
 import type { AgentEffort, CliProvider, KnownModels, ModelInfo, ProviderStatus } from '@shared/types'
-import { readCodexFast, writeCodexFast } from '../agentPrefs'
 import AgentLogo from './AgentLogo.vue'
 import Icon from './Icon.vue'
 
@@ -28,18 +27,15 @@ const props = defineProps<{
 const provider = defineModel<CliProvider>('provider', { required: true })
 const model = defineModel<string>('model', { required: true })
 const effort = defineModel<AgentEffort>('effort', { required: true })
+const fast = defineModel<boolean>('fast', { default: false })
 
 const open = ref(false)
 const root = ref<HTMLElement>()
-/** Modo rápido do Codex: uma preferência só, de todas as conversas (outra janela pode ter mudado: relê ao abrir) */
-const fast = ref(readCodexFast())
 const showFast = computed(() => provider.value === 'codex' && !props.noEffort && !props.noFast)
 const showEffort = computed(() => !props.noEffort && (provider.value !== 'ollama' || /^SparkLLM\/Spark-X2\.6-4B(?::|$)/i.test(model.value)) && (provider.value !== 'agy' || !agyModelEffort(model.value)))
 function toggleFast() {
   fast.value = !fast.value
-  writeCodexFast(fast.value)
 }
-watch(open, (o) => o && (fast.value = readCodexFast()))
 const CUSTOM = '__custom__'
 const ollamaStatus = ref<ProviderStatus | null>(null)
 const localModels = ref<string[]>([])
@@ -377,7 +373,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onDoc))
           />
         </div>
       </div>
-      <button v-if="showFast" type="button" class="ghost fast" :class="{ on: fast }" role="switch" :aria-checked="fast" title="O mesmo do botão 1.5x do app do Codex. Vale para todas as conversas com o ChatGPT, a partir da próxima mensagem." @click="toggleFast">
+      <button v-if="showFast" type="button" class="ghost fast" :class="{ on: fast }" role="switch" :aria-checked="fast" title="Modo rápido somente nesta conversa, a partir da próxima mensagem." @click="toggleFast">
         <Icon name="zap" :size="14" />
         <span class="fast-text"><strong>Modo rápido · 1,5x</strong><small>Respostas mais rápidas, gastando mais do limite</small></span>
         <span class="switch" />

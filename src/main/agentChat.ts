@@ -14,7 +14,7 @@ import { CHECKLIST_FORMAT, isPlanMode } from '../shared/checklist'
 import { getSettings } from './settings'
 import { serviceStates } from './services'
 import { AGENT_MIN_WIN, fitGrid, normalizeGrid } from '../shared/grid'
-import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryIcon, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
+import { findHistory, historyBounds, listHistory, loadTranscript, setHistoryBounds, setHistoryFast, setHistoryIcon, setHistoryStatus, setHistoryTitle, titleOf } from './agentHistory'
 import { readOpenAgents, reopenRequest, toOpenAgent, writeOpenAgents, type OpenAgent } from './openAgents'
 import { completedOrder, snapshotOrder, type AgentOrderState } from './agentOrder'
 import { quickAsk } from './quickAi'
@@ -644,6 +644,7 @@ export async function openAgentWindow(opts: AgentChatOpen, order?: AgentOrderSta
   const prev = opts.resumeId ? findHistory(opts.resumeId) : undefined
   const info: AgentWindowInfo = {
     ...opts,
+    fast: opts.provider === 'codex' && (opts.fast ?? prev?.fast ?? false),
     effort: opts.provider === 'agy' ? agyModelEffort(opts.model) ?? opts.effort : opts.effort,
     uid,
     project: path.basename(opts.cwd),
@@ -679,6 +680,20 @@ export async function openAgentWindow(opts: AgentChatOpen, order?: AgentOrderSta
 
 export function agentInfo(uid: string): AgentWindowInfo | null {
   return wins.get(uid)?.info ?? null
+}
+
+export function setAgentFast(uid: string, on: boolean): boolean {
+  const w = wins.get(uid)
+  if (!w) throw new Error('Conversa não encontrada.')
+  const fast = w.info.provider === 'codex' && on === true
+  if (w.info.sessionId) setHistoryFast(w.info.sessionId, fast)
+  for (const other of wins.values()) {
+    if (other !== w && (!w.info.sessionId || other.info.sessionId !== w.info.sessionId)) continue
+    other.info.fast = fast
+    emit(other, { type: 'fastPreference', enabled: fast })
+  }
+  scheduleOpenAgentsSave()
+  return fast
 }
 
 export function agentSubagent(uid: string, id: string) {
@@ -2806,6 +2821,7 @@ export async function newChat(uid: string) {
   w.ollamaTurns = undefined
   w.info.resumeId = undefined
   w.info.firstMessage = undefined
+  w.info.fast = false
   w.info.title = ''
   w.info.icon = undefined
   w.info.renamed = false
@@ -2928,6 +2944,7 @@ export function backToPreviousChat(uid: string): boolean {
   w.info.handoff = null
   w.handoffToken = undefined
   w.info.sessionId = prevId
+  w.info.fast = w.info.provider === 'codex' && prev?.fast === true
   w.info.resumeId = prevId
   w.info.title = prev?.title ?? ''
   w.info.icon = prev?.icon

@@ -74,6 +74,7 @@ export function saveTranscript(info: AgentWindowInfo, turns: AgentTurn[], status
   if (!unchanged) writeJson(transcriptFile(info.sessionId), { sessionId: info.sessionId, turns: clean })
   const now = Date.now()
   const item: AgentHistoryItem = {
+    fast: info.provider === 'codex' && info.fast === true,
     sessionId: info.sessionId,
     provider: info.provider,
     model: info.model,
@@ -109,6 +110,15 @@ export function setHistoryTitle(sessionId: string, title: string, renamed: boole
   it.title = title
   it.renamed = renamed
   it.updatedAt = Date.now()
+  save(items)
+}
+
+/** Atualiza o modo rápido somente desta sessão, sem mudar sua posição no histórico. */
+export function setHistoryFast(sessionId: string, fast: boolean) {
+  const items = load()
+  const item = items.find((i) => i.sessionId === sessionId)
+  if (!item || item.fast === fast) return
+  item.fast = fast
   save(items)
 }
 
