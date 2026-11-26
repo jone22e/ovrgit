@@ -573,7 +573,7 @@ function pick(a: AgentSnapshot) {
 /* Fixadas no modo lista: mesmas dimensões e colunas das linhas de agentes concluídos. */
 .orch .pinned-compact .sec { align-items: center; margin: 0 10px 8px; color: var(--faint); font-size: 10px; letter-spacing: .13em; }
 .orch .pinned-compact .list { display: flex; flex-direction: column; gap: 4px; }
-.orch .pinned-compact .item.closed { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto 24px 13px; align-items: center; gap: 12px; min-height: 68px; margin: 0; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; }
+.orch .pinned-compact .item.closed { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto 24px 13px; align-items: center; gap: 12px; min-height: 68px; margin: 0; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
 .orch .pinned-compact .item.closed:hover { background: var(--hover); }
 .pinned-avatar { position: relative; grid-column: 1; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--panel-2); }
 .pinned-avatar::before { content: ''; position: absolute; inset: 0; border: 2px solid color-mix(in srgb, var(--faint) 28%, transparent); border-radius: 50%; }

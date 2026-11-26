@@ -278,7 +278,7 @@ async function saveRename() {
 </script>
 
 <template>
-  <article class="acard" :class="[tone, { sel: selected, fresh, compact }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
+  <article class="acard" :class="[tone, { sel: selected, fresh, compact, pinned: a.pinned }]" :data-uid="a.uid" @click="onClick" @contextmenu="onMenu">
     <span v-if="compact" class="list-avatar" :class="{ running: tone === 'live' }" :title="`${group?.name ?? a.project} · ${statusLabel}`"><RepoIcon :icon="workspaceIcon" :favicon="group ? null : projectIcons.get(a.cwd)" :group="!!group" :size="34" /><i :class="tone" /></span>
     <div v-if="compact" class="list-copy">
       <input v-if="renaming" ref="renameInput" v-model="draft" type="text" class="rename" maxlength="120" placeholder="Título da conversa" @keydown.stop @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename" />
@@ -545,6 +545,7 @@ async function saveRename() {
 /* Modo lista: uma linha por agente, com estado e ações à vista. */
 .acard.compact { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto auto auto 24px; align-items: center; gap: 12px; min-height: 68px; padding: 8px 16px; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; }
 .acard.compact:not(.sel) { border-color: transparent; }
+.acard.compact.pinned { background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
 .acard.compact:hover { background: var(--hover); transform: none; }
 .acard.compact.sel { border-color: transparent; background: var(--accent-soft); }
 .acard.compact.fresh { background: color-mix(in srgb, var(--add) 13%, var(--panel)); }
