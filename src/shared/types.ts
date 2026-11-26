@@ -1080,13 +1080,6 @@ export interface ProviderStatus {
 }
 
 export interface OvseerApi {
-  schedulesList(): Promise<import('./schedules').ScheduledTask[]>
-  scheduleSave(input: import('./schedules').ScheduleInput, id?: string): Promise<import('./schedules').ScheduledTask>
-  scheduleEnable(id: string, enabled: boolean): Promise<import('./schedules').ScheduledTask>
-  scheduleRemove(id: string): Promise<void>
-  scheduleRun(id: string): Promise<import('./schedules').ScheduleRun>
-  scheduleOpen(id: string, runId: string): Promise<void>
-  onSchedulesChanged(cb: () => void): () => void
   simulatorList(): Promise<SimulatorCatalog>
   simulatorDebugProjects(roots: string[]): Promise<SimulatorDebugProject[]>
   simulatorCheckEnvironment(roots: string[], platform: SimulatorPlatform, deviceId: string): Promise<SimulatorEnvironmentReport>

@@ -6,17 +6,6 @@ import type {
 import type { DesignAction, DesignWindowState } from '../shared/architect'
 
 const api: OvseerApi = {
-  schedulesList: () => ipcRenderer.invoke('schedules:list'),
-  scheduleSave: (input, id) => ipcRenderer.invoke('schedules:save', input, id),
-  scheduleEnable: (id, enabled) => ipcRenderer.invoke('schedules:enable', id, enabled),
-  scheduleRemove: (id) => ipcRenderer.invoke('schedules:remove', id),
-  scheduleRun: (id) => ipcRenderer.invoke('schedules:run', id),
-  scheduleOpen: (id, runId) => ipcRenderer.invoke('schedules:open', id, runId),
-  onSchedulesChanged: (cb) => {
-    const h = () => cb()
-    ipcRenderer.on('schedules:changed', h)
-    return () => ipcRenderer.off('schedules:changed', h)
-  },
   simulatorList: () => ipcRenderer.invoke('simulator:list'),
   simulatorDebugProjects: (root) => ipcRenderer.invoke('simulator:debug-projects', root),
   simulatorCheckEnvironment: (roots, platform, id) => ipcRenderer.invoke('simulator:check-environment', roots, platform, id),

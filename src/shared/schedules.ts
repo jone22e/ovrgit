@@ -35,14 +35,6 @@ export interface ScheduledTask extends ScheduleInput {
   runs: ScheduleRun[]
 }
 
-export const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-
-export function timingLabel(timing: ScheduleTiming): string {
-  if (timing.kind === 'interval') return `A cada ${timing.minutes} min`
-  const days = timing.kind === 'daily' ? 'Todos os dias' : timing.days.map((d) => WEEKDAYS[d]).join(', ')
-  return `${days} às ${timing.time} · ${timing.timezone}`
-}
-
 /** Procura instantes reais no fuso: horários inexistentes no verão são pulados. */
 export function nextScheduleTime(timing: ScheduleTiming, after: number): number {
   if (timing.kind === 'interval') return after + timing.minutes * 60_000

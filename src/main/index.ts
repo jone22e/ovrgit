@@ -54,7 +54,6 @@ import * as deployAuth from './deployAuth'
 import * as agentApi from './agentApi'
 import { Scheduler } from './schedules'
 import { scheduledAgentExecutor } from './scheduledAgents'
-import type { ScheduleInput } from '../shared/schedules'
 import { randomUUID } from 'node:crypto'
 import * as buddy from './buddy'
 import * as servicesShare from './servicesShare'
@@ -65,10 +64,6 @@ import type { ServicesFile } from '../shared/servicesShare'
 let win: BrowserWindow | null = null
 let root: string | null = null
 let scheduler: Scheduler | null = null
-function requireScheduler(): Scheduler {
-  if (!scheduler) throw new Error('Agendamentos indisponíveis. Confira o log do Ovseer.')
-  return scheduler
-}
 
 /** Operações que escrevem no repositório rodam uma de cada vez (evita conflito de index.lock). */
 let queue: Promise<unknown> = Promise.resolve()
@@ -889,25 +884,6 @@ function registerIpc() {
   })
   // serviços em segundo plano (menu do usuário → Serviços)
   ipcMain.handle('services:states', () => services.serviceStates())
-  ipcMain.handle('schedules:list', () => requireScheduler().list())
-  ipcMain.handle('schedules:save', (_e, input: ScheduleInput, id?: string) => id ? requireScheduler().update(id, input) : requireScheduler().create(input))
-  ipcMain.handle('schedules:enable', (_e, id: string, enabled: boolean) => {
-    if (typeof enabled !== 'boolean') throw new Error('Estado inválido.')
-    return requireScheduler().enable(String(id), enabled)
-  })
-  ipcMain.handle('schedules:remove', (_e, id: string) => requireScheduler().remove(String(id)))
-  ipcMain.handle('schedules:run', (_e, id: string) => requireScheduler().run(String(id)))
-  ipcMain.handle('schedules:open', async (_e, id: string, runId: string) => {
-    const task = requireScheduler().list().find((t) => t.id === id)
-    const run = task?.runs.find((r) => r.id === runId)
-    if (!task || !run) throw new Error('Execução não encontrada.')
-    if (run.uid && agentChat.agentInfo(run.uid)) return agentChat.showAgentWindow(run.uid)
-    if (!run.sessionId) throw new Error('Esta execução não chegou a criar uma conversa.')
-    const history = agentHistory.findHistory(run.sessionId)
-    if (!history) throw new Error('A conversa não está mais no histórico. O resultado permanece no agendamento.')
-    await agentChat.openAgentWindow({ provider: history.provider, model: history.model, effort: history.effort,
-      mode: history.mode, cwd: history.cwd, resumeId: run.sessionId })
-  })
   ipcMain.handle('services:export', (_e, ids?: string[]) => servicesShare.exportToFile(win!, Array.isArray(ids) ? ids.map(String) : undefined))
   ipcMain.handle('services:importPick', () => servicesShare.pickImport(win!))
   ipcMain.handle('services:importResolve', (_e, file: ServicesFile, root: string, picked?: Record<string, string>) =>
@@ -1033,9 +1009,7 @@ app.whenReady().then(() => {
   } })
   taskQueue.setupQueue((tasks) => toMain('queue:changed', tasks))
   try {
-    scheduler = new Scheduler(path.join(app.getPath('userData'), 'schedules.json'), scheduledAgentExecutor(), () => {
-      for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('schedules:changed')
-    })
+    scheduler = new Scheduler(path.join(app.getPath('userData'), 'schedules.json'), scheduledAgentExecutor())
   } catch (e) { console.error('Não consegui carregar os agendamentos:', e) }
   buddy.registerBuddyIpc()
   buddy.setupBuddy({

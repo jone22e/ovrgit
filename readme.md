@@ -51,9 +51,9 @@ modelo local pelo Ollama.
 
 ### Agentes de IA
 
-- **Agendamentos** no menu do usuário: tarefas por intervalo, diariamente ou em dias da semana, com horário e
-  fuso definidos. Também podem ser criadas, editadas, pausadas e excluídas por um agente quando você pedir.
-  Cada execução abre uma conversa separada; a tela guarda as últimas 50 execuções, resultados e acesso às conversas.
+- Peça ao próprio agente para criar, consultar ou cancelar tarefas periódicas por intervalo, diariamente ou em
+  dias da semana, com horário e fuso definidos. O gerenciamento acontece pela conversa, sem uma tela dedicada.
+  Cada execução abre uma conversa separada; o agente pode consultar as últimas 50 execuções e seus resultados.
   Requer Ovseer aberto e computador acordado. Ao retornar, executa uma vez o horário atrasado, sem acumular
   repetições nem sobrepor execuções da mesma tarefa. Pausar impede as próximas execuções; interrompa a atual
   pela conversa. Execuções interrompidas ao encerrar o app ficam no histórico e não são repetidas automaticamente.
