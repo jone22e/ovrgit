@@ -223,6 +223,12 @@ export interface DeploySnapshot {
   expectedTests: number
 }
 
+/** Mantém o histórico visível quando a consulta falha, sem afirmar que a operação ainda está ativa. */
+export function preserveDeployHistory(previous: DeploySnapshot | null, next: DeploySnapshot): DeploySnapshot {
+  if (next.console === 'ready' || !previous?.current) return next
+  return { ...next, current: previous.current, releases: previous.releases, expectedTests: previous.expectedTests, operation: null }
+}
+
 /** Último estado de deploy de cada projeto recente com manifesto. */
 export interface DeployOverviewEntry {
   root: string

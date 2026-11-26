@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { DeployLock, DeployManifest, DeployPlanResult, DeploySnapshot, DeployStepView } from '@shared/deploy'
-import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, releaseFailure, releaseStatusLabel, remoteReleaseResult } from '@shared/deploy'
+import { buildDeploySteps, formatDuration, isLiveRelease, isSuccessfulRelease, lockLine, preserveDeployHistory, releaseFailure, releaseStatusLabel, remoteReleaseResult } from '@shared/deploy'
 import { api, state, toast } from '../store'
 import DeployActivity from './DeployActivity.vue'
 import Icon from './Icon.vue'
@@ -149,9 +149,9 @@ async function refresh() {
   const r = repoRoot.value
   try {
     const s = await api.deploySnapshot(r)
-    if (repoRoot.value === r) snap.value = s
+    if (repoRoot.value === r) snap.value = preserveDeployHistory(snap.value, s)
   } catch (e) {
-    if (repoRoot.value === r) snap.value = { ...emptySnap(), console: 'error', error: cleanErr(e) }
+    if (repoRoot.value === r) snap.value = preserveDeployHistory(snap.value, { ...emptySnap(), console: 'error', error: cleanErr(e) })
   } finally {
     refreshing = false
   }
@@ -392,9 +392,9 @@ watch(repoRoot, () => void loadManifest())
         <button type="button" class="ghost small" @click="open = false"><Icon name="x" :size="13" /> Fechar</button>
       </div>
       <p v-if="manifestError" class="msg err">{{ manifestError }}</p>
+      <p v-else-if="!snap" class="msg faint"><span class="spinner" /> Consultando o console de deploy…</p>
       <template v-else>
-        <p v-if="!snap" class="msg faint"><span class="spinner" /> Consultando o console de deploy…</p>
-        <div v-else-if="snap.console === 'stopped'" class="console-off">
+        <div v-if="snap.console === 'stopped'" class="console-off">
           <template v-if="snap.service && !snap.service.registered">
             <p class="muted">O console de deploy ainda não está nos seus Serviços. Cadastrar e ligar?</p>
             <p class="proposal"><strong>{{ snap.service.name }}</strong><span class="mono">{{ snap.service.command }}</span><span class="faint ellipsis">{{ snap.service.cwd }}</span></p>
@@ -405,15 +405,16 @@ watch(repoRoot, () => void loadManifest())
             <button class="small primary" :disabled="busy === 'console'" @click="startConsole"><Icon name="play" :size="13" /> Ligar console</button>
           </template>
         </div>
-        <p v-else-if="snap.console === 'starting'" class="msg faint"><span class="spinner" /> Subindo o console (<span class="mono">{{ manifest?.kind === 'console' ? manifest.start : '' }}</span>)… pode levar um minuto.</p>
+        <p v-else-if="snap.console === 'starting'" class="msg faint"><span class="spinner" /> {{ current ? 'Aguardando resposta do console de deploy…' : 'Subindo o console… pode levar um minuto.' }}</p>
         <p v-else-if="snap.console === 'error'" class="msg err">{{ snap.error }}</p>
-        <template v-else>
-          <div v-if="lockSupported && lockError" class="lockbar broken">
+        <template v-if="snap.console === 'ready' || current">
+          <p v-if="snap.console !== 'ready'" class="msg faint">Exibindo as últimas etapas recebidas. A atualização será retomada quando o console responder.</p>
+          <div v-if="snap.console === 'ready' && lockSupported && lockError" class="lockbar broken">
             <Icon name="alert" :size="14" />
             <span class="txt">Não consegui consultar a trava compartilhada: {{ lockError }}</span>
           </div>
 
-          <div v-else-if="lockSupported && lockedWithoutOperation && lock" class="lockbar" :class="{ stale: lock.stale }">
+          <div v-else-if="snap.console === 'ready' && lockSupported && lockedWithoutOperation && lock" class="lockbar" :class="{ stale: lock.stale }">
             <Icon name="lock" :size="14" />
             <span class="txt">{{ lockLine(lock, now) }}</span>
             <template v-if="lock.stale">
@@ -429,7 +430,7 @@ watch(repoRoot, () => void loadManifest())
           <p v-if="lockedWithoutOperation" class="msg faint">A trava não confirma que o processo continua executando. As etapas abaixo são do histórico deste computador.</p>
           <p v-else-if="remoteResult" class="msg faint">{{ remoteResult }}</p>
 
-          <div v-if="planning" class="newdeploy">
+          <div v-if="planning && snap.console === 'ready'" class="newdeploy">
             <h5><Icon name="cloudUp" :size="15" /> Novo deploy</h5>
             <label v-if="!isScript" class="check"><input v-model="typesenseFirst" type="checkbox" :disabled="busy === 'plan' || busy === 'run'" /> Typesense primeiro (loja virtual antes de Sistemas)</label>
             <div v-if="targets.length" class="targets">
@@ -497,7 +498,7 @@ watch(repoRoot, () => void loadManifest())
             <div class="tagline">
               <span class="tag mono">{{ current.tag }}</span>
               <span v-if="current.target" class="status target">{{ targetTitle(current.target) }}</span>
-              <span class="status" :class="operation ? 'running' : current.status">{{ operation ? 'Em execução aqui' : (remoteResult || lockedWithoutOperation) ? `Histórico local: ${releaseStatusLabel(current.status).toLowerCase()}` : releaseStatusLabel(current.status) }}</span>
+              <span class="status" :class="operation ? 'running' : current.status">{{ snap.console !== 'ready' ? 'Último estado recebido' : operation ? 'Em execução aqui' : (remoteResult || lockedWithoutOperation) ? `Histórico local: ${releaseStatusLabel(current.status).toLowerCase()}` : releaseStatusLabel(current.status) }}</span>
             </div>
             <div class="meta faint">
               commit <span class="mono">{{ (current.commit ?? '').slice(0, 8) }}</span>
@@ -512,13 +513,15 @@ watch(repoRoot, () => void loadManifest())
             <span v-if="operation" class="spinner state-spinner" />
             <Icon v-else :name="isSuccessfulRelease(current) ? 'check' : 'alert'" :size="17" />
             <div>
-              <strong v-if="operation">Deploy em execução</strong>
+              <strong v-if="snap.console !== 'ready'">Atualização indisponível</strong>
+              <strong v-else-if="operation">Deploy em execução</strong>
               <strong v-else-if="attemptRejected">{{ failure?.title }} falhou</strong>
               <strong v-else-if="current.status === 'failed'">Última falha local: {{ failure?.title }}</strong>
               <strong v-else-if="isLiveRelease(current)">Release marcada como em andamento</strong>
               <strong v-else-if="isSuccessfulRelease(current)">Deploy concluído</strong>
               <strong v-else>{{ releaseStatusLabel(current.status) }}</strong>
-              <p v-if="operation">{{ runningStep ? `Etapa atual: ${runningStep.title}.` : `Operação ${operation.name} ativa no console.` }}</p>
+              <p v-if="snap.console !== 'ready'">O andamento atual será confirmado na próxima consulta.</p>
+              <p v-else-if="operation">{{ runningStep ? `Etapa atual: ${runningStep.title}.` : `Operação ${operation.name} ativa no console.` }}</p>
               <p v-else-if="attemptRejected && current.last_attempt">Tentativa de {{ date(current.last_attempt.finished_at) }} · {{ current.last_attempt.host }} ({{ current.last_attempt.user }}).</p>
               <p v-else-if="current.status === 'failed'">Nenhuma operação ativa neste computador.</p>
               <p v-else-if="isLiveRelease(current)">Nenhuma operação ativa registrada neste computador.</p>
@@ -567,13 +570,13 @@ watch(repoRoot, () => void loadManifest())
           </ol>
 
           <div class="foot">
-            <template v-if="operation">
+            <template v-if="snap.console === 'ready' && operation">
               <button v-if="operation.cancellable && !confirmCancel" class="ghost small" :disabled="!!operation.cancel_requested_at" @click="confirmCancel = true">
                 <Icon name="stop" :size="13" /> {{ operation.cancel_requested_at ? 'Cancelando…' : 'Cancelar' }}
               </button>
               <button v-else-if="operation.cancellable" class="small danger" :disabled="busy === 'cancel'" @click="cancelDeploy">Confirmar cancelamento</button>
             </template>
-            <template v-else>
+            <template v-else-if="snap.console === 'ready'">
               <button class="small primary" :disabled="lockedWithoutOperation || busy !== ''" :title="lockedWithoutOperation && lock ? lockLine(lock, now) : 'Gera o plano e pede sua aprovação antes de iniciar'" @click="startPlanning">
                 <Icon name="cloudUp" :size="13" /> Novo deploy
               </button>

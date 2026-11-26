@@ -1,12 +1,46 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, releaseFailure, remoteReleaseResult, stripAnsi,
-  type DeployLock, type DeployManifest, type DeployRelease
+  DEFAULT_CONSOLE_STEPS, DEPLOY_STEP_MARKER, buildDeploySteps, formatDuration, lockLine, overallStatus, parseDeployManifest, preserveDeployHistory, releaseFailure, remoteReleaseResult, stripAnsi,
+  type DeployLock, type DeployManifest, type DeployRelease, type DeploySnapshot
 } from '../src/shared/deploy'
 
 const manifest = (): DeployManifest => parseDeployManifest(JSON.stringify({ ovseer: 'deploy', version: 1, kind: 'console', start: 'make deploy-console', port: 3098 }))
 
 const release = (phases: DeployRelease['phases'], status = 'running'): DeployRelease => ({ tag: 'aws-2026.11.04.02', status, phases })
+
+describe('histórico durante falhas de consulta', () => {
+  const snapshot = (overrides: Partial<DeploySnapshot> = {}): DeploySnapshot => ({
+    console: 'ready', origin: 'http://localhost:3098', operation: null, releases: [], current: null,
+    expectedTests: 0, lockSupported: true, ...overrides
+  })
+
+  it.each(['starting', 'stopped', 'error'] as const)('mantém as etapas quando o console fica %s, sem manter operação ativa', (console) => {
+    const current = release({ preflight: { status: 'completed' }, plan: { status: 'running' } })
+    const previous = snapshot({
+      current, releases: [current], expectedTests: 1500,
+      operation: { operation_id: '1', name: 'deploy', started_at: '2026-11-04T12:00:00Z', release_tag: current.tag, cancellable: true }
+    })
+    const next = snapshot({ console, error: 'Sem resposta' })
+    const saved = preserveDeployHistory(previous, next)
+    expect(saved).toMatchObject({ console, error: 'Sem resposta', current, releases: [current], expectedTests: 1500, operation: null })
+    expect(buildDeploySteps(manifest(), saved.current)).toEqual(buildDeploySteps(manifest(), current))
+    expect(preserveDeployHistory(saved, next).current).toEqual(current)
+  })
+
+  it('retoma com as etapas atualizadas e respeita histórico vazio confirmado pelo console', () => {
+    const previous = snapshot({ current: release({ plan: { status: 'running' } }) })
+    const offline = preserveDeployHistory(previous, snapshot({ console: 'starting' }))
+    const next = snapshot({ current: release({ plan: { status: 'completed' }, tests: { status: 'running' } }) })
+    expect(preserveDeployHistory(offline, next)).toBe(next)
+    expect(preserveDeployHistory(offline, snapshot()).current).toBeNull()
+  })
+
+  it('não inventa histórico na primeira consulta nem depois de trocar de projeto', () => {
+    const next = snapshot({ console: 'starting' })
+    expect(preserveDeployHistory(null, next)).toBe(next)
+    expect(preserveDeployHistory(snapshot(), next)).toBe(next)
+  })
+})
 
 describe('manifesto do deploy', () => {
   it('aceita o mínimo e preenche nome e etapas padrão', () => {
