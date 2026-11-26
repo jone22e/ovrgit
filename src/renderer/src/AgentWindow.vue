@@ -11,6 +11,7 @@ import { DEFAULT_EFFORT, DEFAULT_MODEL, MODES, PROVIDER_LABEL, catalogOf, modelL
 import { GRID_DEFAULT, clampGrid, fitGrid, gridLimitsFor, normalizeGrid } from '@shared/grid'
 import { formatAnswers, splitQuestions, type AgentQuestion } from '@shared/questions'
 import { checksOf } from '@shared/agentChecks'
+import type { ScheduleSummary } from '@shared/schedules'
 import { readCodexFast } from './agentPrefs'
 import { useDictation } from './dictation'
 import { AUTO_RETRY_DELAYS, AUTO_RETRY_MAX, CONTINUE_REQUEST, canAutoRetry } from '@shared/autoRetry'
@@ -224,6 +225,31 @@ const thread = ref<HTMLElement>()
 const box = ref<HTMLTextAreaElement>()
 const fatal = ref<string | null>(null)
 const offs: (() => void)[] = []
+const scheduleSummary = ref<ScheduleSummary>({ sessionId: null, count: 0, nextRunAt: null })
+let scheduleRequest = 0
+async function refreshScheduleSummary() {
+  const session = sessionId.value
+  const request = ++scheduleRequest
+  if (!session) return
+  try {
+    const summary = await api.agentScheduleSummary(uid)
+    if (request === scheduleRequest && sessionId.value === session && summary.sessionId === session) scheduleSummary.value = summary
+  } catch {
+    if (request === scheduleRequest) scheduleSummary.value = { sessionId: session, count: 0, nextRunAt: null }
+  }
+}
+watch(sessionId, () => {
+  scheduleSummary.value = { sessionId: sessionId.value, count: 0, nextRunAt: null }
+  void refreshScheduleSummary()
+})
+offs.push(api.onSchedulesChanged(() => { void refreshScheduleSummary() }))
+offs.push(() => { scheduleRequest++ })
+const scheduleTitle = computed(() => {
+  const { count, nextRunAt } = scheduleSummary.value
+  const countText = count === 1 ? '1 agendamento ativo' : `${count} agendamentos ativos`
+  const next = nextRunAt === null ? '' : `\nPróxima execução: ${new Date(nextRunAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} (horário local)`
+  return `${countText}${next}\nPeça ao agente para consultar ou cancelar.`
+})
 
 const providerName = computed(() => PROVIDER_LABEL[provider.value])
 /** Retomada automática depois de uma falha: segundos até a próxima tentativa (null: nenhuma marcada) */
@@ -2175,6 +2201,9 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
         </span>
       </div>
       <span class="spacer" />
+      <span v-if="scheduleSummary.count" class="schedule-indicator" role="img" :aria-label="scheduleTitle" :title="scheduleTitle" tabindex="0">
+        <Icon name="clock" :size="13" /><span>{{ scheduleSummary.count }}</span>
+      </span>
       <button type="button" class="ghost icon head-btn" :class="{ on: simulatorOpen }" :aria-pressed="simulatorOpen" title="Simuladores iOS e Android" @click="simulatorOpen = !simulatorOpen"><Icon name="smartphone" :size="15" /></button>
       <button v-if="voicePlatform" type="button" class="ghost icon head-btn" :class="{ on: voiceActive() }" :title="voiceActive() ? 'Desativar voz deste agente' : 'Ativar voz deste agente'" @click="toggleVoice"><Icon name="volume" :size="15" /></button>
       <button v-if="voicePlatform && voicePendingCount" type="button" class="ghost icon head-btn" title="Interromper e limpar áudios deste agente" @click="stopVoice"><Icon name="stop" :size="13" /></button>
@@ -2661,6 +2690,7 @@ onUnmounted(() => { resetVoice(); offs.forEach((f) => f()) })
 .head-btn.on { background: var(--hover); }
 .head-btn.back { color: var(--accent); }
 .head-btn.pin.pinned { color: var(--accent); }
+.schedule-indicator { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; margin-right: 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 11px; font-weight: 600; flex: none; cursor: default; -webkit-app-region: no-drag; }
 .grid-menu { position: relative; flex: none; -webkit-app-region: no-drag; }
 /* o menu do grid abre para baixo, encostado à direita do botão (mais específico que .pop, que vem depois e abre para cima) */
 .grid-menu .pop { left: auto; right: 0; bottom: auto; top: calc(100% + 6px); width: 320px; -webkit-app-region: no-drag; }

@@ -1295,6 +1295,8 @@ export interface OvseerApi {
   /** Janela exclusiva de um agente de IA (Claude Code ou Codex) */
   agentOpen(opts: AgentChatOpen): Promise<AgentWindowInfo>
   agentInfo(uid: string): Promise<AgentWindowInfo | null>
+  agentScheduleSummary(uid: string): Promise<import('./schedules').ScheduleSummary>
+  onSchedulesChanged(cb: () => void): () => void
   agentSend(uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]): Promise<void>
   agentCancel(uid: string): Promise<void>
   /** Conversa nova na mesma janela, com o mesmo agente (interrompe a resposta em curso) */

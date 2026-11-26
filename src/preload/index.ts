@@ -308,6 +308,12 @@ const api: OvseerApi = {
   windowDrag: (dx, dy, begin) => ipcRenderer.send('window:drag', dx, dy, !!begin),
   agentOpen: (opts) => ipcRenderer.invoke('agent:open', opts),
   agentInfo: (uid) => ipcRenderer.invoke('agent:info', uid),
+  agentScheduleSummary: (uid) => ipcRenderer.invoke('agent:scheduleSummary', uid),
+  onSchedulesChanged: (cb) => {
+    const h = () => cb()
+    ipcRenderer.on('schedules:changed', h)
+    return () => ipcRenderer.off('schedules:changed', h)
+  },
   agentSend: (uid, text, opts, attachments) => ipcRenderer.invoke('agent:send', uid, text, opts, attachments ?? []),
   agentCancel: (uid) => ipcRenderer.invoke('agent:cancel', uid),
   agentNewChat: (uid) => ipcRenderer.invoke('agent:new', uid),

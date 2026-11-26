@@ -684,6 +684,10 @@ function registerIpc() {
     })
   })
   ipcMain.handle('agent:info', (_e, uid: string) => agentChat.agentInfo(String(uid)))
+  ipcMain.handle('agent:scheduleSummary', (_e, uid: string) => {
+    const sessionId = agentChat.agentInfo(String(uid))?.sessionId ?? null
+    return scheduler?.summary(sessionId) ?? { sessionId, count: 0, nextRunAt: null }
+  })
   ipcMain.handle('agent:send', (_e, uid: string, text: string, opts: AgentSendOptions, attachments?: AgentAttachment[]) =>
     agentChat.sendToAgent(
       String(uid),
@@ -1009,7 +1013,9 @@ app.whenReady().then(() => {
   } })
   taskQueue.setupQueue((tasks) => toMain('queue:changed', tasks))
   try {
-    scheduler = new Scheduler(path.join(app.getPath('userData'), 'schedules.json'), scheduledAgentExecutor())
+    scheduler = new Scheduler(path.join(app.getPath('userData'), 'schedules.json'), scheduledAgentExecutor(), () => {
+      for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed()) wc.send('schedules:changed')
+    })
   } catch (e) { console.error('Não consegui carregar os agendamentos:', e) }
   buddy.registerBuddyIpc()
   buddy.setupBuddy({

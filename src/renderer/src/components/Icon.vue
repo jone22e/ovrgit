@@ -5,6 +5,7 @@ defineProps<{ name: keyof typeof paths; size?: number }>()
 <script lang="ts">
 // Traços no estilo Lucide (ISC)
 const paths = {
+  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
   power: 'M18.4 5.6a9 9 0 1 1-12.8 0M12 2v10',
   smartphone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
   camera: 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_EFFORT, EFFORTS } from '../shared/models'
-import { nextScheduleTime, type ScheduleInput, type ScheduledTask, type ScheduleRun, type ScheduleTiming } from '../shared/schedules'
+import { nextScheduleTime, type ScheduleInput, type ScheduledTask, type ScheduleRun, type ScheduleTiming, type ScheduleSummary } from '../shared/schedules'
 import type { CliProvider } from '../shared/types'
 
 export class ScheduleError extends Error {
@@ -79,6 +79,10 @@ export class Scheduler {
     }
   }
   list(): ScheduledTask[] { return structuredClone(this.tasks) }
+  summary(sessionId: string | null): ScheduleSummary {
+    const active = sessionId ? this.tasks.filter((task) => task.sessionId === sessionId && task.enabled) : []
+    return { sessionId, count: active.length, nextRunAt: active.length ? Math.min(...active.map((task) => task.nextRunAt)) : null }
+  }
   private commit(change: (tasks: ScheduledTask[]) => void) {
     const next = this.list()
     change(next)

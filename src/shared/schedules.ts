@@ -37,6 +37,13 @@ export interface ScheduledTask extends ScheduleInput {
   runs: ScheduleRun[]
 }
 
+/** Informação de leitura usada pelo indicador da conversa. */
+export interface ScheduleSummary {
+  sessionId: string | null
+  count: number
+  nextRunAt: number | null
+}
+
 /** Procura instantes reais no fuso: horários inexistentes no verão são pulados. */
 export function nextScheduleTime(timing: ScheduleTiming, after: number): number {
   if (timing.kind === 'interval') return after + timing.minutes * 60_000
