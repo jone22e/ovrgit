@@ -938,6 +938,13 @@ export function actOnAgent(uid: string, action: AgentAction) {
   w.win.webContents.send('agent:act', uid, action)
 }
 
+const scheduledDeliveries = new Map<string, { uid: string; sessionId: string }>()
+export function deliverScheduledMessage(uid: string, action: Extract<AgentAction, { type: 'scheduled' }>) {
+  scheduledDeliveries.set(action.runId, { uid, sessionId: action.sessionId })
+  actOnAgent(uid, action)
+}
+export function releaseScheduledMessage(runId: string) { scheduledDeliveries.delete(runId) }
+
 export function showAgentWindow(uid: string) {
   const w = wins.get(uid)
   if (!w || w.win.isDestroyed()) return
@@ -957,13 +964,6 @@ export function closeAgentWindows(uids: string[]) {
     w.closing = true
     w.win.close()
   }
-}
-
-/** Libera a janela invisível de uma tarefa periódica depois de a transcrição final ter sido gravada. */
-export function closeFinishedScheduledAgent(uid: string) {
-  const w = wins.get(uid)
-  if (!w?.info.scheduled || w.win.isDestroyed() || w.win.isVisible() || w.info.running) return
-  if (w.status === 'done' || w.status === 'error') closeAgentWindows([uid])
 }
 
 /** Esconde a janela sem fechar: a conversa continua viva e o agente segue trabalhando */
@@ -1891,6 +1891,12 @@ function terminate(child: ChildProcessWithoutNullStreams, provider: CliProvider)
 export async function sendToAgent(uid: string, text: string, opts: AgentSendOptions, attachments: AgentAttachment[] = [], pending?: PendingAgentSend): Promise<void> {
   const w = wins.get(uid)
   if (!w) throw new Error('Janela do agente não encontrada.')
+  if (opts.scheduledRun) {
+    const delivery = scheduledDeliveries.get(opts.scheduledRun.id)
+    if (delivery?.uid !== uid || delivery.sessionId !== opts.scheduledRun.sessionId) throw new Error('A entrega agendada não está mais pendente.')
+    if (w.info.sessionId !== opts.scheduledRun.sessionId) throw new Error('A conversa mudou. A tarefa agendada não foi enviada.')
+    emit(w, { type: 'scheduledStart', runId: opts.scheduledRun.id })
+  }
   if (w.child) {
     // O Claude aceita novas mensagens pelo stdin mesmo durante uma resposta ou uma tarefa em segundo plano.
     // Reusar o processo mantém essas tarefas vivas; modelo, esforço e modo mudam quando nascer outro processo.
@@ -2886,7 +2892,7 @@ function saveOpenAgents() {
   if (openAgentsFrozen) return
   if (openAgentsTimer) clearTimeout(openAgentsTimer)
   openAgentsTimer = null
-  const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing && !w.info.scheduled)
+  const open = [...wins.values()].filter((w) => !w.win.isDestroyed() && !w.closing)
   const agents = open.map((w) => toOpenAgent(w.info, { docked: w.info.uid === dockedUid, hidden: !!w.background && !w.win.isVisible(), floating: !!w.floating, order: w.order }))
   agents.push(...unrestoredAgents)
   const json = JSON.stringify(agents)

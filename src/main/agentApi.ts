@@ -1,7 +1,7 @@
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
-import type { Service, ServiceState } from '../shared/types'
+import type { AgentWindowInfo, Service, ServiceState } from '../shared/types'
 import { ScheduleError, type Scheduler } from './schedules'
 import { validSimulatorAction, type SimulatorAction, type SimulatorCatalog, type SimulatorDevice } from '../shared/simulator'
 
@@ -14,6 +14,7 @@ import { validSimulatorAction, type SimulatorAction, type SimulatorCatalog, type
 
 export interface AgentApiBackend {
   schedules?: Pick<Scheduler, 'list' | 'create' | 'update' | 'enable' | 'remove' | 'run'>
+  scheduleAgent?: (uid: string) => AgentWindowInfo | null
   services(): Service[]
   states(): ServiceState[]
   start(id: string): Promise<void>
@@ -100,7 +101,15 @@ export function startAgentApi(backend: AgentApiBackend): Promise<AgentApiInfo> {
         if ((req.method === 'POST' && !id) || (req.method === 'PUT' && id && !action)) {
           let body: unknown
           try { body = JSON.parse(await readBody(req)) } catch { return json(res, 400, { error: 'Envie um objeto JSON válido.' }) }
-          return json(res, id ? 200 : 201, id ? schedules.update(id, body) : schedules.create(body))
+          if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: 'Envie um objeto JSON.' })
+          const data = body as Record<string, unknown>
+          const agent = typeof data.agentUid === 'string' ? backend.scheduleAgent?.(data.agentUid) : null
+          if (!agent?.sessionId) return json(res, 400, { error: 'Informe o agentUid desta conversa ativa. O agendamento precisa de uma sessão de origem.' })
+          const previous = id ? schedules.list().find((t) => t.id === id) : undefined
+          if (previous?.sessionId && previous.sessionId !== agent.sessionId) return json(res, 409, { error: 'Edite este agendamento pela conversa de origem.' })
+          const input = { ...previous, ...data, sessionId: agent.sessionId, provider: agent.provider, cwd: agent.cwd,
+            model: agent.model, effort: agent.effort, mode: agent.mode === 'plan' ? 'plan' : 'full' }
+          return json(res, id ? 200 : 201, id ? schedules.update(id, input) : schedules.create(input))
         }
         if (req.method === 'DELETE' && id && !action) {
           schedules.remove(id)

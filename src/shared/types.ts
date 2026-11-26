@@ -461,8 +461,6 @@ export type AgentMode = 'plan' | 'checklist' | 'architect' | 'full'
 
 /** Pedido para abrir a janela exclusiva de um agente */
 export interface AgentChatOpen {
-  /** Execução periódica: não restaurar automaticamente uma execução interrompida. */
-  scheduled?: boolean
   provider: CliProvider
   model: string
   effort: AgentEffort
@@ -598,6 +596,8 @@ export interface AgentAttachment {
 
 /** Opções de uma mensagem enviada ao agente (podem mudar a cada mensagem) */
 export interface AgentSendOptions {
+  /** Entrega periódica: o processo principal verifica a sessão antes de enviar. */
+  scheduledRun?: { id: string; sessionId: string }
   model: string
   effort: AgentEffort
   mode: AgentMode
@@ -617,6 +617,7 @@ export interface BackgroundTask {
 }
 
 export type AgentChatEvent =
+  | { type: 'scheduledStart'; runId: string }
   | { type: 'session'; sessionId: string; model?: string }
   | { type: 'text'; delta: string }
   | { type: 'thinking'; delta?: string }
@@ -657,6 +658,8 @@ export type AgentBlock =
 
 /** Uma vez da conversa: pedido do usuário e a resposta do agente */
 export interface AgentTurn {
+  /** Esta mensagem foi entregue por um agendamento da própria conversa. */
+  scheduled?: boolean
   id: string
   user: string
   /** Pedido feito pelo app, não digitado pelo usuário (ex.: o aviso de pressa): não aparece como mensagem na conversa */
@@ -847,6 +850,7 @@ export interface AgentSnapshot {
 
 /** Ação feita no gerenciador de agentes e executada pela janela do agente */
 export type AgentAction =
+  | { type: 'scheduled'; runId: string; sessionId: string; text: string; model: string; effort: AgentEffort; mode: AgentMode }
   | { type: 'decide'; choice: string | null }
   | { type: 'plan'; mode: AgentMode }
   /** Fecha o cartão (continuar planejando / responder pelo campo) */

@@ -17,6 +17,8 @@ const required = (value: unknown, label: string, max: number) => {
 export function validateSchedule(raw: unknown, checkDirectory = true): ScheduleInput {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ScheduleError('Envie um objeto JSON.')
   const x = raw as Record<string, unknown>
+  const sessionId = x.sessionId === undefined && !checkDirectory ? undefined : required(x.sessionId, 'Sessão de origem', 80)
+  if (sessionId && !/^[\w-]{8,80}$/.test(sessionId)) throw new ScheduleError('Sessão de origem inválida.')
   const cwd = required(x.cwd, 'Pasta', 4096)
   try { if (!path.isAbsolute(cwd) || (checkDirectory && !statSync(cwd).isDirectory())) throw new Error() }
   catch { throw new ScheduleError('A pasta deve ser absoluta e existir neste computador.') }
@@ -44,13 +46,13 @@ export function validateSchedule(raw: unknown, checkDirectory = true): ScheduleI
     } else timing = { kind: 'daily', time: t.time, timezone }
   } else throw new ScheduleError('Recorrência inválida. Use interval, daily ou weekly.')
   return {
-    name: required(x.name, 'Nome', 100), prompt: required(x.prompt, 'Instrução', 50000), cwd, provider,
+    sessionId, name: required(x.name, 'Nome', 100), prompt: required(x.prompt, 'Instrução', 50000), cwd, provider,
     model: x.model.trim(), effort: effort as ScheduleInput['effort'], mode: x.mode, enabled: x.enabled, timing
   }
 }
 
 export type RunResult = Pick<ScheduleRun, 'result' | 'error' | 'sessionId' | 'uid'>
-export type ScheduleExecutor = (task: ScheduledTask, progress: (patch: RunResult) => void) => Promise<RunResult>
+export type ScheduleExecutor = (task: ScheduledTask, progress: (patch: RunResult) => void, runId: string) => Promise<RunResult>
 
 /** Persistência própria; o agendador não depende da existência da janela principal. */
 export class Scheduler {
@@ -139,7 +141,7 @@ export class Scheduler {
     // Primeiro grava a execução e o próximo horário; só depois entrega ao agente.
     void Promise.resolve().then(() => {
       if (this.stopped) return undefined
-      return this.execute(structuredClone(task), patch)
+      return this.execute(structuredClone(task), patch, run.id)
     }).then((result) => {
       if (result) patch({ ...result, status: result.error ? 'error' : 'done', finishedAt: this.now() })
     }).catch((e) => {

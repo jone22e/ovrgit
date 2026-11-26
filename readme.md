@@ -53,7 +53,8 @@ modelo local pelo Ollama.
 
 - Peça ao próprio agente para criar, consultar ou cancelar tarefas periódicas por intervalo, diariamente ou em
   dias da semana, com horário e fuso definidos. O gerenciamento acontece pela conversa, sem uma tela dedicada.
-  Cada execução abre uma conversa separada; o agente pode consultar as últimas 50 execuções e seus resultados.
+  O próprio agente executa na conversa de origem, preservando seu histórico. Se estiver fechada, a sessão é
+  retomada; se estiver ocupado, a tarefa aguarda. O agente pode consultar as últimas 50 execuções e seus resultados.
   Requer Ovseer aberto e computador acordado. Ao retornar, executa uma vez o horário atrasado, sem acumular
   repetições nem sobrepor execuções da mesma tarefa. Pausar impede as próximas execuções; interrompa a atual
   pela conversa. Execuções interrompidas ao encerrar o app ficam no histórico e não são repetidas automaticamente.

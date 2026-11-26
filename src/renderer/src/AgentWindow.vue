@@ -483,7 +483,7 @@ const planDone = computed(() => {
   return t.blocks.some((b) => b.kind === 'text' && b.text.trim())
 })
 // Em análise periódica, entregar o plano encerra a tarefa; a implementação depende de outro pedido do usuário.
-const showPlanAsk = computed(() => !(info.value?.scheduled && info.value.mode === 'plan') && askOpen.value && planDone.value && !(turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase !== 'discovery'))
+const showPlanAsk = computed(() => !(turns[turns.length - 1]?.scheduled && turns[turns.length - 1]?.mode === 'plan') && askOpen.value && planDone.value && !(turns[turns.length - 1]?.mode === 'architect' && arch.value?.phase !== 'discovery'))
 /** Texto do plano pronto: o maior bloco de texto da última resposta (os outros são comentários entre as leituras) */
 const planText = computed(() => {
   if (!planDone.value) return ''
@@ -979,6 +979,7 @@ const sizeOf = (n: number) => (!n ? '' : n < 1024 * 1024 ? `${Math.max(1, Math.r
 
 /** Mensagem pronta para ir ao agente: texto (digitado + colados) e anexos */
 interface Payload {
+  scheduledRun?: { id: string; sessionId: string }
   id: string
   body: string
   managerTaskId?: string
@@ -1026,6 +1027,7 @@ function takePayload(text = draft.value): Payload | null {
 /** `since`: início do trabalho que esta mensagem continua (enviada no "agora"): o contador segue dele */
 async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistItem[]) {
   if (!info.value) return
+  if (p.scheduledRun && sessionId.value !== p.scheduledRun.sessionId) return
   voiceText = ''
   voiceInCode = false
   voiceFenceTail = ''
@@ -1036,7 +1038,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
   if (p.auto) clearRetryTimer()
   else resetRetry()
   const fast = provider.value === 'codex' && readCodexFast()
-  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, fast, checklist: checklistItems }
+  const turn: Turn = { id: p.id, user: p.silent ? '' : p.body, scheduled: !!p.scheduledRun, silent: p.silent, auto: p.auto || undefined, attachments: p.attachments, blocks: [], running: true, thinking: true, activity: 'thinking', startedAt: Date.now(), workSince: since, mode: mode.value, fast, checklist: checklistItems }
   // checklist com etapas em aberto: a mensagem vai com a lista do que falta (o usuário vê só o que escreveu)
   const reminder = !checklistItems && !p.silent && checklist.value ? checklistReminder(checklist.value) : ''
   // Modo Arquiteto: a primeira vez neste modo abre a descoberta; o estado da conversa fica guardado nela
@@ -1057,7 +1059,7 @@ async function dispatch(p: Payload, since?: number, checklistItems?: ChecklistIt
       uid,
       [carried, p.body, p.hidden, reminder].filter(Boolean).join('\n\n'),
       // (na descoberta o processo principal troca para um modelo rápido e esforço baixo só nessa chamada)
-      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast },
+      { model: model.value, effort: effort.value, mode: mode.value, provider: provider.value, fast, scheduledRun: p.scheduledRun },
       p.attachments.map(({ preview: _p, ...a }) => a)
     )
     if (carried) handoff.value = null
@@ -1921,6 +1923,7 @@ function resetRetry() {
 }
 /** Marca a próxima tentativa; false se a falha não é do tipo que se resolve sozinha ou se as tentativas acabaram */
 function scheduleRetry(t: Turn): boolean {
+  if (t.scheduled) return false
   // no Modo Arquiteto cada mensagem mexe na etapa da conversa: ali a retomada fica com o usuário
   if (!canAutoRetry(t.error) || mode.value === 'architect') return false
   if (autoRetries.value >= AUTO_RETRY_MAX) {
@@ -1985,7 +1988,14 @@ function stopInfo(t: Turn) {
   return { title, text: `${where} ${changed}`, detail, worked: t.blocks.length > 0 }
 }
 function onAct(a: AgentAction) {
-  if (a.type === 'decide') decide(a.choice)
+  if (a.type === 'scheduled') {
+    if (!ready.value || sessionId.value !== a.sessionId) return
+    const p: Payload = { id: crypto.randomUUID(), body: a.text, model: a.model, effort: a.effort, mode: a.mode,
+      scheduledRun: { id: a.runId, sessionId: a.sessionId }, attachments: [] }
+    if (running.value || showAsk.value || showPlanAsk.value || bgTasks.value.length) queue.push(p)
+    else void dispatch(p)
+  }
+  else if (a.type === 'decide') decide(a.choice)
   else if (a.type === 'plan') startPlan(a.mode)
   else if (a.type === 'dismiss') askOpen.value = false
   else if (a.type === 'nav') qi.value = Math.max(0, Math.min(questions.value.length - 1, a.index))

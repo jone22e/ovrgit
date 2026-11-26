@@ -132,27 +132,22 @@ it('sair enquanto restaura não substitui o retrato completo por uma lista parci
   expect(agents.agentWindowInfos()).toHaveLength(1)
 })
 
-it('execuções periódicas não entram no retrato usado para restaurar conversas', async () => {
+it('entrega agendada não pode trocar a sessão da janela nem executar depois de invalidada', async () => {
   const agents = await import('../src/main/agentChat')
-  const base = { provider: 'codex' as const, model: '', effort: 'high' as const, mode: 'full' as const, cwd: userData, hidden: true }
-  await agents.openAgentWindow({ ...base, scheduled: true })
-  await agents.openAgentWindow(base)
-  agents.shutdownAgents()
-  expect(saved()).toHaveLength(1)
+  const info = await agents.openAgentWindow({ provider: 'codex', model: '', effort: 'high', mode: 'full', cwd: userData,
+    hidden: true, resumeId: 'session-origin' })
+  const action = { type: 'scheduled' as const, runId: 'run-id', sessionId: 'another-session', text: 'Confira erros', model: '', effort: 'high' as const, mode: 'full' as const }
+  agents.deliverScheduledMessage(info.uid, action)
+  await expect(agents.sendToAgent(info.uid, action.text, { ...action, scheduledRun: { id: action.runId, sessionId: action.sessionId } })).rejects.toThrow('conversa mudou')
+  agents.releaseScheduledMessage(action.runId)
+  await expect(agents.sendToAgent(info.uid, action.text, { ...action, scheduledRun: { id: action.runId, sessionId: 'session-origin' } })).rejects.toThrow('pendente')
+  expect(agents.agentInfo(info.uid)?.sessionId).toBe('session-origin')
 })
 
-it('libera somente a janela de execução periódica concluída; preserva perguntas e agentes manuais', async () => {
+it('a conversa original retomada pelo agendamento permanece na restauração normal do app', async () => {
   const agents = await import('../src/main/agentChat')
-  const base = { provider: 'codex' as const, model: '', effort: 'high' as const, mode: 'full' as const, cwd: userData, hidden: true }
-  const periodic = await agents.openAgentWindow({ ...base, scheduled: true })
-  const manual = await agents.openAgentWindow(base)
-  agents.reportStatus(periodic.uid, 'waiting')
-  agents.closeFinishedScheduledAgent(periodic.uid)
-  expect(agents.agentInfo(periodic.uid)).not.toBeNull()
-  agents.reportStatus(periodic.uid, 'done')
-  agents.closeFinishedScheduledAgent(periodic.uid)
-  expect(agents.agentInfo(periodic.uid)).toBeNull()
-  agents.reportStatus(manual.uid, 'done')
-  agents.closeFinishedScheduledAgent(manual.uid)
-  expect(agents.agentInfo(manual.uid)).not.toBeNull()
+  await agents.openAgentWindow({ provider: 'codex', model: '', effort: 'high', mode: 'plan', cwd: userData,
+    hidden: true, resumeId: 'session-origin' })
+  agents.shutdownAgents()
+  expect(saved()).toEqual([expect.objectContaining({ sessionId: 'session-origin' })])
 })

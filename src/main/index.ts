@@ -693,6 +693,7 @@ function registerIpc() {
         effort: opts?.effort,
         mode: agentChat.normalizeMode(opts?.mode),
         fast: opts?.fast === true,
+        scheduledRun: opts?.scheduledRun && typeof opts.scheduledRun.id === 'string' && typeof opts.scheduledRun.sessionId === 'string' ? opts.scheduledRun : undefined,
         provider: opts?.provider === 'claude' || opts?.provider === 'codex' || opts?.provider === 'agy' || opts?.provider === 'ollama' ? opts.provider : undefined
       },
       (Array.isArray(attachments) ? attachments : []).slice(0, 20).map((a) => agentChat.describeFile(String(a?.path ?? '')))
@@ -726,7 +727,6 @@ function registerIpc() {
     const info = agentChat.agentInfo(String(uid))
     if (info && Array.isArray(turns)) {
       agentHistory.saveTranscript(info, turns, agentChat.agentStatus(String(uid)))
-      if (turns.length && !turns[turns.length - 1].running) agentChat.closeFinishedScheduledAgent(String(uid))
     }
   })
   ipcMain.handle('agent:loadTranscript', (_e, sessionId: string) => agentHistory.loadTranscript(String(sessionId)))
@@ -1026,9 +1026,10 @@ app.whenReady().then(() => {
   services.startAutostart()
   startScreenCapture(getSettings().captureShortcutKey)
   // API local para os agentes ligarem e desligarem serviços sem passar pela tela (porta e token vão na nota de serviços)
-  agentApi
+  const apiReady = agentApi
     .startAgentApi({
       schedules: scheduler ?? undefined,
+      scheduleAgent: (uid) => agentChat.agentInfo(uid),
       simulators: simulatorAgentBackend,
       services: () => getSettings().services,
       states: services.serviceStates,
@@ -1043,11 +1044,12 @@ app.whenReady().then(() => {
       }
     })
     .catch((e) => console.error('API local dos agentes não subiu:', e))
-    .finally(() => scheduler?.start())
   createWindow()
   // os agentes abertos da última vez voltam como estavam (conversas retomadas, em espera, a da área do orquestrador)
-  if (getSettings().restoreAgents !== false) agentChat.restoreOpenAgents().catch((e) => console.error('Não consegui reabrir os agentes:', e)).finally(() => taskQueue.resume())
-  else taskQueue.resume()
+  const agentsReady = getSettings().restoreAgents !== false
+    ? agentChat.restoreOpenAgents().catch((e) => console.error('Não consegui reabrir os agentes:', e)).finally(() => taskQueue.resume())
+    : Promise.resolve(taskQueue.resume())
+  void Promise.allSettled([apiReady, agentsReady]).then(() => scheduler?.start())
   if (getSettings().watchAgents) startAgents()
   updater.setupUpdater((s) => toMain('update:changed', s))
   aws.setupAws((s) => toMain('aws:changed', s))

@@ -8,7 +8,7 @@ import { nextScheduleTime } from '../src/shared/schedules'
 const dirs: string[] = []
 const setup = () => {
   const cwd = mkdtempSync(path.join(os.tmpdir(), 'ovseer-schedules-')); dirs.push(cwd)
-  const input = { name: 'Resumo', prompt: 'Confira os erros', cwd, provider: 'codex', model: '', effort: 'high', mode: 'plan', enabled: true, timing: { kind: 'interval', minutes: 60 } }
+  const input = { sessionId: 'session-origin', name: 'Resumo', prompt: 'Confira os erros', cwd, provider: 'codex', model: '', effort: 'high', mode: 'plan', enabled: true, timing: { kind: 'interval', minutes: 60 } }
   return { cwd, file: path.join(cwd, 'schedules.json'), input }
 }
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve() }

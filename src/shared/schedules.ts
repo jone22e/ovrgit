@@ -6,6 +6,8 @@ export type ScheduleTiming =
   | { kind: 'weekly'; time: string; timezone: string; days: number[] }
 
 export interface ScheduleInput {
+  /** Sessão de origem. Ausente apenas em cadastros anteriores ao vínculo com a conversa. */
+  sessionId?: string
   name: string
   prompt: string
   cwd: string
