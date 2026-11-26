@@ -11,7 +11,7 @@ O guia só abre quando você pedir, em **Configurações → Agentes → Extens�
 
 Cada conversa mantém suas próprias abas. Uma aba não pode ser controlada por duas conversas ao mesmo tempo. Quando o usuário pedir uma aba existente, o agente pode selecioná-la pelo identificador real retornado pelas ferramentas. Abas internas do Chrome, arquivos locais e páginas de extensões não são aceitas; uma aba vazia pode ser aberta antes de navegar.
 
-A moldura com brilho roxo e a faixa com a logo do Ovseer identificam a aba em controle. O ponteiro roxo tem um círculo de destaque e uma etiqueta indicando cliques, digitação, teclas e rolagem. Ele aparece nas ações de mouse ou junto ao campo em edição e desaparece com a faixa ao interromper o controle.
+A moldura com brilho roxo e a faixa com a logo do Ovseer identificam a aba em controle. O ponteiro roxo tem um círculo de destaque e uma etiqueta indicando cliques, digitação, teclas e rolagem. Ele desliza suavemente entre os pontos das ações, com aceleração e desaceleração, ou acompanha o campo em edição. Esse deslocamento é visual; não move o cursor físico do usuário. O ponteiro desaparece com a faixa ao interromper o controle.
 
 No canto inferior direito, um painel de fundo transparente mostra em roxo o texto enviado pelo agente e as teclas usadas. Ele some após cinco segundos sem nova digitação. Senhas e campos identificados pelo navegador como senha ou código de uso único aparecem mascarados. O painel acompanha apenas os comandos do agente.
 

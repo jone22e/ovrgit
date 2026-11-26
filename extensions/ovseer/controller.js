@@ -125,7 +125,7 @@ export class BrowserController {
         .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         button{background:#ffffff1f;color:#fff;border:1px solid #ffffff4d;border-radius:6px;padding:5px 9px;font:600 12px system-ui;cursor:pointer}
         button:hover,button:focus-visible{background:#ffffff38}
-        .pointer{position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px))}
+        .pointer{position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;visibility:var(--ovseer-pointer-visibility,hidden);transform:translate(var(--ovseer-pointer-x,0px),var(--ovseer-pointer-y,0px));transition:transform 360ms cubic-bezier(.4,0,.2,1);will-change:transform}
         .halo{position:absolute;left:-12px;top:-12px;width:24px;height:24px;box-sizing:border-box;border:2px solid #b779f580;border-radius:50%;background:#a855f71f;box-shadow:0 0 12px #a855f733}
         .arrow{position:absolute;left:-2px;top:-2px;width:22px;height:24px;overflow:visible;filter:drop-shadow(0 1px 2px #0006)}
         .activity{position:absolute;left:min(12px,calc(100vw - var(--ovseer-pointer-x,0px) - 188px));top:min(18px,calc(100vh - var(--ovseer-pointer-y,0px) - 32px));box-sizing:border-box;width:max-content;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:10px;background:#793bc0;color:#fff;padding:4px 8px;box-shadow:0 2px 8px #0003;font:600 11px/1.4 system-ui}
