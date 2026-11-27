@@ -2,15 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { runInNewContext } from 'node:vm'
 import { BrowserController } from '../extensions/ovseer/controller.js'
 
-function setup(input?: { type: string; autocomplete?: string }) {
+function setup(input?: { type: string; autocomplete?: string; multiple?: boolean; disabled?: boolean; webkitdirectory?: boolean }) {
   const tabs = [{ id: 10, url: 'https://exemplo.test', title: 'Teste' }, { id: 20, url: 'https://outra.test', title: 'Outra' }, { id: 30, url: 'chrome://settings', title: 'Configurações' }]
-  const field = input ? { tagName: 'INPUT', autocomplete: '', ...input, focus() {}, select() {}, getBoundingClientRect: () => ({ x: 20, y: 30, width: 20, height: 20 }) } : null
+  const field = input ? { tagName: 'INPUT', autocomplete: '', ...input, focus() {}, select() {}, scrollIntoView() {}, getBoundingClientRect: () => ({ x: 20, y: 30, width: 20, height: 20 }) } : null
   const api = {
     runtime: { getURL: (file: string) => `chrome-extension://ovseer/${file}` },
     tabs: { get: vi.fn(async (id: number) => tabs.find((t) => t.id === id)), query: vi.fn(async () => tabs), update: vi.fn(async () => {}), create: vi.fn(async () => ({ id: 20 })), remove: vi.fn(async () => {}) },
     debugger: { attach: vi.fn(async () => {}), detach: vi.fn(async () => {}), sendCommand: vi.fn(async (_target: object, method: string, params: { functionDeclaration?: string; arguments?: { value: unknown }[]; expression?: string } = {}) => {
       if (method === 'Accessibility.getFullAXTree') return { nodes: [{ backendDOMNodeId: 123, role: { value: 'button' }, name: { value: 'Salvar' } }] }
       if (method === 'DOM.resolveNode') return { object: { objectId: 'node' } }
+      if (method === 'DOM.describeNode') return { node: { nodeName: field?.tagName ?? 'BUTTON', attributes: field ? ['type', field.type, ...(['multiple', 'disabled', 'webkitdirectory'] as const).filter((name) => input?.[name]).flatMap((name) => [name, ''])] : [] } }
       if (method === 'Runtime.callFunctionOn') return { result: { value: field ? runInNewContext(`(${params.functionDeclaration})`).apply(field, params.arguments?.map((a) => a.value) ?? []) : { x: 30, y: 40 } } }
       if (method === 'Runtime.evaluate' && params.expression?.includes('document.activeElement')) return { result: { value: runInNewContext(params.expression, { document: { activeElement: field } }) } }
       if (method === 'Page.captureScreenshot') return { data: 'png-base64' }
@@ -50,6 +51,76 @@ describe('controle das abas na extensão Ovseer', () => {
     await expect(call('browser_click', { ref: 'e1-123' })).rejects.toThrow('Referência expirada')
     await expect(call('browser_navigate', { url: 'file:///etc/passwd' })).rejects.toThrow('HTTP')
     await expect(call('browser_navigate', { url: 'javascript:alert(1)' })).rejects.toThrow('HTTP')
+  })
+
+  it('intercepta o seletor de um campo oculto e orienta o envio sem diálogo nativo', async () => {
+    const { api, controller, infos, call } = setup({ type: 'file' })
+    await controller.sync(infos); await controller.attachTab('a', 10)
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'Page.setInterceptFileChooserDialog', { enabled: true })
+    const send = api.debugger.sendCommand.getMockImplementation()!
+    api.debugger.sendCommand.mockImplementation(async (target, method, params) => {
+      if (method === 'Input.dispatchMouseEvent' && (params as any).type === 'mouseReleased') controller.event({ tabId: 10 }, 'Page.fileChooserOpened', { backendNodeId: 456, mode: 'selectSingle' })
+      return send(target, method, params)
+    })
+    await call('browser_snapshot')
+    expect(await call('browser_click', { ref: 'e1-123' })).toContain('browser_file_upload')
+    expect(await call('browser_snapshot')).toContain('Seletor de arquivos aberto (um arquivo)')
+    const paths = ['/projeto com espaços/versão-final.aab']
+    await call('browser_file_upload', { paths })
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'DOM.setFileInputFiles', { backendNodeId: 456, files: paths })
+    expect(await call('browser_snapshot')).not.toContain('Seletor de arquivos aberto')
+    await expect(call('browser_file_upload', { paths })).rejects.toThrow('Nenhum seletor')
+  })
+
+  it('permite upload por referência e limpa a seleção com uma lista vazia', async () => {
+    const { api, controller, infos, call } = setup({ type: 'file', multiple: true })
+    await controller.sync(infos); await controller.attachTab('a', 10); await call('browser_snapshot')
+    await call('browser_file_upload', { ref: 'e1-123', paths: ['/primeiro.pdf', '/segundo.png'] })
+    expect(api.debugger.sendCommand).toHaveBeenCalledWith({ tabId: 10 }, 'DOM.setFileInputFiles', { backendNodeId: 123, files: ['/primeiro.pdf', '/segundo.png'] })
+    await call('browser_file_upload', { ref: 'e1-123', paths: [] })
+    expect(api.debugger.sendCommand).toHaveBeenLastCalledWith({ tabId: 10 }, 'DOM.setFileInputFiles', { backendNodeId: 123, files: [] })
+    await expect(call('browser_file_upload', { ref: 'inventada', paths: [] })).rejects.toThrow('Referência expirada')
+  })
+
+  it.each([
+    { input: { type: 'text' }, paths: ['/arquivo.aab'], error: 'input type=file' },
+    { input: { type: 'file' }, paths: ['/um.aab', '/dois.aab'], error: 'apenas um arquivo' },
+    { input: { type: 'file', disabled: true }, paths: ['/arquivo.aab'], error: 'desabilitado' },
+    { input: { type: 'file', webkitdirectory: true }, paths: ['/arquivo.aab'], error: 'exige uma pasta' }
+  ])('recusa upload inválido: $error', async ({ input, paths, error }) => {
+    const { api, controller, infos, call } = setup(input)
+    await controller.sync(infos); await controller.attachTab('a', 10); await call('browser_snapshot')
+    await expect(call('browser_file_upload', { ref: 'e1-123', paths })).rejects.toThrow(error)
+    expect(api.debugger.sendCommand.mock.calls.some(([, method]) => method === 'DOM.setFileInputFiles')).toBe(false)
+  })
+
+  it('isola seletores por aba e conversa e os descarta ao navegar, fechar ou interromper', async () => {
+    const { controller, infos, call } = setup({ type: 'file' })
+    await controller.sync(infos); await controller.attachTab('a', 10); await controller.attachTab('b', 20)
+    const open = (tabId: number) => controller.event({ tabId }, 'Page.fileChooserOpened', { backendNodeId: 456, mode: 'selectSingle' })
+    open(10)
+    await expect(call('browser_file_upload', { paths: ['/arquivo.aab'] }, 'b')).rejects.toThrow('Nenhum seletor')
+    controller.event({ tabId: 10 }, 'Page.frameNavigated', {})
+    await expect(call('browser_file_upload', { paths: ['/arquivo.aab'] })).rejects.toThrow('Nenhum seletor')
+    open(10); await controller.stop('a')
+    expect(controller.fileChoosers.has(10)).toBe(false)
+    await expect(call('browser_file_upload', { paths: ['/arquivo.aab'] })).rejects.toThrow('Retomar')
+    open(20); controller.removed(20)
+    expect(controller.fileChoosers.size).toBe(0)
+    open(10) // Eventos atrasados de uma aba sem controle são ignorados.
+    expect(controller.fileChoosers.size).toBe(0)
+  })
+
+  it('não seleciona arquivos se o usuário interromper durante a resolução do campo', async () => {
+    const { api, controller, infos, call } = setup({ type: 'file' })
+    await controller.sync(infos); await controller.attachTab('a', 10); await call('browser_snapshot')
+    const send = api.debugger.sendCommand.getMockImplementation()!
+    api.debugger.sendCommand.mockImplementation(async (target, method, params) => {
+      if (method === 'DOM.describeNode') await controller.stop('a')
+      return send(target, method, params)
+    })
+    await expect(call('browser_file_upload', { ref: 'e1-123', paths: ['/arquivo.aab'] })).rejects.toThrow('interrompido')
+    expect(api.debugger.sendCommand.mock.calls.some(([, method]) => method === 'DOM.setFileInputFiles')).toBe(false)
   })
 
   it.each([

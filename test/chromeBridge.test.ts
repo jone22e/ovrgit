@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { request } from 'node:http'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { ChromeBridge } from '../src/main/chromeBridge'
 
 const bridges: ChromeBridge[] = [], clients: Client[] = []
@@ -27,7 +30,7 @@ describe('extensão própria do Ovseer — ponte local', () => {
     for (let i = 0; i < 2; i++) {
       const client = new Client({ name: 'agente', version: '1' }); clients.push(client)
       await client.connect(new StreamableHTTPClientTransport(new URL(url)))
-      expect((await client.listTools()).tools.map((t) => t.name)).toContain('browser_snapshot')
+      expect((await client.listTools()).tools.map((t) => t.name)).toEqual(expect.arrayContaining(['browser_snapshot', 'browser_file_upload']))
       expect((await extension('/poll', { immediate: true })).sessions).toEqual([])
       await client.close()
     }
@@ -106,6 +109,32 @@ describe('extensão própria do Ovseer — ponte local', () => {
     while (!commands.length) commands = (await extension('/poll')).commands
     await extension('/result', { id: commands[0].id, result: 'Árvore verificada' })
     expect(await api).toEqual({ result: 'Árvore verificada' })
+  })
+
+  it('valida arquivos locais antes do upload e transporta apenas os caminhos', async () => {
+    const { bridge, extension } = await setup()
+    const session = bridge.session('Codex · Upload')
+    await extension('/poll', { immediate: true })
+    const folder = mkdtempSync(path.join(tmpdir(), 'ovseer-upload-'))
+    const file = path.join(folder, 'versão com espaços.aab')
+    try {
+      writeFileSync(file, 'conteúdo binário que não deve atravessar a ponte')
+      await expect(session.call('browser_file_upload', {})).rejects.toThrow('Argumentos inválidos')
+      await expect(session.call('browser_file_upload', { paths: [12] })).rejects.toThrow('Argumentos inválidos')
+      await expect(session.call('browser_file_upload', { paths: ['arquivo.aab'] })).rejects.toThrow('absoluto')
+      await expect(session.call('browser_file_upload', { paths: [path.join(folder, 'inexistente.aab')] })).rejects.toThrow('não encontrado')
+      await expect(session.call('browser_file_upload', { paths: [folder] })).rejects.toThrow('apontar para um arquivo')
+      await expect(session.call('browser_file_upload', { paths: [file, path.join(folder, 'inexistente.aab')] })).rejects.toThrow('não encontrado')
+      expect((await extension('/poll', { immediate: true })).commands).toEqual([])
+      for (const paths of [[file], []]) {
+        const result = session.call('browser_file_upload', { paths })
+        const command = (await extension('/poll', { immediate: true })).commands[0]
+        expect(command).toMatchObject({ name: 'browser_file_upload', args: { paths } })
+        expect(JSON.stringify(command)).not.toContain('conteúdo binário')
+        await extension('/result', { id: command.id, result: 'Seleção concluída' })
+        expect(await result).toBe('Seleção concluída')
+      }
+    } finally { rmSync(folder, { recursive: true, force: true }) }
   })
 
   it('cancelar a chamada remove comandos ainda não entregues', async () => {

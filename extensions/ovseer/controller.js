@@ -14,6 +14,7 @@ export class BrowserController {
     this.owners = new Map()
     this.refs = new Map()
     this.logs = new Map()
+    this.fileChoosers = new Map()
     this.serial = 0
     this.stopped = new Set()
   }
@@ -67,6 +68,7 @@ export class BrowserController {
       this.logs.set(tabId, { console: [], network: [] })
       try {
         await this.cdp(tabId, 'Page.enable')
+        await this.cdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: true })
         await this.cdp(tabId, 'Runtime.enable')
         await this.cdp(tabId, 'Network.enable')
       } catch (e) { await this.stop(id, false); throw e }
@@ -90,6 +92,7 @@ export class BrowserController {
       this.owners.delete(tabId)
       this.refs.delete(tabId)
       this.logs.delete(tabId)
+      this.fileChoosers.delete(tabId)
       await this.api.scripting.executeScript({ target: { tabId }, func: () => document.getElementById('__ovseer_control__')?.remove() }).catch(() => {})
       await this.api.debugger.detach({ tabId }).catch(() => {})
     }
@@ -100,7 +103,7 @@ export class BrowserController {
 
   removed(tabId) {
     const session = this.sessions.get(this.owners.get(tabId))
-    this.owners.delete(tabId); this.refs.delete(tabId); this.logs.delete(tabId)
+    this.owners.delete(tabId); this.refs.delete(tabId); this.logs.delete(tabId); this.fileChoosers.delete(tabId)
     if (session) {
       session.tabs.delete(tabId)
       if (session.current === tabId) session.current = [...session.tabs][0] ?? null
@@ -181,7 +184,8 @@ export class BrowserController {
   event(source, method, params) {
     const logs = this.logs.get(source.tabId)
     if (!logs) return
-    if (method === 'Page.frameNavigated') this.refs.delete(source.tabId)
+    if (method === 'Page.frameNavigated') { this.refs.delete(source.tabId); this.fileChoosers.delete(source.tabId) }
+    if (method === 'Page.fileChooserOpened') this.fileChoosers.set(source.tabId, params)
     if (method === 'Runtime.consoleAPICalled') logs.console.push({ type: params.type, text: params.args.map((a) => a.value ?? a.description ?? '').join(' ') })
     if (method === 'Runtime.exceptionThrown') logs.console.push({ type: 'error', text: params.exceptionDetails.exception?.description ?? params.exceptionDetails.text })
     if (method === 'Network.requestWillBeSent') logs.network.push({ id: params.requestId, method: params.request.method, url: params.request.url })
@@ -209,7 +213,33 @@ export class BrowserController {
     }
     this.refs.set(tabId, refs)
     const tab = await this.api.tabs.get(tabId)
-    return `Aba ${tabId}: ${tab.title}\nURL: ${tab.url}\n${lines.join('\n')}`
+    return `Aba ${tabId}: ${tab.title}\nURL: ${tab.url}\n${lines.join('\n')}${this.fileChooserHint(tabId)}`
+  }
+
+  fileChooserHint(tabId) {
+    const chooser = this.fileChoosers.get(tabId)
+    return chooser ? `\nSeletor de arquivos aberto (${chooser.mode === 'selectMultiple' ? 'múltiplos arquivos' : 'um arquivo'}). Use browser_file_upload com paths absolutos para selecionar os arquivos.` : ''
+  }
+
+  async uploadFiles(tabId, args, valid) {
+    const chooser = this.fileChoosers.get(tabId)
+    const backendNodeId = args.ref === undefined ? chooser?.backendNodeId : this.refs.get(tabId)?.get(args.ref)
+    if (!backendNodeId) {
+      if (args.ref !== undefined) throw new Error('Referência expirada ou desconhecida. Execute browser_snapshot novamente.')
+      throw new Error('Nenhum seletor de input type=file disponível. Clique no botão de upload ou informe a referência do campo de arquivo.')
+    }
+    const { node } = await this.cdp(tabId, 'DOM.describeNode', { backendNodeId })
+    const attributes = new Map()
+    for (let i = 0; i < (node.attributes?.length ?? 0); i += 2) attributes.set(node.attributes[i], node.attributes[i + 1])
+    if (node.nodeName !== 'INPUT' || attributes.get('type')?.toLowerCase() !== 'file') throw new Error('A referência deve apontar para um input type=file.')
+    if (attributes.has('disabled')) throw new Error('O campo de arquivo está desabilitado.')
+    if (attributes.has('webkitdirectory')) throw new Error('Este seletor exige uma pasta; informe um campo de upload de arquivos.')
+    if (args.paths.length > 1 && !attributes.has('multiple')) throw new Error('Este campo aceita apenas um arquivo.')
+    valid(); await this.indicate(tabId, 'Selecionando arquivos')
+    valid()
+    if (args.ref === undefined ? this.fileChoosers.get(tabId) !== chooser : this.refs.get(tabId)?.get(args.ref) !== backendNodeId) throw new Error('Campo de arquivo expirado. Execute browser_snapshot e abra o seletor novamente.')
+    await this.cdp(tabId, 'DOM.setFileInputFiles', { backendNodeId, files: args.paths })
+    if (this.fileChoosers.get(tabId) === chooser && chooser?.backendNodeId === backendNodeId) this.fileChoosers.delete(tabId)
   }
 
   async element(tabId, ref, functionDeclaration, args = []) {
@@ -352,7 +382,7 @@ export class BrowserController {
       const entry = history.entries[history.currentIndex - 1]
       if (!entry) throw new Error('Não há página anterior.')
       webUrl(entry.url)
-      await this.cdp(tabId, 'Page.navigateToHistoryEntry', { entryId: entry.id }); this.refs.delete(tabId)
+      await this.cdp(tabId, 'Page.navigateToHistoryEntry', { entryId: entry.id }); this.refs.delete(tabId); this.fileChoosers.delete(tabId)
       return 'Navegação iniciada. Execute browser_snapshot novamente.'
     }
     if (name === 'browser_click') await this.click(tabId, a.ref, a.button, a.doubleClick)
@@ -363,7 +393,8 @@ export class BrowserController {
       valid(); await this.showTyping(tabId, a.text, target.sensitive !== false)
       valid(); await this.cdp(tabId, 'Input.insertText', { text: a.text })
       if (a.submit) { valid(); await this.key(tabId, 'Enter') }
-    } else if (name === 'browser_fill_form') {
+    } else if (name === 'browser_file_upload') await this.uploadFiles(tabId, a, valid)
+    else if (name === 'browser_fill_form') {
       for (const field of a.fields) {
         valid()
         if (field.type === 'checkbox') {
@@ -394,7 +425,7 @@ export class BrowserController {
     else if (name === 'browser_close') { await this.api.tabs.remove(tabId); this.removed(tabId); return 'Aba fechada.' }
     else throw new Error('Ferramenta desconhecida.')
     valid()
-    return 'Ação concluída. Execute browser_snapshot para conferir o resultado.'
+    return `Ação concluída. Execute browser_snapshot para conferir o resultado.${this.fileChooserHint(tabId)}`
   }
 
   async openTab(id, url, valid) {
@@ -413,6 +444,7 @@ export class BrowserController {
     const navigation = await this.cdp(tabId, 'Page.navigate', { url })
     if (navigation.errorText) throw new Error(navigation.errorText)
     this.refs.delete(tabId)
+    this.fileChoosers.delete(tabId)
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
       valid()

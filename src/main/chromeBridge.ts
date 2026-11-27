@@ -1,5 +1,7 @@
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
+import { accessSync, constants, statSync } from 'node:fs'
+import { isAbsolute } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -19,6 +21,7 @@ export const chromeTools: Tool[] = [
   tool('browser_click', 'Clique em uma referência da última captura de acessibilidade.', { ref: str, button: { enum: ['left', 'right', 'middle'] }, doubleClick: { type: 'boolean' } }, ['ref']),
   tool('browser_hover', 'Mova o ponteiro até uma referência da última captura.', { ref: str }, ['ref']),
   tool('browser_type', 'Preencha um campo da última captura; opcionalmente envie Enter.', { ref: str, text: str, submit: { type: 'boolean' } }, ['ref', 'text']),
+  tool('browser_file_upload', 'Selecione arquivos locais para upload. Clique no botão de envio e depois informe paths com os caminhos absolutos dos arquivos neste computador; o seletor é tratado pela extensão. Opcionalmente use ref de um input type=file da última captura. paths vazio limpa a seleção.', { paths: { type: 'array', items: { type: 'string', minLength: 1 } }, ref: str }, ['paths']),
   tool('browser_fill_form', 'Preencha vários campos. type: textbox, checkbox ou combobox; checkbox usa value true/false como texto.', { fields: { type: 'array', items: { type: 'object', properties: { ref: str, type: { enum: ['textbox', 'checkbox', 'combobox'] }, value: str }, required: ['ref', 'type', 'value'], additionalProperties: false } } }, ['fields']),
   tool('browser_select_option', 'Selecione valores em um elemento select.', { ref: str, values: { type: 'array', items: str } }, ['ref', 'values']),
   tool('browser_press_key', 'Pressione uma tecla, por exemplo Enter, Tab, Escape, ArrowDown ou Control+A.', { key: str }, ['key']),
@@ -100,6 +103,13 @@ export class ChromeBridge {
     this.poll?.()
     if (session.state === 'stopped') throw new Error('Controle interrompido pelo usuário. Aguarde ele clicar em Retomar na extensão Ovseer antes de continuar.')
     if (Date.now() - this.lastSeen > 35_000) throw new Error('Extensão Ovseer desconectada. Abra a extensão e confira a conexão com o app.')
+    if (name === 'browser_file_upload') for (const file of args.paths as string[]) {
+      if (!isAbsolute(file) || file.includes('\0')) throw new Error(`Informe um caminho absoluto de arquivo: ${file}`)
+      let isFile: boolean
+      try { isFile = statSync(file).isFile(); accessSync(file, constants.R_OK) }
+      catch { throw new Error(`Arquivo não encontrado ou sem permissão de leitura: ${file}`) }
+      if (!isFile) throw new Error(`O caminho deve apontar para um arquivo: ${file}`)
+    }
     return new Promise((resolve, reject) => {
       const command: Command = { id: secret(), session: id, epoch: session.epoch, name, args, deadline: Date.now() + 30_000 }
       const cancel = (error: Error) => {
