@@ -7,6 +7,7 @@ import { api, ask, loadProjectIcon, openNewAgent, projectIcons, saveSettings, se
 import { groupOf } from '@shared/repoGroups'
 import { PROVIDER_LABEL } from '@shared/models'
 import { ago as agoSince } from '../ago'
+import { groupAgentsByDate } from '../agentDateGroups'
 import { dockCovered, useDockVisibility } from '../dockVisibility'
 import AgentBranch from './AgentBranch.vue'
 import QueuePanel from './QueuePanel.vue'
@@ -182,6 +183,18 @@ const unreadDoneShown = computed(() => doneShown.value.filter(isNew))
 const readDoneShown = computed(() => doneShown.value.filter((a) => !isNew(a)))
 const freshShown = computed(() => fresh.value.filter(pass))
 const standbyShown = computed(() => standby.value.filter(pass))
+const listSections = computed(() => [
+  { key: 'new', kind: 'new', label: 'Novas conversas', agents: freshShown.value },
+  { key: 'attention', kind: 'attention', label: 'Precisa de você', agents: needYouShown.value },
+  { key: 'live', kind: 'live', label: 'Rodando', agents: runningShown.value },
+  ...[
+    { key: 'unread', label: 'Concluídos não lidos', agents: unreadDoneShown.value },
+    { key: 'done', label: 'Concluídos', agents: readDoneShown.value }
+  ].flatMap((section) => groupAgentsByDate(section.agents, now.value).map((group) => ({
+    key: `${section.key}-${group.date}`, kind: section.key, label: `${section.label} · ${group.label}`, agents: group.agents
+  }))),
+  { key: 'idle', kind: 'idle', label: 'Disponíveis', agents: standbyShown.value }
+])
 
 // ---------- seleção e teclado: setas navegam, Enter abre, ⌘1–9 traz a janela para a frente ----------
 /** Conversas novas, ainda sem mensagem, no topo; as demais seguem a última interação. Fixar só mantém a conversa
@@ -191,7 +204,7 @@ const allOrder = computed(() => [...snaps.value].sort((a, b) =>
   (b.interactedAt ?? b.since) - (a.interactedAt ?? a.since)
 ))
 /** Os que estão na tela: é sobre esta lista que valem as setas e os atalhos ⌘1–9 */
-const order = computed(() => compactList.value ? [...freshShown.value, ...needYouShown.value, ...runningShown.value, ...unreadDoneShown.value, ...readDoneShown.value, ...standbyShown.value] : allOrder.value.filter(pass))
+const order = computed(() => compactList.value ? listSections.value.flatMap((section) => section.agents) : allOrder.value.filter(pass))
 const selUid = ref<string | null>(null)
 const sel = computed(() => order.value.find((a) => a.uid === selUid.value) ?? null)
 const root = ref<HTMLElement>()
@@ -450,14 +463,7 @@ function pick(a: AgentSnapshot) {
       <!-- modo orquestrador: uma lista só, com as conversas novas primeiro e as disponíveis em espera no fim.
            Quem espera resposta só avisa no cartão: a resposta é dada na conversa, ao lado -->
       <template v-if="compactList">
-        <section v-for="section in [
-          { key: 'new', label: 'Novas conversas', agents: freshShown },
-          { key: 'attention', label: 'Precisa de você', agents: needYouShown },
-          { key: 'live', label: 'Rodando', agents: runningShown },
-          { key: 'unread', label: 'Concluídos não lidos', agents: unreadDoneShown },
-          { key: 'done', label: 'Concluídos', agents: readDoneShown },
-          { key: 'idle', label: 'Disponíveis', agents: standbyShown }
-        ]" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.key">
+        <section v-for="section in listSections" v-show="section.agents.length" :key="section.key" class="list-section" :class="section.kind">
           <h3>{{ section.label }} · {{ section.agents.length }}</h3>
           <div class="list-rows">
             <AgentBranch v-for="a in section.agents" :key="a.uid" :a="a" :n="numberOf(a)" :now="now" :selected="selUid === a.uid || !!a.docked" :fresh="isNew(a)" :stalled="stalled(a)" compact @pick="pick(a)" @act="(action) => act(a, action)" @unread="markUnread(a)" />
