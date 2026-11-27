@@ -113,7 +113,10 @@ async function handle(message, sender) {
   if (message.type === 'stop') { await controller.stop(message.session); badge(); return { ok: true } }
   if (message.type === 'state') {
     void start()
-    return { paused: (await chrome.storage.local.get('paused')).paused === true, connected, error, sessions: (controller.infos ?? []).map((s) => ({ ...s, tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] })) }
+    const sessions = (controller.infos ?? [])
+      .map((s) => ({ ...s, tabs: [...(controller.sessions.get(s.id)?.tabs ?? [])] }))
+      .filter((s) => s.tabs.length || s.state === 'stopped')
+    return { paused: (await chrome.storage.local.get('paused')).paused === true, connected, error, sessions }
   }
   throw new Error('Ação desconhecida.')
 }
